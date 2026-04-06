@@ -17,6 +17,12 @@ function toIsoTimestamp(text: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+function latestTimestamp(values: Array<string | null | undefined>) {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+}
+
 async function firstVisible(locator: Locator) {
   const count = await locator.count();
 
@@ -253,29 +259,55 @@ async function scrapeAssignments(page: Page, lecture: AutomationLecture) {
     .locator("tr, [role='row'], article, section, .table-row, .card")
     .filter({ hasText: lecture.lecture_name });
 
-  const container = await firstVisible(candidates);
+  const candidateCount = await candidates.count();
+  let objectiveMatch: { text: string; uploadedAt: string | null } | null = null;
+  let subjectiveMatch: { text: string; uploadedAt: string | null } | null = null;
 
-  if (!container) {
-    return {
-      lectureId: lecture.id,
-      resourceType: "assignment" as const,
-      found: false,
-      uploadedAt: null
-    };
+  for (let index = 0; index < candidateCount; index += 1) {
+    const container = candidates.nth(index);
+    if (!(await container.isVisible().catch(() => false))) {
+      continue;
+    }
+
+    const associatedText = await container.innerText().catch(() => "");
+    const normalizedText = associatedText.toLowerCase();
+    const matchesLecture = normalizedText.includes(lecture.lecture_name.toLowerCase());
+
+    if (!matchesLecture) {
+      continue;
+    }
+
+    const uploadedAt = await extractTimestamp(container);
+
+    if (!objectiveMatch && /\bobjective\b/i.test(associatedText)) {
+      objectiveMatch = {
+        text: associatedText,
+        uploadedAt
+      };
+    }
+
+    if (!subjectiveMatch && /\bsubjective\b/i.test(associatedText)) {
+      subjectiveMatch = {
+        text: associatedText,
+        uploadedAt
+      };
+    }
   }
 
-  const associatedText = await container.innerText().catch(() => "");
-  const matchedLecture = associatedText
-    .toLowerCase()
-    .includes(lecture.lecture_name.toLowerCase());
+  const found = Boolean(objectiveMatch && subjectiveMatch);
 
   return {
     lectureId: lecture.id,
     resourceType: "assignment" as const,
-    found: matchedLecture,
-    uploadedAt: matchedLecture ? await extractTimestamp(container) : null,
+    found,
+    uploadedAt: found
+      ? latestTimestamp([objectiveMatch?.uploadedAt, subjectiveMatch?.uploadedAt])
+      : null,
     rawPayload: {
-      matchedText: associatedText
+      objectiveFound: Boolean(objectiveMatch),
+      subjectiveFound: Boolean(subjectiveMatch),
+      objectiveText: objectiveMatch?.text ?? null,
+      subjectiveText: subjectiveMatch?.text ?? null
     }
   };
 }
