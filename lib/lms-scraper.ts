@@ -1,20 +1,49 @@
+import { DateTime } from "luxon";
 import { Browser, chromium, Locator, Page } from "playwright";
 
+import { getAppTimezone } from "@/lib/env";
 import { AutomationLecture, LmsTrackingRecord, TaskType } from "@/lib/types";
 
 const LMS_URL = "https://experience-admin.masaischool.com";
 
 function timestampPatterns() {
   return [
-    /\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[,\s]+\d{1,2}:\d{2}\s*(AM|PM)?\b/i,
-    /\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(:\d{2})?\b/i,
-    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}.*\d{1,2}:\d{2}\s*(AM|PM)?\b/i
+    /\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}\b/g,
+    /\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}\b/g,
+    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}.*\d{1,2}:\d{2}\s*(AM|PM)?\b/gi,
+    /\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[,\s]+\d{1,2}:\d{2}\s*(AM|PM)?\b/gi
   ];
 }
 
 function toIsoTimestamp(text: string) {
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  const timezone = getAppTimezone();
+  const formats = [
+    "yyyy-MM-dd HH:mm:ss",
+    "yyyy-MM-dd'T'HH:mm:ss",
+    "yyyy-MM-dd HH:mm",
+    "yyyy-MM-dd'T'HH:mm",
+    "dd-MM-yyyy, hh:mm a",
+    "dd/MM/yyyy, hh:mm a",
+    "dd-MM-yyyy hh:mm a",
+    "dd/MM/yyyy hh:mm a",
+    "LLL d, yyyy, hh:mm a",
+    "LLLL d, yyyy, hh:mm a"
+  ];
+
+  for (const format of formats) {
+    const parsed = DateTime.fromFormat(text.trim(), format, {
+      zone: timezone
+    });
+
+    if (parsed.isValid) {
+      return parsed.toUTC().toISO();
+    }
+  }
+
+  const fallback = DateTime.fromJSDate(new Date(text), {
+    zone: timezone
+  });
+  return fallback.isValid ? fallback.toUTC().toISO() : null;
 }
 
 function latestTimestamp(values: Array<string | null | undefined>) {
@@ -136,9 +165,9 @@ async function extractTimestamp(container: Locator) {
   const text = await container.innerText().catch(() => "");
 
   for (const pattern of timestampPatterns()) {
-    const match = text.match(pattern);
-    if (match) {
-      return toIsoTimestamp(match[0]);
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length > 0) {
+      return latestTimestamp(matches.map((match) => toIsoTimestamp(match[0])));
     }
   }
 
@@ -169,7 +198,7 @@ async function detectResourceInLecture(
     lectureId,
     resourceType: type,
     found: true,
-    uploadedAt: await extractTimestamp(foundNode),
+    uploadedAt: (await extractTimestamp(foundNode)) ?? (await extractTimestamp(container)),
     rawPayload: {
       matchedText: await foundNode.innerText().catch(() => "")
     }

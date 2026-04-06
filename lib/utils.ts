@@ -19,7 +19,7 @@ export function isLateCompletion(completedAt: string | null, deadline: string) {
     return false;
   }
 
-  return completedAtMs > deadlineMs;
+  return completedAtMs >= deadlineMs + 60_000;
 }
 
 export function statusClasses(status: TaskStatus, isLate = false) {
