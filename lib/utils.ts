@@ -7,15 +7,29 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function statusClasses(status: TaskStatus) {
-  if (status === "completed") {
+export function isLateCompletion(completedAt: string | null, deadline: string) {
+  if (!completedAt) {
+    return false;
+  }
+
+  const completedAtMs = Date.parse(completedAt);
+  const deadlineMs = Date.parse(deadline);
+
+  if (Number.isNaN(completedAtMs) || Number.isNaN(deadlineMs)) {
+    return false;
+  }
+
+  return completedAtMs > deadlineMs;
+}
+
+export function statusClasses(status: TaskStatus, isLate = false) {
+  if (status === "completed" && !isLate) {
     return "bg-emerald-100 text-emerald-700 ring-emerald-200";
   }
 
-  if (status === "missed") {
+  if (status === "missed" || (status === "completed" && isLate)) {
     return "bg-rose-100 text-rose-700 ring-rose-200";
   }
 
   return "bg-amber-100 text-amber-700 ring-amber-200";
 }
-

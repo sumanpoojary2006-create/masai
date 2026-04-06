@@ -158,21 +158,21 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 </td>
                 <td className="py-4 pr-4">
                   {lecture.tasks.preread ? (
-                    <StatusPill status={lecture.tasks.preread.status} />
+                    <StatusPill task={lecture.tasks.preread} />
                   ) : (
                     <span className="text-sm text-slate-400">Not created</span>
                   )}
                 </td>
                 <td className="py-4 pr-4">
                   {lecture.tasks.notes ? (
-                    <StatusPill status={lecture.tasks.notes.status} />
+                    <StatusPill task={lecture.tasks.notes} />
                   ) : (
                     <span className="text-sm text-slate-400">Not created</span>
                   )}
                 </td>
                 <td className="py-4">
                   {lecture.tasks.assignment ? (
-                    <StatusPill status={lecture.tasks.assignment.status} />
+                    <StatusPill task={lecture.tasks.assignment} />
                   ) : (
                     <span className="text-sm text-slate-400">Not created</span>
                   )}
