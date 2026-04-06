@@ -22,8 +22,12 @@ export function isLateCompletion(completedAt: string | null, deadline: string) {
   return completedAtMs > deadlineMs;
 }
 
-export function statusClasses(status: TaskStatus) {
+export function statusClasses(status: TaskStatus, isLate = false) {
   if (status === "completed") {
+    if (isLate) {
+      return "bg-emerald-100 text-amber-700 ring-emerald-200";
+    }
+
     return "bg-emerald-100 text-emerald-700 ring-emerald-200";
   }
 
