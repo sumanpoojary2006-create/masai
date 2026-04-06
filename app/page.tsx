@@ -34,54 +34,38 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
-      <section className="grid gap-6 rounded-[2rem] border border-slate-200 bg-white/75 p-8 shadow-panel backdrop-blur lg:grid-cols-[1.4fr_0.9fr]">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-brand">
-            Zero-Cost Compliance Ops
+      <section className="grid gap-4 rounded-[2rem] border border-slate-200 bg-white/75 p-5 shadow-panel backdrop-blur sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-3xl bg-ink p-5 text-white">
+          <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
+            Lectures
           </p>
-          <h1 className="mt-4 max-w-3xl font-[var(--font-heading)] text-4xl font-bold leading-tight text-ink md:text-5xl">
-            Track lecture resources, verify uploads from the LMS, and push alerts
-            before deadlines slip.
-          </h1>
-          <p className="mt-4 max-w-2xl text-base text-slate-600">
-            One Next.js app handles weekly schedule imports, Supabase persistence,
-            Playwright LMS verification, deadline evaluation, and Slack escalation.
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
+            {summary.lectures}
           </p>
         </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-3xl bg-ink p-5 text-white">
-            <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
-              Lectures
-            </p>
-            <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-              {summary.lectures}
-            </p>
-          </div>
-          <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-900">
-            <p className="text-xs uppercase tracking-[0.22em] text-emerald-700">
-              Completed
-            </p>
-            <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-              {summary.completed}
-            </p>
-          </div>
-          <div className="rounded-3xl bg-amber-50 p-5 text-amber-900">
-            <p className="text-xs uppercase tracking-[0.22em] text-amber-700">
-              Pending
-            </p>
-            <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-              {summary.pending}
-            </p>
-          </div>
-          <div className="rounded-3xl bg-rose-50 p-5 text-rose-900">
-            <p className="text-xs uppercase tracking-[0.22em] text-rose-700">
-              Missed
-            </p>
-            <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-              {summary.missed}
-            </p>
-          </div>
+        <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-900">
+          <p className="text-xs uppercase tracking-[0.22em] text-emerald-700">
+            Completed
+          </p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
+            {summary.completed}
+          </p>
+        </div>
+        <div className="rounded-3xl bg-amber-50 p-5 text-amber-900">
+          <p className="text-xs uppercase tracking-[0.22em] text-amber-700">
+            Pending
+          </p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
+            {summary.pending}
+          </p>
+        </div>
+        <div className="rounded-3xl bg-rose-50 p-5 text-rose-900">
+          <p className="text-xs uppercase tracking-[0.22em] text-rose-700">
+            Missed
+          </p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
+            {summary.missed}
+          </p>
         </div>
       </section>
 
@@ -111,4 +95,3 @@ export default async function HomePage() {
     </main>
   );
 }
-
