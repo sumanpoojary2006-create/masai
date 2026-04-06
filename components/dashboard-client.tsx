@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
 
 import { StatusPill } from "@/components/status-pill";
 import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
@@ -14,8 +15,12 @@ const STATUS_FILTERS: Array<TaskStatus | "all"> = [
 ];
 
 export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) {
+  const router = useRouter();
   const [batchFilter, setBatchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
   const batches = [...new Set(lectures.map((lecture) => lecture.batch_name))].sort();
   const filteredLectures = lectures.filter((lecture) => {
@@ -26,6 +31,37 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
     return batchMatches && statusMatches;
   });
+
+  function handleDelete(lectureId: string, lectureName: string) {
+    const confirmed = window.confirm(
+      `Delete "${lectureName}" from the dashboard? This will also remove its tasks and tracking history.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    startTransition(async () => {
+      setDeletingId(lectureId);
+      setMessage(null);
+
+      const response = await fetch(`/api/lectures/${lectureId}`, {
+        method: "DELETE"
+      });
+
+      const payload = (await response.json()) as { message?: string };
+
+      if (!response.ok) {
+        setMessage(payload.message ?? "Unable to delete the lecture.");
+        setDeletingId(null);
+        return;
+      }
+
+      setMessage(payload.message ?? "Lecture deleted.");
+      setDeletingId(null);
+      router.refresh();
+    });
+  }
 
   if (lectures.length === 0) {
     return (
@@ -90,6 +126,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         </div>
       </div>
 
+      {message ? <p className="mt-4 text-sm text-slate-600">{message}</p> : null}
+
       <div className="mt-6 overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200">
           <thead>
@@ -99,7 +137,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
               <th className="pb-3 pr-4">Schedule</th>
               <th className="pb-3 pr-4">Pre-read</th>
               <th className="pb-3 pr-4">Notes</th>
-              <th className="pb-3">Assignment</th>
+              <th className="pb-3 pr-4">Assignment</th>
+              <th className="pb-3">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -138,6 +177,16 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                     <span className="text-sm text-slate-400">Not created</span>
                   )}
                 </td>
+                <td className="py-4">
+                  <button
+                    type="button"
+                    disabled={isPending && deletingId === lecture.id}
+                    onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
+                    className="inline-flex h-9 items-center justify-center rounded-full border border-rose-200 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                  >
+                    {deletingId === lecture.id ? "Deleting..." : "Delete"}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -146,4 +195,3 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     </section>
   );
 }
-
