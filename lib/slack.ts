@@ -7,6 +7,10 @@ import { ComplianceAlertEvent } from "@/lib/types";
 function alertLine(event: ComplianceAlertEvent) {
   const label = TASK_LABELS[event.taskType];
 
+  if (event.alertType === "completed") {
+    return `✅ ${label} uploaded`;
+  }
+
   if (event.alertType === "missed") {
     return `❌ ${label} missed deadline`;
   }
@@ -38,7 +42,9 @@ export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
   for (const [lectureId, lectureAlerts] of grouped.entries()) {
     const lecture = lectureAlerts[0].lecture;
     const message = [
-      "🚨 Lecture Compliance Alert",
+      lectureAlerts.some((alert) => alert.alertType === "completed")
+        ? "✅ Lecture Compliance Update"
+        : "🚨 Lecture Compliance Alert",
       "",
       `Batch: ${lecture.batch_name}`,
       `Lecture: ${lecture.lecture_name}`,

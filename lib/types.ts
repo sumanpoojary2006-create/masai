@@ -1,6 +1,6 @@
 export type TaskType = "preread" | "notes" | "assignment";
 export type TaskStatus = "pending" | "completed" | "missed";
-export type AlertType = "reminder_6h" | "reminder_2h" | "missed";
+export type AlertType = "reminder_6h" | "reminder_2h" | "missed" | "completed";
 
 export interface LectureRecord {
   id: string;
@@ -52,6 +52,7 @@ export interface ComplianceAlertEvent {
   taskType: TaskType;
   alertType: AlertType;
   deadline: string;
+  completedAt?: string | null;
 }
 
 export interface ComplianceRunSummary {
@@ -60,4 +61,3 @@ export interface ComplianceRunSummary {
   updatedTasks: number;
   alertsSent: number;
 }
-

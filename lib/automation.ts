@@ -44,12 +44,12 @@ function nextStatus(task: TaskRecord, tracking: LmsTrackingRecord | undefined, n
 function chooseAlertType(task: TaskRecord, nextTaskStatus: TaskStatus, now: DateTime) {
   const deadline = DateTime.fromISO(task.deadline);
 
-  if (nextTaskStatus === "completed") {
-    return null;
-  }
-
   if (nextTaskStatus === "missed") {
     return "missed" as AlertType;
+  }
+
+  if (nextTaskStatus === "completed") {
+    return "completed" as AlertType;
   }
 
   const hoursLeft = deadline.diff(now, "hours").hours;
@@ -129,6 +129,10 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
     })
   );
 
+  const previousTaskMap = new Map(
+    lectures.flatMap((lecture) => lecture.tasks.map((task) => [task.id, task] as const))
+  );
+
   const { data: updatedTasks, error: taskError } = await supabase
     .from("tasks")
     .upsert(taskUpdates, {
@@ -146,8 +150,13 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
       return [];
     }
 
+    const previousTask = previousTaskMap.get(task.id);
     const alertType = chooseAlertType(task as TaskRecord, task.status as TaskStatus, now);
     if (!alertType) {
+      return [];
+    }
+
+    if (alertType === "completed" && previousTask?.status === "completed") {
       return [];
     }
 
@@ -167,7 +176,8 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
         lecture: lectureRecord,
         taskType: task.type as TaskType,
         alertType,
-        deadline: task.deadline
+        deadline: task.deadline,
+        completedAt: task.completed_at
       }
     ];
   });

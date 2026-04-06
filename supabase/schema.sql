@@ -57,7 +57,7 @@ create table if not exists public.lms_tracking (
 create table if not exists public.alert_events (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.tasks(id) on delete cascade,
-  alert_type text not null check (alert_type in ('reminder_6h', 'reminder_2h', 'missed')),
+  alert_type text not null check (alert_type in ('reminder_6h', 'reminder_2h', 'missed', 'completed')),
   sent_at timestamptz not null default now(),
   constraint alert_events_once unique (task_id, alert_type)
 );
@@ -79,4 +79,3 @@ create index if not exists lectures_date_idx on public.lectures(lecture_date des
 create index if not exists tasks_status_idx on public.tasks(status);
 create index if not exists tasks_deadline_idx on public.tasks(deadline);
 create index if not exists lms_tracking_lecture_idx on public.lms_tracking(lecture_id);
-

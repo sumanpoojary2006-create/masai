@@ -6,7 +6,7 @@ Zero-cost full-stack web application for a Curriculum Coordinator to:
 - create and track Pre-read, Lecture Notes, and Assignment tasks
 - verify upload status from `https://experience-admin.masaischool.com` with Playwright
 - apply deadline rules automatically
-- send Slack alerts for reminders and missed deadlines
+- send Slack alerts for reminders, missed deadlines, and detected uploads
 
 ## Stack
 
