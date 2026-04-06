@@ -34,6 +34,12 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
+      <section>
+        <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink sm:text-4xl">
+          Masai Resource Tracker
+        </h1>
+      </section>
+
       <section className="grid gap-4 rounded-[2rem] border border-slate-200 bg-white/75 p-5 shadow-panel backdrop-blur sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-3xl bg-ink p-5 text-white">
           <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
