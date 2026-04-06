@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --font-body: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --font-heading: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+body {
+  min-height: 100vh;
+  background: #f8fafc;
+  color: #101828;
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: rgba(15, 118, 110, 0.18);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
