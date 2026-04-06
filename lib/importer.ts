@@ -18,7 +18,7 @@ function normaliseHeader(input: string) {
   return input.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
 }
 
-function toIsoDate(value: unknown) {
+export function toIsoDate(value: unknown) {
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);
   }
@@ -62,7 +62,7 @@ function toIsoDate(value: unknown) {
   return asDate.toISOString().slice(0, 10);
 }
 
-function toSqlTime(value: unknown) {
+export function toSqlTime(value: unknown) {
   if (value instanceof Date) {
     return value.toISOString().slice(11, 19);
   }

@@ -19,6 +19,7 @@ export interface TaskRecord {
   deadline: string;
   status: TaskStatus;
   completed_at: string | null;
+  last_checked_at?: string | null;
 }
 
 export interface DashboardLecture extends LectureRecord {
