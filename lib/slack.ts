@@ -4,34 +4,61 @@ import { TASK_LABELS } from "@/lib/constants";
 import { getAutomationEnv } from "@/lib/env";
 import { ComplianceAlertEvent } from "@/lib/types";
 
+function sortAlerts(left: ComplianceAlertEvent, right: ComplianceAlertEvent) {
+  const dateCompare = left.lecture.lecture_date.localeCompare(right.lecture.lecture_date);
+  if (dateCompare !== 0) {
+    return dateCompare;
+  }
+
+  const batchCompare = left.lecture.batch_name.localeCompare(right.lecture.batch_name);
+  if (batchCompare !== 0) {
+    return batchCompare;
+  }
+
+  const lectureCompare = left.lecture.lecture_name.localeCompare(right.lecture.lecture_name);
+  if (lectureCompare !== 0) {
+    return lectureCompare;
+  }
+
+  return left.taskType.localeCompare(right.taskType);
+}
+
 function alertLine(event: ComplianceAlertEvent) {
   const label = TASK_LABELS[event.taskType];
 
   if (event.alertType === "completed") {
-    return `✅ ${label} uploaded`;
+    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} uploaded`;
   }
 
   if (event.alertType === "missed") {
-    return `❌ ${label} missed deadline`;
+    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} missed deadline`;
   }
 
   if (event.alertType === "reminder_2h") {
-    return `⏰ ${label} due in 2 hours`;
+    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 2 hours`;
   }
 
   if (event.alertType === "reminder_30m") {
-    return `⏰ ${label} due in 30 minutes`;
+    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 30 minutes`;
   }
 
   if (event.alertType === "reminder_6h") {
-    return `⏰ ${label} due in 6 hours`;
+    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 6 hours`;
   }
 
   if (event.alertType === "reminder_10h") {
-    return `⏰ ${label} due in 10 hours`;
+    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 10 hours`;
   }
 
-  return `⏰ ${label} due in 6 hours`;
+  return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 6 hours`;
+}
+
+function section(title: string, alerts: ComplianceAlertEvent[]) {
+  if (alerts.length === 0) {
+    return [];
+  }
+
+  return [title, ...alerts.sort(sortAlerts).map(alertLine), ""];
 }
 
 export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
@@ -40,47 +67,43 @@ export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
   }
 
   const { slackWebhookUrl, timezone } = getAutomationEnv();
-  const grouped = new Map<string, ComplianceAlertEvent[]>();
+  const completedAlerts = alerts.filter((alert) => alert.alertType === "completed");
+  const reminderAlerts = alerts.filter(
+    (alert) => alert.alertType.startsWith("reminder_")
+  );
+  const missedAlerts = alerts.filter((alert) => alert.alertType === "missed");
+  const lectureDates = alerts
+    .map((alert) =>
+      DateTime.fromISO(alert.lecture.lecture_date, { zone: timezone }).toFormat("dd LLL yyyy")
+    )
+    .filter((value, index, array) => array.indexOf(value) === index)
+    .join(", ");
 
-  for (const alert of alerts) {
-    const key = alert.lecture.id;
-    const current = grouped.get(key) ?? [];
-    current.push(alert);
-    grouped.set(key, current);
+  const message = [
+    "Masai Resource Tracker Update",
+    lectureDates ? `Lecture dates: ${lectureDates}` : null,
+    "",
+    ...section("Completed", completedAlerts),
+    ...section("Pending / Upcoming", reminderAlerts),
+    ...section("Missed", missedAlerts)
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .trim();
+
+  const response = await fetch(slackWebhookUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      text: message
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Slack webhook failed with ${response.status}`);
   }
 
-  let sent = 0;
-
-  for (const [lectureId, lectureAlerts] of grouped.entries()) {
-    const lecture = lectureAlerts[0].lecture;
-    const message = [
-      lectureAlerts.some((alert) => alert.alertType === "completed")
-        ? "✅ Lecture Compliance Update"
-        : "🚨 Lecture Compliance Alert",
-      "",
-      `Batch: ${lecture.batch_name}`,
-      `Lecture: ${lecture.lecture_name}`,
-      `Date: ${DateTime.fromISO(lecture.lecture_date, { zone: timezone }).toFormat("dd LLL yyyy")}`,
-      "",
-      ...lectureAlerts.map(alertLine)
-    ].join("\n");
-
-    const response = await fetch(slackWebhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        text: message
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Slack webhook failed with ${response.status}`);
-    }
-
-    sent += 1;
-  }
-
-  return sent;
+  return 1;
 }
