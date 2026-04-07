@@ -68,12 +68,17 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function escapeForPattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*");
+}
+
 async function main() {
   const username = process.env.LMS_USERNAME;
   const password = process.env.LMS_PASSWORD;
   const batchName = process.env.INSPECT_BATCH;
   const lectureName = process.env.INSPECT_LECTURE;
   const skipTitleSearch = process.env.INSPECT_SKIP_TITLE_SEARCH === "1";
+  const inspectUrl = process.env.INSPECT_URL;
 
   if (!username || !password) {
     throw new Error("LMS_USERNAME and LMS_PASSWORD are required.");
@@ -113,17 +118,20 @@ async function main() {
     await page.waitForLoadState("networkidle").catch(() => undefined);
     await page.waitForTimeout(3000);
 
-    if (batchName || lectureName) {
-      await page.goto(`${LMS_URL}/lectures/?page=0`, {
+    if (inspectUrl || batchName || lectureName) {
+      await page.goto(inspectUrl ?? `${LMS_URL}/lectures/?page=0`, {
         waitUntil: "domcontentloaded"
       });
       await waitForPageRefresh(page);
 
-      await openFiltersPanel(page);
+      if (!inspectUrl) {
+        await openFiltersPanel(page);
+      }
+
       const screenshotPath = path.join("/tmp", "inspect-lms-filters.png");
       await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
 
-      if (batchName) {
+      if (batchName && !inspectUrl) {
         await fillFirstMatching(
           page,
           [
@@ -143,12 +151,14 @@ async function main() {
         }
       }
 
-      const applyButton = await firstVisible(
-        page.locator("button").filter({ hasText: /apply|update|search|done|submit/i })
-      );
-      if (applyButton) {
-        await applyButton.click().catch(() => undefined);
-        await waitForPageRefresh(page);
+      if (!inspectUrl) {
+        const applyButton = await firstVisible(
+          page.locator("button").filter({ hasText: /apply|update|search|done|submit/i })
+        );
+        if (applyButton) {
+          await applyButton.click().catch(() => undefined);
+          await waitForPageRefresh(page);
+        }
       }
 
       if (lectureName && !skipTitleSearch) {
@@ -178,6 +188,31 @@ async function main() {
       );
 
     const pageScanMatches: Array<{ page: string; row: string }> = [];
+    const pageText = await page.evaluate(() => document.body?.textContent ?? "");
+    const regexDebug =
+      lectureName && batchName
+        ? (() => {
+            const escapedLectureName = escapeForPattern(lectureName);
+            const escapedBatchName = escapeForPattern(batchName);
+            const keywordSource = "pre[- ]?reads?";
+            const windowPattern = new RegExp(
+              `${escapedLectureName}[\\s\\S]{0,120}${keywordSource}[\\s\\S]{0,200}${escapedBatchName}[\\s\\S]{0,240}`,
+              "i"
+            );
+            const reverseWindowPattern = new RegExp(
+              `${escapedBatchName}[\\s\\S]{0,200}${escapedLectureName}[\\s\\S]{0,160}${keywordSource}[\\s\\S]{0,240}`,
+              "i"
+            );
+
+            return {
+              hasLecture: pageText.includes(lectureName),
+              hasBatch: pageText.includes(batchName),
+              hasPreread: /pre[- ]?reads?/i.test(pageText),
+              windowMatch: pageText.match(windowPattern)?.[0] ?? null,
+              reverseWindowMatch: pageText.match(reverseWindowPattern)?.[0] ?? null
+            };
+          })()
+        : null;
 
     if (lectureName) {
       const lectureNeedle = normalizeText(lectureName);
@@ -307,6 +342,7 @@ async function main() {
           batchFieldHtml,
           batchTextMatches,
           selectLikeElements,
+          regexDebug,
           tableRows,
           pageScanMatches,
           networkResponses: networkResponses.slice(-50)

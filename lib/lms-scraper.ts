@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { Browser, chromium, Locator, Page } from "playwright";
 
+import { getScopedLmsUrl } from "@/lib/lms-batch-urls";
 import { getAppTimezone } from "@/lib/env";
 import { AutomationLecture, LmsTrackingRecord, TaskType } from "@/lib/types";
 
@@ -19,13 +20,23 @@ function normalizeText(value: string) {
     .trim();
 }
 
+function logLmsDebug(...args: unknown[]) {
+  if (process.env.LMS_DEBUG === "1") {
+    console.log("[lms-debug]", ...args);
+  }
+}
+
 function timestampPatterns() {
-  return [
-    /\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}\b/g,
-    /\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}\b/g,
-    /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}.*\d{1,2}:\d{2}\s*(AM|PM)?\b/gi,
-    /\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[,\s]+\d{1,2}:\d{2}\s*(AM|PM)?\b/gi
-  ];
+  return {
+    createdAt: [
+      /\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?!\d)/g,
+      /\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?![:\d])/g
+    ],
+    fallback: [
+      /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s+\d{4}.*\d{1,2}:\d{2}\s*(AM|PM)?\b/gi,
+      /\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}[,\s]+\d{1,2}:\d{2}\s*(AM|PM)?\b/gi
+    ]
+  };
 }
 
 function toIsoTimestamp(text: string) {
@@ -115,6 +126,54 @@ async function clickNavigation(page: Page, label: string) {
 async function waitForPageRefresh(page: Page) {
   await page.waitForLoadState("networkidle").catch(() => undefined);
   await page.waitForTimeout(800);
+}
+
+async function waitForBodyText(page: Page, needle: string, timeoutMs = 5000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const text =
+      (await page.evaluate(() => document.body?.textContent ?? "").catch(() => "")) ?? "";
+
+    if (text.includes(needle)) {
+      return true;
+    }
+
+    await page.waitForTimeout(250);
+  }
+
+  return false;
+}
+
+async function waitForResourceText(
+  page: Page,
+  lectureName: string,
+  batchName: string,
+  resourceNeedles: string[],
+  options?: {
+    batchScoped?: boolean;
+  },
+  timeoutMs = 15000
+) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const text =
+      (await page.evaluate(() => document.body?.textContent ?? "").catch(() => "")) ?? "";
+    const normalized = normalizeText(text);
+
+    if (
+      normalized.includes(normalizeText(lectureName)) &&
+      (options?.batchScoped || normalized.includes(normalizeText(batchName))) &&
+      resourceNeedles.some((needle) => normalized.includes(normalizeText(needle)))
+    ) {
+      return text;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  return null;
 }
 
 async function fillFirstMatching(page: Page, selectors: string[], value: string) {
@@ -399,35 +458,79 @@ async function paginateNext(page: Page, attempts: number, seenPages: Set<string>
   return true;
 }
 
-async function locateLectureContainer(
+async function readTableRows(page: Page) {
+  return page
+    .locator("tr, [role='row'], article, section, .table-row, .card")
+    .evaluateAll((nodes) =>
+      nodes
+        .map((node) => (node.textContent || "").trim().replace(/\s+/g, " "))
+        .filter(Boolean)
+    )
+    .catch(() => [] as string[]);
+}
+
+async function waitForTableRows(page: Page, timeoutMs = 10000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const rows = await readTableRows(page);
+    if (rows.length > 0) {
+      return rows;
+    }
+
+    await page.waitForTimeout(500);
+  }
+
+  return [] as string[];
+}
+
+async function findLectureRowText(
   page: Page,
   lectureName: string,
   batchName: string,
-  resourceKeyword: RegExp
+  resourceKeyword: RegExp,
+  options?: {
+    batchScoped?: boolean;
+  }
 ) {
   const normalizedLectureName = normalizeText(lectureName);
   const normalizedBatchName = normalizeText(batchName);
   const seenPages = new Set<string>();
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
-    const cards = page.locator("tr, [role='row'], article, section, .table-row, .card");
-    const count = await cards.count();
+    const rows = attempts === 0 ? await waitForTableRows(page) : await readTableRows(page);
+    logLmsDebug("scan-page", {
+      lectureName,
+      batchName,
+      attempts,
+      rowCount: rows.length,
+      firstRows: rows.slice(0, 5)
+    });
 
-    for (let index = 0; index < count; index += 1) {
-      const card = cards.nth(index);
-      if (!(await card.isVisible().catch(() => false))) {
-        continue;
-      }
-
-      const text = await card.innerText().catch(() => "");
+    for (const text of rows) {
       const normalizedText = normalizeText(text);
+      const matchesLecture = normalizedText.includes(normalizedLectureName);
+      const matchesBatch = options?.batchScoped || normalizedText.includes(normalizedBatchName);
+      const matchesResource = resourceKeyword.test(text.toLowerCase());
 
       if (
-        normalizedText.includes(normalizedBatchName) &&
-        normalizedText.includes(normalizedLectureName) &&
-        resourceKeyword.test(text.toLowerCase())
+        matchesBatch &&
+        matchesLecture &&
+        matchesResource
       ) {
-        return card;
+        logLmsDebug("matched-row", { lectureName, batchName, text });
+        return text;
+      }
+
+      if (matchesLecture || matchesResource) {
+        logLmsDebug("row-check", {
+          lectureName,
+          batchName,
+          matchesLecture,
+          matchesBatch,
+          matchesResource,
+          text
+        });
       }
     }
 
@@ -439,10 +542,34 @@ async function locateLectureContainer(
   return null;
 }
 
+function resourceRecordFromRowText(
+  rowText: string,
+  lectureId: string,
+  type: TaskType
+): LmsTrackingRecord {
+  return {
+    lectureId,
+    resourceType: type,
+    found: true,
+    uploadedAt: extractTimestampFromText(rowText),
+    rawPayload: {
+      matchedText: rowText
+    }
+  };
+}
+
 async function extractTimestamp(container: Locator) {
   const text = await container.innerText().catch(() => "");
+  const patterns = timestampPatterns();
 
-  for (const pattern of timestampPatterns()) {
+  for (const pattern of patterns.createdAt) {
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length > 0) {
+      return latestTimestamp(matches.map((match) => toIsoTimestamp(match[0])));
+    }
+  }
+
+  for (const pattern of patterns.fallback) {
     const matches = [...text.matchAll(pattern)];
     if (matches.length > 0) {
       return latestTimestamp(matches.map((match) => toIsoTimestamp(match[0])));
@@ -452,49 +579,144 @@ async function extractTimestamp(container: Locator) {
   return null;
 }
 
-async function detectResourceInLecture(
-  container: Locator,
+function extractTimestampFromText(text: string) {
+  const patterns = timestampPatterns();
+
+  for (const pattern of patterns.createdAt) {
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length > 0) {
+      return latestTimestamp(matches.map((match) => toIsoTimestamp(match[0])));
+    }
+  }
+
+  for (const pattern of patterns.fallback) {
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length > 0) {
+      return latestTimestamp(matches.map((match) => toIsoTimestamp(match[0])));
+    }
+  }
+
+  return null;
+}
+
+async function detectResourceFromPageText(
+  page: Page,
+  lecture: AutomationLecture,
   keyword: RegExp,
   type: TaskType,
-  lectureId: string
+  options?: {
+    batchScoped?: boolean;
+  }
 ): Promise<LmsTrackingRecord> {
-  const containerText = await container.innerText().catch(() => "");
+  const resourceNeedles =
+    type === "preread"
+      ? ["pre read", "pre reads"]
+      : type === "notes"
+        ? ["notes", "note"]
+        : ["assignment"];
+  const pageText = await waitForResourceText(
+    page,
+    lecture.lecture_name,
+    lecture.batch_name,
+    resourceNeedles,
+    options
+  );
 
-  if (keyword.test(containerText)) {
+  const matchedWindow = pageText
+    ? pageText
+        .split(/\n+/)
+        .map((line) => line.trim().replace(/\s+/g, " "))
+        .find((line) => {
+          const normalizedLine = normalizeText(line);
+          return (
+            normalizedLine.includes(normalizeText(lecture.lecture_name)) &&
+            (options?.batchScoped ||
+              normalizedLine.includes(normalizeText(lecture.batch_name))) &&
+            resourceNeedles.some((needle) =>
+              normalizedLine.includes(normalizeText(needle))
+            )
+          );
+        }) ?? pageText
+    : null;
+
+  if (!matchedWindow || !keyword.test(matchedWindow)) {
     return {
-      lectureId,
+      lectureId: lecture.id,
       resourceType: type,
-      found: true,
-      uploadedAt: await extractTimestamp(container),
+      found: false,
+      uploadedAt: null,
       rawPayload: {
-        matchedText: containerText
+        pageTextMatch: false
       }
     };
   }
 
-  const nested = container.locator("tr, [role='row'], div, span, p").filter({
-    hasText: keyword
-  });
-
-  const foundNode = await firstVisible(nested);
-  if (!foundNode) {
-    return {
-      lectureId,
-      resourceType: type,
-      found: false,
-      uploadedAt: null
-    };
-  }
-
   return {
-    lectureId,
+    lectureId: lecture.id,
     resourceType: type,
     found: true,
-    uploadedAt: (await extractTimestamp(foundNode)) ?? (await extractTimestamp(container)),
+    uploadedAt: extractTimestampFromText(matchedWindow),
     rawPayload: {
-      matchedText: await foundNode.innerText().catch(() => "")
+      matchedText: matchedWindow
     }
   };
+}
+
+async function scrapeLectureResourcesOnce(
+  page: Page,
+  lecture: AutomationLecture,
+  options?: {
+    useDirectTitleUrl?: boolean;
+  }
+) {
+  const scopedLectureUrl = getScopedLmsUrl("lectures", lecture.batch_name);
+  const batchScoped = Boolean(scopedLectureUrl);
+  const targetUrl = scopedLectureUrl
+    ? scopedLectureUrl
+    : options?.useDirectTitleUrl
+      ? `${LMS_URL}/lectures/?page=0&title=${encodeURIComponent(lecture.lecture_name)}`
+      : `${LMS_URL}/lectures/?page=0`;
+
+  await page.goto(targetUrl, {
+    waitUntil: "domcontentloaded"
+  });
+  await waitForPageRefresh(page);
+  await waitForTableRows(page);
+  await searchByLectureName(page, lecture.lecture_name);
+  await waitForBodyText(page, lecture.lecture_name).catch(() => undefined);
+  await waitForTableRows(page);
+
+  const prereadRowText = await findLectureRowText(
+    page,
+    lecture.lecture_name,
+    lecture.batch_name,
+    /pre[- ]?reads?/i,
+    {
+      batchScoped
+    }
+  );
+  const notesRowText = await findLectureRowText(
+    page,
+    lecture.lecture_name,
+    lecture.batch_name,
+    /\bnotes?\b/i,
+    {
+      batchScoped
+    }
+  );
+
+  return Promise.all([
+    prereadRowText
+      ? Promise.resolve(resourceRecordFromRowText(prereadRowText, lecture.id, "preread"))
+      : detectResourceFromPageText(page, lecture, /pre[- ]?reads?/i, "preread", {
+          batchScoped
+        }),
+    notesRowText
+      ? Promise.resolve(resourceRecordFromRowText(notesRowText, lecture.id, "notes"))
+      : detectResourceFromPageText(page, lecture, /\bnotes?\b/i, "notes", {
+          batchScoped
+        })
+  ]);
 }
 
 async function login(page: Page, username: string, password: string) {
@@ -540,77 +762,66 @@ async function login(page: Page, username: string, password: string) {
 
   await submitButton.click();
   await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(3000);
 }
 
 async function scrapeLectures(page: Page, lecture: AutomationLecture) {
-  await clickNavigation(page, "Lectures");
-  await filterByBatch(page, lecture.batch_name);
+  if (getScopedLmsUrl("lectures", lecture.batch_name)) {
+    return scrapeLectureResourcesOnce(page, lecture);
+  }
 
-  const prereadContainer = await locateLectureContainer(
-    page,
-    lecture.lecture_name,
-    lecture.batch_name,
-    /pre[- ]?reads?/i
-  );
-  const notesContainer = await locateLectureContainer(
-    page,
-    lecture.lecture_name,
-    lecture.batch_name,
-    /\bnotes?\b/i
-  );
+  const searchAttempt = await scrapeLectureResourcesOnce(page, lecture, {
+    useDirectTitleUrl: false
+  });
 
-  return Promise.all([
-    prereadContainer
-      ? detectResourceInLecture(prereadContainer, /pre[- ]?read/i, "preread", lecture.id)
-      : Promise.resolve({
-          lectureId: lecture.id,
-          resourceType: "preread" as const,
-          found: false,
-          uploadedAt: null
-        }),
-    notesContainer
-      ? detectResourceInLecture(notesContainer, /\bnotes?\b/i, "notes", lecture.id)
-      : Promise.resolve({
-          lectureId: lecture.id,
-          resourceType: "notes" as const,
-          found: false,
-          uploadedAt: null
-        })
-  ]);
+  if (searchAttempt.some((resource) => resource.found)) {
+    return searchAttempt;
+  }
+
+  return scrapeLectureResourcesOnce(page, lecture, {
+    useDirectTitleUrl: true
+  });
 }
 
 async function scrapeAssignments(page: Page, lecture: AutomationLecture) {
-  await clickNavigation(page, "Assignments");
-  await filterByBatch(page, lecture.batch_name);
+  const scopedAssignmentUrl = getScopedLmsUrl("assignments", lecture.batch_name);
+
+  if (scopedAssignmentUrl) {
+    await page.goto(scopedAssignmentUrl, {
+      waitUntil: "domcontentloaded"
+    });
+    await waitForPageRefresh(page);
+    await waitForTableRows(page);
+  } else {
+    await clickNavigation(page, "Assignments");
+    await filterByBatch(page, lecture.batch_name);
+  }
+
   await searchByLectureName(page, lecture.lecture_name);
+  await waitForBodyText(page, lecture.lecture_name).catch(() => undefined);
+  await waitForTableRows(page);
 
   const normalizedLectureName = normalizeText(lecture.lecture_name);
   const normalizedBatchName = normalizeText(lecture.batch_name);
+  const batchScoped = Boolean(scopedAssignmentUrl);
   let objectiveMatch: { text: string; uploadedAt: string | null } | null = null;
   let subjectiveMatch: { text: string; uploadedAt: string | null } | null = null;
   const seenPages = new Set<string>();
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
-    const candidates = page.locator("tr, [role='row'], article, section, .table-row, .card");
-    const candidateCount = await candidates.count();
+    const rows = await readTableRows(page);
 
-    for (let index = 0; index < candidateCount; index += 1) {
-      const container = candidates.nth(index);
-      if (!(await container.isVisible().catch(() => false))) {
-        continue;
-      }
-
-      const associatedText = await container.innerText().catch(() => "");
+    for (const associatedText of rows) {
       const normalizedText = normalizeText(associatedText);
 
       if (
         !normalizedText.includes(normalizedLectureName) ||
-        !normalizedText.includes(normalizedBatchName)
+        (!batchScoped && !normalizedText.includes(normalizedBatchName))
       ) {
         continue;
       }
 
-      const uploadedAt = await extractTimestamp(container);
+      const uploadedAt = extractTimestampFromText(associatedText);
 
       if (!objectiveMatch && /\bobjective\b/i.test(associatedText)) {
         objectiveMatch = {

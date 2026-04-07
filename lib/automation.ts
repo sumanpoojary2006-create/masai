@@ -151,27 +151,35 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
     ])
   );
 
-  const mergedTrackingRecords = trackingRecords.map((record) => {
-    const key = trackingKey(record.lectureId, record.resourceType);
-    const existingRow = existingTrackingMap.get(key);
-    const task = taskByTrackingKey.get(key);
-    const stickyCompleted = Boolean(
-      task && (task.status === "completed" || stickyCompletedTaskIds.has(task.id))
-    );
+  const scrapedTrackingMap = new Map(
+    trackingRecords.map((record) => [trackingKey(record.lectureId, record.resourceType), record] as const)
+  );
 
-    return {
-      lectureId: record.lectureId,
-      resourceType: record.resourceType,
-      found: Boolean(record.found || existingRow?.found || stickyCompleted),
-      uploadedAt:
-        latestTimestamp([
-          record.uploadedAt,
-          existingRow?.uploaded_at ?? null,
-          task?.completed_at ?? null
-        ]) ?? null,
-      rawPayload: record.rawPayload ?? ((existingRow?.raw_payload as Record<string, unknown> | null) ?? {})
-    };
-  });
+  const mergedTrackingRecords = lectures.flatMap((lecture) =>
+    lecture.tasks.map((task) => {
+      const key = trackingKey(lecture.id, task.type);
+      const record = scrapedTrackingMap.get(key);
+      const existingRow = existingTrackingMap.get(key);
+      const stickyCompleted = task.status === "completed" || stickyCompletedTaskIds.has(task.id);
+
+      return {
+        lectureId: lecture.id,
+        resourceType: task.type,
+        found: Boolean(record?.found || existingRow?.found || stickyCompleted),
+        uploadedAt:
+          latestTimestamp([
+            record?.uploadedAt ?? null,
+            existingRow?.uploaded_at ?? null,
+            task.completed_at ?? null
+          ]) ?? null,
+        rawPayload:
+          record?.rawPayload ??
+          ((existingRow?.raw_payload as Record<string, unknown> | null) ?? {
+            scraperMissed: true
+          })
+      };
+    })
+  );
 
   const trackingMap = new Map<string, LmsTrackingRecord>();
   for (const record of mergedTrackingRecords) {
