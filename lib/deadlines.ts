@@ -26,20 +26,12 @@ export function computeDeadline(
   endTime: string
 ) {
   const lectureStart = parseLocalDateTime(lectureDate, startTime);
-  const lectureEnd = parseLocalDateTime(lectureDate, endTime);
-  const lectureDay = DateTime.fromISO(lectureDate, {
-    zone: getAppTimezone()
-  });
 
   if (type === "preread") {
     return toIsoOrThrow(lectureStart.minus({ hours: 24 }));
   }
 
-  if (type === "notes") {
-    return toIsoOrThrow(lectureEnd.plus({ hours: 18 }));
-  }
-
-  return toIsoOrThrow(lectureDay.plus({ days: 14 }).endOf("day"));
+  return toIsoOrThrow(lectureStart.plus({ hours: 24 }));
 }
 
 export function formatLectureDate(date: string) {
