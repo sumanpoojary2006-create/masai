@@ -180,6 +180,20 @@ async function detectResourceInLecture(
   type: TaskType,
   lectureId: string
 ): Promise<LmsTrackingRecord> {
+  const containerText = await container.innerText().catch(() => "");
+
+  if (keyword.test(containerText)) {
+    return {
+      lectureId,
+      resourceType: type,
+      found: true,
+      uploadedAt: await extractTimestamp(container),
+      rawPayload: {
+        matchedText: containerText
+      }
+    };
+  }
+
   const nested = container.locator("tr, [role='row'], div, span, p").filter({
     hasText: keyword
   });
