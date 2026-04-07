@@ -40,6 +40,10 @@ SLACK_WEBHOOK_URL=...
 SUPABASE_URL=...
 SUPABASE_KEY=...
 APP_TIMEZONE=Asia/Kolkata
+GITHUB_WORKFLOW_TOKEN=...
+GITHUB_REPO=sumanpoojary2006-create/masai
+GITHUB_WORKFLOW_ID=compliance-check.yml
+GITHUB_WORKFLOW_REF=main
 ```
 
 4. Run the SQL in [supabase/schema.sql](/Users/inno/Desktop/Masai/supabase/schema.sql) inside the Supabase SQL editor.
@@ -61,6 +65,7 @@ npm run compliance
 - Import a weekly sheet from the dashboard.
 - The app stores lectures and creates 3 tasks per lecture.
 - The scheduled job logs in to the LMS every 30 minutes, checks resource presence, updates task statuses, and pushes Slack alerts.
+- In production, the dashboard `Sync Up` button dispatches the GitHub Actions workflow so Playwright runs in GitHub instead of Vercel.
 
 ## Important implementation note
 
