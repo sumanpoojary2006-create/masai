@@ -1,6 +1,12 @@
 export type TaskType = "preread" | "notes" | "assignment";
 export type TaskStatus = "pending" | "completed" | "missed";
-export type AlertType = "reminder_6h" | "reminder_2h" | "missed" | "completed";
+export type AlertType =
+  | "reminder_10h"
+  | "reminder_6h"
+  | "reminder_2h"
+  | "reminder_30m"
+  | "missed"
+  | "completed";
 
 export interface LectureRecord {
   id: string;

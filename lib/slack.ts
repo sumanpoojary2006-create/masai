@@ -19,6 +19,18 @@ function alertLine(event: ComplianceAlertEvent) {
     return `⏰ ${label} due in 2 hours`;
   }
 
+  if (event.alertType === "reminder_30m") {
+    return `⏰ ${label} due in 30 minutes`;
+  }
+
+  if (event.alertType === "reminder_6h") {
+    return `⏰ ${label} due in 6 hours`;
+  }
+
+  if (event.alertType === "reminder_10h") {
+    return `⏰ ${label} due in 10 hours`;
+  }
+
   return `⏰ ${label} due in 6 hours`;
 }
 

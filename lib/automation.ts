@@ -43,6 +43,12 @@ function nextStatus(task: TaskRecord, tracking: LmsTrackingRecord | undefined, n
 
 function chooseAlertType(task: TaskRecord, nextTaskStatus: TaskStatus, now: DateTime) {
   const deadline = DateTime.fromISO(task.deadline);
+  const reminderSchedule = [
+    { type: "reminder_10h" as AlertType, offsetMinutes: 10 * 60 },
+    { type: "reminder_6h" as AlertType, offsetMinutes: 6 * 60 },
+    { type: "reminder_2h" as AlertType, offsetMinutes: 2 * 60 },
+    { type: "reminder_30m" as AlertType, offsetMinutes: 30 }
+  ];
 
   if (nextTaskStatus === "missed") {
     return "missed" as AlertType;
@@ -52,14 +58,13 @@ function chooseAlertType(task: TaskRecord, nextTaskStatus: TaskStatus, now: Date
     return "completed" as AlertType;
   }
 
-  const hoursLeft = deadline.diff(now, "hours").hours;
+  for (const reminder of reminderSchedule) {
+    const target = deadline.minus({ minutes: reminder.offsetMinutes });
+    const windowEnds = target.plus({ minutes: 31 });
 
-  if (hoursLeft <= 2 && hoursLeft > 0) {
-    return "reminder_2h" as AlertType;
-  }
-
-  if (hoursLeft <= 6 && hoursLeft > 2) {
-    return "reminder_6h" as AlertType;
+    if (now >= target && now < windowEnds) {
+      return reminder.type;
+    }
   }
 
   return null;

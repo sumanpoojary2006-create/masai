@@ -57,7 +57,16 @@ create table if not exists public.lms_tracking (
 create table if not exists public.alert_events (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references public.tasks(id) on delete cascade,
-  alert_type text not null check (alert_type in ('reminder_6h', 'reminder_2h', 'missed', 'completed')),
+  alert_type text not null check (
+    alert_type in (
+      'reminder_10h',
+      'reminder_6h',
+      'reminder_2h',
+      'reminder_30m',
+      'missed',
+      'completed'
+    )
+  ),
   sent_at timestamptz not null default now(),
   constraint alert_events_once unique (task_id, alert_type)
 );
