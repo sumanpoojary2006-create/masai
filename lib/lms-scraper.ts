@@ -176,11 +176,24 @@ async function locateLectureContainer(page: Page, lectureName: string) {
 
     seenPages.add(currentPageKey);
 
-    const nextButton = await firstVisible(
-      page
-        .locator("button, a")
-        .filter({ hasText: /next|›|»/i })
-    );
+    const currentPageNumber = Number.parseInt(currentPageKey.trim(), 10);
+    let nextButton: Locator | null = null;
+
+    if (Number.isFinite(currentPageNumber)) {
+      nextButton = await firstVisible(
+        page
+          .locator("button, a")
+          .filter({ hasText: new RegExp(`^\\s*${currentPageNumber + 1}\\s*$`) })
+      );
+    }
+
+    if (!nextButton) {
+      nextButton = await firstVisible(
+        page
+          .locator("button, a")
+          .filter({ hasText: /next|›|»|>|→/i })
+      );
+    }
 
     if (!nextButton) {
       break;
