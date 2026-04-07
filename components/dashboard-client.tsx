@@ -20,6 +20,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     batch_name: "",
@@ -130,6 +131,44 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     });
   }
 
+  function handleSync() {
+    startTransition(async () => {
+      setIsSyncing(true);
+      setMessage(null);
+
+      const response = await fetch("/api/compliance", {
+        method: "POST"
+      });
+
+      const payload = (await response.json()) as {
+        message?: string;
+        result?: {
+          checkedLectures: number;
+          trackedResources: number;
+          updatedTasks: number;
+          alertsSent: number;
+        };
+      };
+
+      if (!response.ok) {
+        setMessage(payload.message ?? "Unable to run compliance sync.");
+        setIsSyncing(false);
+        return;
+      }
+
+      if (payload.result) {
+        setMessage(
+          `Sync complete. Checked ${payload.result.checkedLectures} lectures, updated ${payload.result.updatedTasks} tasks, and sent ${payload.result.alertsSent} Slack message(s).`
+        );
+      } else {
+        setMessage(payload.message ?? "Compliance sync completed.");
+      }
+
+      setIsSyncing(false);
+      router.refresh();
+    });
+  }
+
   if (lectures.length === 0) {
     return (
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel">
@@ -143,6 +182,14 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
           The dashboard fills automatically after the file upload route stores the
           lectures and generates the three tracked tasks for each session.
         </p>
+        <button
+          type="button"
+          disabled={isPending || isSyncing}
+          onClick={handleSync}
+          className="mt-6 inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+        >
+          {isSyncing ? "Syncing..." : "Sync Up"}
+        </button>
       </div>
     );
   }
@@ -159,7 +206,16 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
           </h2>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <button
+            type="button"
+            disabled={isPending || isSyncing}
+            onClick={handleSync}
+            className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+          >
+            {isSyncing ? "Syncing..." : "Sync Up"}
+          </button>
+
           <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
             Batch
             <select
