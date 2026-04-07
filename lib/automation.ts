@@ -20,7 +20,25 @@ function trackingKey(lectureId: string, type: TaskType) {
   return `${lectureId}:${type}`;
 }
 
-function nextStatus(task: TaskRecord, tracking: LmsTrackingRecord | undefined, now: DateTime) {
+function latestTimestamp(values: Array<string | null | undefined>) {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+}
+
+function nextStatus(
+  task: TaskRecord,
+  tracking: LmsTrackingRecord | undefined,
+  now: DateTime,
+  stickyCompletedTaskIds: Set<string>
+) {
+  if (task.status === "completed" || stickyCompletedTaskIds.has(task.id)) {
+    return {
+      status: "completed" as TaskStatus,
+      completedAt: tracking?.uploadedAt ?? task.completed_at ?? now.toUTC().toISO()
+    };
+  }
+
   if (tracking?.found) {
     return {
       status: "completed" as TaskStatus,
@@ -94,13 +112,74 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
     password: env.lmsPassword
   });
 
+  const lectureIds = lectures.map((lecture) => lecture.id);
+  const taskIds = lectures.flatMap((lecture) => lecture.tasks.map((task) => task.id));
+
+  const [{ data: existingTrackingRows, error: existingTrackingError }, { data: existingAlerts, error: alertError }] =
+    await Promise.all([
+      supabase
+        .from("lms_tracking")
+        .select("lecture_id, resource_type, found, uploaded_at, raw_payload")
+        .in("lecture_id", lectureIds),
+      supabase.from("alert_events").select("task_id, alert_type").in("task_id", taskIds)
+    ]);
+
+  if (existingTrackingError) {
+    throw new Error(existingTrackingError.message);
+  }
+
+  if (alertError) {
+    throw new Error(alertError.message);
+  }
+
+  const stickyCompletedTaskIds = new Set(
+    (existingAlerts ?? [])
+      .filter((alert) => alert.alert_type === "completed")
+      .map((alert) => alert.task_id)
+  );
+
+  const taskByTrackingKey = new Map(
+    lectures.flatMap((lecture) =>
+      lecture.tasks.map((task) => [trackingKey(lecture.id, task.type), task] as const)
+    )
+  );
+
+  const existingTrackingMap = new Map(
+    (existingTrackingRows ?? []).map((row) => [
+      trackingKey(row.lecture_id, row.resource_type as TaskType),
+      row
+    ])
+  );
+
+  const mergedTrackingRecords = trackingRecords.map((record) => {
+    const key = trackingKey(record.lectureId, record.resourceType);
+    const existingRow = existingTrackingMap.get(key);
+    const task = taskByTrackingKey.get(key);
+    const stickyCompleted = Boolean(
+      task && (task.status === "completed" || stickyCompletedTaskIds.has(task.id))
+    );
+
+    return {
+      lectureId: record.lectureId,
+      resourceType: record.resourceType,
+      found: Boolean(record.found || existingRow?.found || stickyCompleted),
+      uploadedAt:
+        latestTimestamp([
+          record.uploadedAt,
+          existingRow?.uploaded_at ?? null,
+          task?.completed_at ?? null
+        ]) ?? null,
+      rawPayload: record.rawPayload ?? ((existingRow?.raw_payload as Record<string, unknown> | null) ?? {})
+    };
+  });
+
   const trackingMap = new Map<string, LmsTrackingRecord>();
-  for (const record of trackingRecords) {
+  for (const record of mergedTrackingRecords) {
     trackingMap.set(trackingKey(record.lectureId, record.resourceType), record);
   }
 
   const { error: trackingError } = await supabase.from("lms_tracking").upsert(
-    trackingRecords.map((record) => ({
+    mergedTrackingRecords.map((record) => ({
       lecture_id: record.lectureId,
       resource_type: record.resourceType,
       found: record.found,
@@ -120,7 +199,7 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
   const taskUpdates = lectures.flatMap((lecture) =>
     lecture.tasks.map((task) => {
       const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
-      const resolved = nextStatus(task, tracking, now);
+      const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
 
       return {
         id: task.id,
@@ -190,18 +269,6 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
   let alertsToSend: ComplianceAlertEvent[] = [];
 
   if (candidateAlerts.length > 0) {
-    const { data: existingAlerts, error: alertError } = await supabase
-      .from("alert_events")
-      .select("task_id, alert_type")
-      .in(
-        "task_id",
-        candidateAlerts.map((alert) => alert.taskId)
-      );
-
-    if (alertError) {
-      throw new Error(alertError.message);
-    }
-
     const sentKeys = new Set(
       (existingAlerts ?? []).map((alert) => `${alert.task_id}:${alert.alert_type}`)
     );
@@ -228,7 +295,7 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
 
   const summary = {
     checkedLectures: lectures.length,
-    trackedResources: trackingRecords.length,
+    trackedResources: mergedTrackingRecords.length,
     updatedTasks: updatedTasks.length,
     alertsSent
   };

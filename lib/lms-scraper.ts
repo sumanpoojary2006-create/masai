@@ -6,6 +6,19 @@ import { AutomationLecture, LmsTrackingRecord, TaskType } from "@/lib/types";
 
 const LMS_URL = "https://experience-admin.masaischool.com";
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function timestampPatterns() {
   return [
     /\b\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}\b/g,
@@ -99,6 +112,11 @@ async function clickNavigation(page: Page, label: string) {
   throw new Error(`Unable to open "${label}" in the LMS navigation`);
 }
 
+async function waitForPageRefresh(page: Page) {
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+  await page.waitForTimeout(800);
+}
+
 async function fillFirstMatching(page: Page, selectors: string[], value: string) {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
@@ -112,26 +130,210 @@ async function fillFirstMatching(page: Page, selectors: string[], value: string)
   return false;
 }
 
-async function filterByBatch(page: Page, batchName: string) {
-  const filled = await fillFirstMatching(
-    page,
-    [
-      'input[placeholder*="Batch"]',
-      'input[aria-label*="Batch"]',
-      'input[name*="batch"]'
-    ],
-    batchName
+async function openFiltersPanel(page: Page) {
+  const visibleBatchControl = await firstVisible(
+    page.locator(
+      [
+        'input[placeholder*="Batch"]',
+        'input[aria-label*="Batch"]',
+        'input[name*="batch"]',
+        "select",
+        '[role="combobox"][aria-label*="Batch"]',
+        '[role="combobox"][name*="batch"]'
+      ].join(", ")
+    )
   );
 
-  if (!filled) {
+  if (visibleBatchControl) {
     return;
   }
 
-  await page.waitForTimeout(600);
-  const option = await firstVisible(page.locator(`text=${batchName}`));
-  if (option) {
-    await option.click().catch(() => undefined);
+  const triggerCandidates = [
+    page.getByRole("button", { name: /filters?/i }),
+    page.locator("button").filter({ hasText: /filters?/i }),
+    page.locator("[role='button']").filter({ hasText: /filters?/i }),
+    page.locator("text=/filters?/i")
+  ];
+
+  for (const candidate of triggerCandidates) {
+    const trigger = await firstVisible(candidate);
+    if (!trigger) {
+      continue;
+    }
+
+    await trigger.click().catch(() => undefined);
+    await page.waitForTimeout(500);
+
+    const batchControl = await firstVisible(
+      page.locator(
+        [
+          'input[placeholder*="Batch"]',
+          'input[aria-label*="Batch"]',
+          'input[name*="batch"]',
+          "select",
+          '[role="combobox"]',
+          '[aria-label*="Batch"]'
+        ].join(", ")
+      )
+    );
+
+    if (batchControl) {
+      return;
+    }
   }
+}
+
+async function filterByBatch(page: Page, batchName: string) {
+  await openFiltersPanel(page);
+
+  const exactBatchPlaceholder = page.locator("#react-select-4-placeholder").first();
+  if (await exactBatchPlaceholder.isVisible().catch(() => false)) {
+    await exactBatchPlaceholder.click().catch(() => undefined);
+    await page.waitForTimeout(300);
+
+    const exactBatchInput = page.locator("#react-select-4-input").first();
+    if (await exactBatchInput.count().catch(() => 0)) {
+      await exactBatchInput.fill(batchName).catch(() => undefined);
+    } else {
+      await page.keyboard.type(batchName).catch(() => undefined);
+    }
+
+    await page.waitForTimeout(700);
+
+    const exactBatchOption = await firstVisible(
+      page.locator("[id^='react-select-4-option']").filter({
+        hasText: new RegExp(`^\\s*${escapeRegex(batchName)}\\s*$`, "i")
+      })
+    );
+
+    if (exactBatchOption) {
+      await exactBatchOption.click().catch(() => undefined);
+      await waitForPageRefresh(page);
+      return;
+    }
+  }
+
+  const batchReactSelect = page
+    .locator("[id^='react-select-'][id$='-placeholder']")
+    .filter({ hasText: /^Select\.\.\.$/ })
+    .nth(2);
+
+  if (await batchReactSelect.isVisible().catch(() => false)) {
+    await batchReactSelect.click().catch(() => undefined);
+    await page.waitForTimeout(300);
+
+    await page.keyboard.type(batchName).catch(() => undefined);
+    await page.waitForTimeout(700);
+
+    const reactOption = await firstVisible(
+      page.locator("[id^='react-select-'][id*='-option']").filter({
+        hasText: new RegExp(`^\\s*${escapeRegex(batchName)}\\s*$`, "i")
+      })
+    );
+
+    if (reactOption) {
+      await reactOption.click().catch(() => undefined);
+      await waitForPageRefresh(page);
+      return;
+    }
+  }
+
+  const batchLabel = page.locator("text=/^Batch$/i").first();
+  const batchSelect = batchLabel.locator("xpath=following::select[1]").first();
+
+  if (await batchSelect.isVisible().catch(() => false)) {
+    const options = await batchSelect
+      .locator("option")
+      .evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          value: (node as HTMLOptionElement).value,
+          label: (node.textContent || "").trim()
+        }))
+      )
+      .catch(() => []);
+    const matchingOption = options.find((option) =>
+      normalizeText(option.label).includes(normalizeText(batchName))
+    );
+
+    if (matchingOption?.value) {
+      await batchSelect.selectOption(matchingOption.value).catch(() => undefined);
+      await waitForPageRefresh(page);
+      return;
+    }
+  }
+
+  const controlCandidates = [
+    batchLabel.locator("xpath=following::input[1]").first(),
+    batchLabel.locator("xpath=following::*[@role='combobox'][1]").first(),
+    page.locator('input[placeholder*="Batch"]').first(),
+    page.locator('input[aria-label*="Batch"]').first(),
+    page.locator('input[name*="batch"]').first(),
+    page.locator('[role="combobox"][aria-label*="Batch"]').first(),
+    page.locator('[role="combobox"]').first()
+  ];
+
+  let control: Locator | null = null;
+
+  for (const candidate of controlCandidates) {
+    if (await candidate.isVisible().catch(() => false)) {
+      control = candidate;
+      break;
+    }
+  }
+
+  if (!control) {
+    return;
+  }
+
+  const tagName = await control.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+
+  if (tagName === "input" || tagName === "textarea") {
+    await control.fill("").catch(() => undefined);
+    await control.fill(batchName).catch(() => undefined);
+  } else {
+    await control.click().catch(() => undefined);
+    await page.keyboard.press("Meta+A").catch(() => undefined);
+    await page.keyboard.press("Control+A").catch(() => undefined);
+    await page.keyboard.type(batchName).catch(() => undefined);
+  }
+
+  await page.waitForTimeout(700);
+
+  const optionCandidates = [
+    page.getByRole("option", {
+      name: new RegExp(`^\\s*${escapeRegex(batchName)}\\s*$`, "i")
+    }),
+    page.locator("[role='option'], li, button, div").filter({
+      hasText: new RegExp(escapeRegex(batchName), "i")
+    }),
+    page.locator(`text="${batchName}"`)
+  ];
+
+  for (const candidate of optionCandidates) {
+    const option = await firstVisible(candidate);
+    if (option) {
+      await option.click().catch(() => undefined);
+      await waitForPageRefresh(page);
+      return;
+    }
+  }
+
+  const applyCandidates = [
+    page.getByRole("button", { name: /apply|update|search|done|submit/i }),
+    page.locator("button").filter({ hasText: /apply|update|search|done|submit/i })
+  ];
+
+  for (const candidate of applyCandidates) {
+    const button = await firstVisible(candidate);
+    if (button) {
+      await button.click().catch(() => undefined);
+      await waitForPageRefresh(page);
+      return;
+    }
+  }
+
+  await page.keyboard.press("Enter").catch(() => undefined);
+  await waitForPageRefresh(page);
 }
 
 async function searchByLectureName(page: Page, lectureName: string) {
@@ -147,69 +349,94 @@ async function searchByLectureName(page: Page, lectureName: string) {
     lectureName
   );
   await page.keyboard.press("Enter").catch(() => undefined);
-  await page.waitForTimeout(800);
+  await waitForPageRefresh(page);
 }
 
-async function locateLectureContainer(page: Page, lectureName: string) {
+async function paginateNext(page: Page, attempts: number, seenPages: Set<string>) {
+  const currentPageButton =
+    (await firstVisible(page.locator("button[aria-current='page'], [aria-current='page']"))) ??
+    (await firstVisible(page.locator(".active, [class*='active']")));
+  const currentPageKey = currentPageButton
+    ? await currentPageButton.innerText().catch(() => `page-${attempts}`)
+    : `page-${attempts}`;
+
+  if (seenPages.has(currentPageKey)) {
+    return false;
+  }
+
+  seenPages.add(currentPageKey);
+
+  const currentPageNumber = Number.parseInt(currentPageKey.trim(), 10);
+  let nextButton: Locator | null = null;
+
+  if (Number.isFinite(currentPageNumber)) {
+    nextButton = await firstVisible(
+      page
+        .locator("button, a")
+        .filter({ hasText: new RegExp(`^\\s*${currentPageNumber + 1}\\s*$`) })
+    );
+  }
+
+  if (!nextButton) {
+    nextButton = await firstVisible(
+      page
+        .locator("button, a")
+        .filter({ hasText: /next|›|»|>|→/i })
+    );
+  }
+
+  if (!nextButton) {
+    return false;
+  }
+
+  const disabled = await nextButton.isDisabled().catch(() => false);
+  if (disabled) {
+    return false;
+  }
+
+  await nextButton.click().catch(() => undefined);
+  await waitForPageRefresh(page);
+  return true;
+}
+
+async function locateLectureContainer(
+  page: Page,
+  lectureName: string,
+  batchName: string,
+  resourceKeyword: RegExp
+) {
+  const normalizedLectureName = normalizeText(lectureName);
+  const normalizedBatchName = normalizeText(batchName);
   const seenPages = new Set<string>();
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
-    const cards = page
-      .locator("tr, [role='row'], article, section, .table-row, .card")
-      .filter({ hasText: lectureName });
+    const cards = page.locator("tr, [role='row'], article, section, .table-row, .card");
+    const count = await cards.count();
 
-    const visible = await firstVisible(cards);
-    if (visible) {
-      return visible;
+    for (let index = 0; index < count; index += 1) {
+      const card = cards.nth(index);
+      if (!(await card.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      const text = await card.innerText().catch(() => "");
+      const normalizedText = normalizeText(text);
+
+      if (
+        normalizedText.includes(normalizedBatchName) &&
+        normalizedText.includes(normalizedLectureName) &&
+        resourceKeyword.test(text.toLowerCase())
+      ) {
+        return card;
+      }
     }
 
-    const currentPageButton =
-      (await firstVisible(page.locator("button[aria-current='page'], [aria-current='page']"))) ??
-      (await firstVisible(page.locator(".active, [class*='active']")));
-    const currentPageKey = currentPageButton
-      ? await currentPageButton.innerText().catch(() => `page-${attempts}`)
-      : `page-${attempts}`;
-
-    if (seenPages.has(currentPageKey)) {
+    if (!(await paginateNext(page, attempts, seenPages))) {
       break;
     }
-
-    seenPages.add(currentPageKey);
-
-    const currentPageNumber = Number.parseInt(currentPageKey.trim(), 10);
-    let nextButton: Locator | null = null;
-
-    if (Number.isFinite(currentPageNumber)) {
-      nextButton = await firstVisible(
-        page
-          .locator("button, a")
-          .filter({ hasText: new RegExp(`^\\s*${currentPageNumber + 1}\\s*$`) })
-      );
-    }
-
-    if (!nextButton) {
-      nextButton = await firstVisible(
-        page
-          .locator("button, a")
-          .filter({ hasText: /next|›|»|>|→/i })
-      );
-    }
-
-    if (!nextButton) {
-      break;
-    }
-
-    const disabled = await nextButton.isDisabled().catch(() => false);
-    if (disabled) {
-      break;
-    }
-
-    await nextButton.click().catch(() => undefined);
-    await page.waitForLoadState("networkidle").catch(() => undefined);
-    await page.waitForTimeout(800);
   }
 
-  return firstVisible(page.locator(`text=${lectureName}`));
+  return null;
 }
 
 async function extractTimestamp(container: Locator) {
@@ -318,73 +545,94 @@ async function login(page: Page, username: string, password: string) {
 async function scrapeLectures(page: Page, lecture: AutomationLecture) {
   await clickNavigation(page, "Lectures");
   await filterByBatch(page, lecture.batch_name);
-  await searchByLectureName(page, lecture.lecture_name);
 
-  const container = await locateLectureContainer(page, lecture.lecture_name);
-
-  if (!container) {
-    return [
-      {
-        lectureId: lecture.id,
-        resourceType: "preread" as const,
-        found: false,
-        uploadedAt: null
-      },
-      {
-        lectureId: lecture.id,
-        resourceType: "notes" as const,
-        found: false,
-        uploadedAt: null
-      }
-    ];
-  }
+  const prereadContainer = await locateLectureContainer(
+    page,
+    lecture.lecture_name,
+    lecture.batch_name,
+    /pre[- ]?reads?/i
+  );
+  const notesContainer = await locateLectureContainer(
+    page,
+    lecture.lecture_name,
+    lecture.batch_name,
+    /\bnotes?\b/i
+  );
 
   return Promise.all([
-    detectResourceInLecture(container, /pre[- ]?read/i, "preread", lecture.id),
-    detectResourceInLecture(container, /\bnotes?\b/i, "notes", lecture.id)
+    prereadContainer
+      ? detectResourceInLecture(prereadContainer, /pre[- ]?read/i, "preread", lecture.id)
+      : Promise.resolve({
+          lectureId: lecture.id,
+          resourceType: "preread" as const,
+          found: false,
+          uploadedAt: null
+        }),
+    notesContainer
+      ? detectResourceInLecture(notesContainer, /\bnotes?\b/i, "notes", lecture.id)
+      : Promise.resolve({
+          lectureId: lecture.id,
+          resourceType: "notes" as const,
+          found: false,
+          uploadedAt: null
+        })
   ]);
 }
 
 async function scrapeAssignments(page: Page, lecture: AutomationLecture) {
   await clickNavigation(page, "Assignments");
+  await filterByBatch(page, lecture.batch_name);
   await searchByLectureName(page, lecture.lecture_name);
 
-  const candidates = page
-    .locator("tr, [role='row'], article, section, .table-row, .card")
-    .filter({ hasText: lecture.lecture_name });
-
-  const candidateCount = await candidates.count();
+  const normalizedLectureName = normalizeText(lecture.lecture_name);
+  const normalizedBatchName = normalizeText(lecture.batch_name);
   let objectiveMatch: { text: string; uploadedAt: string | null } | null = null;
   let subjectiveMatch: { text: string; uploadedAt: string | null } | null = null;
+  const seenPages = new Set<string>();
 
-  for (let index = 0; index < candidateCount; index += 1) {
-    const container = candidates.nth(index);
-    if (!(await container.isVisible().catch(() => false))) {
-      continue;
+  for (let attempts = 0; attempts < 15; attempts += 1) {
+    const candidates = page.locator("tr, [role='row'], article, section, .table-row, .card");
+    const candidateCount = await candidates.count();
+
+    for (let index = 0; index < candidateCount; index += 1) {
+      const container = candidates.nth(index);
+      if (!(await container.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      const associatedText = await container.innerText().catch(() => "");
+      const normalizedText = normalizeText(associatedText);
+
+      if (
+        !normalizedText.includes(normalizedLectureName) ||
+        !normalizedText.includes(normalizedBatchName)
+      ) {
+        continue;
+      }
+
+      const uploadedAt = await extractTimestamp(container);
+
+      if (!objectiveMatch && /\bobjective\b/i.test(associatedText)) {
+        objectiveMatch = {
+          text: associatedText,
+          uploadedAt
+        };
+      }
+
+      if (!subjectiveMatch && /\bsubjective\b/i.test(associatedText)) {
+        subjectiveMatch = {
+          text: associatedText,
+          uploadedAt
+        };
+      }
     }
 
-    const associatedText = await container.innerText().catch(() => "");
-    const normalizedText = associatedText.toLowerCase();
-    const matchesLecture = normalizedText.includes(lecture.lecture_name.toLowerCase());
-
-    if (!matchesLecture) {
-      continue;
+    if (objectiveMatch && subjectiveMatch) {
+      break;
     }
 
-    const uploadedAt = await extractTimestamp(container);
-
-    if (!objectiveMatch && /\bobjective\b/i.test(associatedText)) {
-      objectiveMatch = {
-        text: associatedText,
-        uploadedAt
-      };
-    }
-
-    if (!subjectiveMatch && /\bsubjective\b/i.test(associatedText)) {
-      subjectiveMatch = {
-        text: associatedText,
-        uploadedAt
-      };
+    if (!(await paginateNext(page, attempts, seenPages))) {
+      break;
     }
   }
 
