@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Fragment, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 
 import { StatusPill } from "@/components/status-pill";
 import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
@@ -14,6 +14,10 @@ const STATUS_FILTERS: Array<TaskStatus | "all"> = [
   "missed"
 ];
 
+const MANUAL_REFERENCE_STORAGE_KEY = "masai-manual-resource-checks";
+
+type ManualReferenceState = Record<string, boolean>;
+
 export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) {
   const router = useRouter();
   const [batchFilter, setBatchFilter] = useState("all");
@@ -22,6 +26,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [manualChecks, setManualChecks] = useState<ManualReferenceState>({});
   const [editForm, setEditForm] = useState({
     batch_name: "",
     module_name: "",
@@ -49,6 +54,36 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       return accumulator;
     }, {})
   ).sort(([leftBatch], [rightBatch]) => leftBatch.localeCompare(rightBatch));
+
+  useEffect(() => {
+    try {
+      const storedValue = window.localStorage.getItem(MANUAL_REFERENCE_STORAGE_KEY);
+      if (!storedValue) {
+        return;
+      }
+
+      const parsed = JSON.parse(storedValue) as ManualReferenceState;
+      setManualChecks(parsed);
+    } catch {
+      window.localStorage.removeItem(MANUAL_REFERENCE_STORAGE_KEY);
+    }
+  }, []);
+
+  function manualCheckKey(lectureId: string, type: "preread" | "notes" | "assignment") {
+    return `${lectureId}:${type}`;
+  }
+
+  function toggleManualCheck(lectureId: string, type: "preread" | "notes" | "assignment") {
+    setManualChecks((current) => {
+      const next = {
+        ...current,
+        [manualCheckKey(lectureId, type)]: !current[manualCheckKey(lectureId, type)]
+      };
+
+      window.localStorage.setItem(MANUAL_REFERENCE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   function handleDelete(lectureId: string, lectureName: string) {
     const confirmed = window.confirm(
@@ -195,164 +230,165 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   }
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-panel backdrop-blur">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
-            Compliance Dashboard
-          </p>
-          <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
-            Lecture resources across every batch
-          </h2>
+    <div className="space-y-8">
+      <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-panel backdrop-blur">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
+              Compliance Dashboard
+            </p>
+            <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
+              Lecture resources across every batch
+            </h2>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <button
+              type="button"
+              disabled={isPending || isSyncing}
+              onClick={handleSync}
+              className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              {isSyncing ? "Syncing..." : "Sync Up"}
+            </button>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
+              Batch
+              <select
+                value={batchFilter}
+                onChange={(event) => setBatchFilter(event.target.value)}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              >
+                <option value="all">All batches</option>
+                {batches.map((batch) => (
+                  <option key={batch} value={batch}>
+                    {batch}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
+              Status
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
+                className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              >
+                {STATUS_FILTERS.map((status) => (
+                  <option key={status} value={status}>
+                    {status === "all" ? "All statuses" : status}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <button
-            type="button"
-            disabled={isPending || isSyncing}
-            onClick={handleSync}
-            className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-          >
-            {isSyncing ? "Syncing..." : "Sync Up"}
-          </button>
+        {message ? <p className="mt-4 text-sm text-slate-600">{message}</p> : null}
 
-          <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
-            Batch
-            <select
-              value={batchFilter}
-              onChange={(event) => setBatchFilter(event.target.value)}
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-            >
-              <option value="all">All batches</option>
-              {batches.map((batch) => (
-                <option key={batch} value={batch}>
-                  {batch}
-                </option>
-              ))}
-            </select>
-          </label>
+        {groupedLectures.length === 0 ? (
+          <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+              No Matching Lectures
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Try a different batch or status filter to see grouped lecture results.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 space-y-6">
+            {groupedLectures.map(([batchName, batchLectures]) => (
+              <div
+                key={batchName}
+                className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50/70"
+              >
+                <div className="border-b border-slate-200 bg-white px-5 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Batch
+                  </p>
+                  <h3 className="mt-1 font-[var(--font-heading)] text-xl font-bold text-ink">
+                    {batchName}
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {batchLectures.length} lecture{batchLectures.length === 1 ? "" : "s"}
+                  </p>
+                </div>
 
-          <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
-            Status
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-            >
-              {STATUS_FILTERS.map((status) => (
-                <option key={status} value={status}>
-                  {status === "all" ? "All statuses" : status}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-
-      {message ? <p className="mt-4 text-sm text-slate-600">{message}</p> : null}
-
-      {groupedLectures.length === 0 ? (
-        <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-            No Matching Lectures
-          </p>
-          <p className="mt-2 text-sm text-slate-600">
-            Try a different batch or status filter to see grouped lecture results.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-6 space-y-6">
-          {groupedLectures.map(([batchName, batchLectures]) => (
-            <div
-              key={batchName}
-              className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50/70"
-            >
-              <div className="border-b border-slate-200 bg-white px-5 py-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Batch
-                </p>
-                <h3 className="mt-1 font-[var(--font-heading)] text-xl font-bold text-ink">
-                  {batchName}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  {batchLectures.length} lecture{batchLectures.length === 1 ? "" : "s"}
-                </p>
-              </div>
-
-              <div className="overflow-x-auto px-5 py-2">
-                <table className="min-w-full divide-y divide-slate-200">
-                  <thead>
-                    <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      <th className="pb-3 pr-4 pt-3">Lecture</th>
-                      <th className="pb-3 pr-4 pt-3">Schedule</th>
-                      <th className="pb-3 pr-4 pt-3">Pre-read</th>
-                      <th className="pb-3 pr-4 pt-3">Notes</th>
-                      <th className="pb-3 pr-4 pt-3">Assignment</th>
-                      <th className="pb-3 pt-3">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {batchLectures.map((lecture) => (
-                      <Fragment key={lecture.id}>
-                      <tr className="align-top">
-                        <td className="py-4 pr-4">
-                          <p className="font-semibold text-ink">{lecture.lecture_name}</p>
-                          <p className="mt-1 text-sm text-slate-500">{lecture.module_name}</p>
-                        </td>
-                        <td className="py-4 pr-4 text-sm text-slate-600">
-                          <p>{formatLectureDate(lecture.lecture_date)}</p>
-                          <p className="mt-1">
-                            {formatLectureTime(lecture.start_time)} -{" "}
-                            {formatLectureTime(lecture.end_time)}
-                          </p>
-                        </td>
-                        <td className="py-4 pr-4">
-                          {lecture.tasks.preread ? (
-                            <StatusPill task={lecture.tasks.preread} />
-                          ) : (
-                            <span className="text-sm text-slate-400">Not created</span>
-                          )}
-                        </td>
-                        <td className="py-4 pr-4">
-                          {lecture.tasks.notes ? (
-                            <StatusPill task={lecture.tasks.notes} />
-                          ) : (
-                            <span className="text-sm text-slate-400">Not created</span>
-                          )}
-                        </td>
-                        <td className="py-4 pr-4">
-                          {lecture.tasks.assignment ? (
-                            <StatusPill task={lecture.tasks.assignment} />
-                          ) : (
-                            <span className="text-sm text-slate-400">Not created</span>
-                          )}
-                        </td>
-                        <td className="py-4">
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <button
-                              type="button"
-                              disabled={isPending}
-                              onClick={() => startEditing(lecture)}
-                              className="inline-flex h-9 items-center justify-center rounded-full border border-slate-300 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isPending && deletingId === lecture.id}
-                              onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
-                              className="inline-flex h-9 items-center justify-center rounded-full border border-rose-200 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                            >
-                              {deletingId === lecture.id ? "Deleting..." : "Delete"}
-                            </button>
-                          </div>
-                        </td>
+                <div className="overflow-x-auto px-5 py-2">
+                  <table className="min-w-full divide-y divide-slate-200">
+                    <thead>
+                      <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        <th className="pb-3 pr-4 pt-3">Lecture</th>
+                        <th className="pb-3 pr-4 pt-3">Schedule</th>
+                        <th className="pb-3 pr-4 pt-3">Pre-read</th>
+                        <th className="pb-3 pr-4 pt-3">Notes</th>
+                        <th className="pb-3 pr-4 pt-3">Assignment</th>
+                        <th className="pb-3 pt-3">Action</th>
                       </tr>
-                    {editingId === lecture.id ? (
-                      <tr className="bg-white/90">
-                        <td colSpan={6} className="px-0 pb-5 pt-1">
-                          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {batchLectures.map((lecture) => (
+                        <Fragment key={lecture.id}>
+                          <tr className="align-top">
+                            <td className="py-4 pr-4">
+                              <p className="font-semibold text-ink">{lecture.lecture_name}</p>
+                              <p className="mt-1 text-sm text-slate-500">{lecture.module_name}</p>
+                            </td>
+                            <td className="py-4 pr-4 text-sm text-slate-600">
+                              <p>{formatLectureDate(lecture.lecture_date)}</p>
+                              <p className="mt-1">
+                                {formatLectureTime(lecture.start_time)} -{" "}
+                                {formatLectureTime(lecture.end_time)}
+                              </p>
+                            </td>
+                            <td className="py-4 pr-4">
+                              {lecture.tasks.preread ? (
+                                <StatusPill task={lecture.tasks.preread} />
+                              ) : (
+                                <span className="text-sm text-slate-400">Not created</span>
+                              )}
+                            </td>
+                            <td className="py-4 pr-4">
+                              {lecture.tasks.notes ? (
+                                <StatusPill task={lecture.tasks.notes} />
+                              ) : (
+                                <span className="text-sm text-slate-400">Not created</span>
+                              )}
+                            </td>
+                            <td className="py-4 pr-4">
+                              {lecture.tasks.assignment ? (
+                                <StatusPill task={lecture.tasks.assignment} />
+                              ) : (
+                                <span className="text-sm text-slate-400">Not created</span>
+                              )}
+                            </td>
+                            <td className="py-4">
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                <button
+                                  type="button"
+                                  disabled={isPending}
+                                  onClick={() => startEditing(lecture)}
+                                  className="inline-flex h-9 items-center justify-center rounded-full border border-slate-300 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isPending && deletingId === lecture.id}
+                                  onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
+                                  className="inline-flex h-9 items-center justify-center rounded-full border border-rose-200 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                                >
+                                  {deletingId === lecture.id ? "Deleting..." : "Delete"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {editingId === lecture.id ? (
+                            <tr className="bg-white/90">
+                              <td colSpan={6} className="px-0 pb-5 pt-1">
+                                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                               <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
                                 Batch
                                 <input
@@ -406,37 +442,97 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                               </label>
                             </div>
 
-                            <div className="mt-4 flex flex-wrap gap-3">
-                              <button
-                                type="button"
-                                disabled={isPending}
-                                onClick={() => handleSave(lecture.id)}
-                                className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                              >
-                                Save Changes
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isPending}
-                                onClick={cancelEditing}
-                                className="inline-flex h-10 items-center justify-center rounded-full border border-slate-300 px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                      </Fragment>
-                    ))}
-                  </tbody>
-                </table>
+                                  <div className="mt-4 flex flex-wrap gap-3">
+                                    <button
+                                      type="button"
+                                      disabled={isPending}
+                                      onClick={() => handleSave(lecture.id)}
+                                      className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                    >
+                                      Save Changes
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={isPending}
+                                      onClick={cancelEditing}
+                                      className="inline-flex h-10 items-center justify-center rounded-full border border-slate-300 px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-panel backdrop-blur">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
+            Manual Reference
+          </p>
+          <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
+            My sent resources checklist
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            This is only for your reference. These checkmarks do not affect LMS sync,
+            Slack alerts, or automated task statuses.
+          </p>
         </div>
-      )}
-    </section>
+
+        <div className="mt-6 overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead>
+              <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <th className="pb-3 pr-4 pt-3">Lecture</th>
+                <th className="pb-3 pr-4 pt-3">Batch</th>
+                <th className="pb-3 pr-4 pt-3">Schedule</th>
+                <th className="pb-3 pr-4 pt-3 text-center">Pre-read</th>
+                <th className="pb-3 pr-4 pt-3 text-center">Notes</th>
+                <th className="pb-3 pt-3 text-center">Assignment</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredLectures.map((lecture) => (
+                <tr key={`manual-${lecture.id}`} className="align-top">
+                  <td className="py-4 pr-4">
+                    <p className="font-semibold text-ink">{lecture.lecture_name}</p>
+                    <p className="mt-1 text-sm text-slate-500">{lecture.module_name}</p>
+                  </td>
+                  <td className="py-4 pr-4 text-sm text-slate-600">{lecture.batch_name}</td>
+                  <td className="py-4 pr-4 text-sm text-slate-600">
+                    <p>{formatLectureDate(lecture.lecture_date)}</p>
+                    <p className="mt-1">
+                      {formatLectureTime(lecture.start_time)} - {formatLectureTime(lecture.end_time)}
+                    </p>
+                  </td>
+                  {(["preread", "notes", "assignment"] as const).map((type) => (
+                    <td key={type} className="py-4 pr-4 text-center">
+                      <label className="inline-flex items-center justify-center">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(manualChecks[manualCheckKey(lecture.id, type)])}
+                          onChange={() => toggleManualCheck(lecture.id, type)}
+                          className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+                        />
+                      </label>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   );
 }
