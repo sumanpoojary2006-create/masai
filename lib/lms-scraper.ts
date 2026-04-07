@@ -151,13 +151,49 @@ async function searchByLectureName(page: Page, lectureName: string) {
 }
 
 async function locateLectureContainer(page: Page, lectureName: string) {
-  const cards = page
-    .locator("tr, [role='row'], article, section, .table-row, .card")
-    .filter({ hasText: lectureName });
+  const seenPages = new Set<string>();
 
-  const visible = await firstVisible(cards);
-  if (visible) {
-    return visible;
+  for (let attempts = 0; attempts < 15; attempts += 1) {
+    const cards = page
+      .locator("tr, [role='row'], article, section, .table-row, .card")
+      .filter({ hasText: lectureName });
+
+    const visible = await firstVisible(cards);
+    if (visible) {
+      return visible;
+    }
+
+    const currentPageButton =
+      (await firstVisible(page.locator("button[aria-current='page'], [aria-current='page']"))) ??
+      (await firstVisible(page.locator(".active, [class*='active']")));
+    const currentPageKey = currentPageButton
+      ? await currentPageButton.innerText().catch(() => `page-${attempts}`)
+      : `page-${attempts}`;
+
+    if (seenPages.has(currentPageKey)) {
+      break;
+    }
+
+    seenPages.add(currentPageKey);
+
+    const nextButton = await firstVisible(
+      page
+        .locator("button, a")
+        .filter({ hasText: /next|›|»/i })
+    );
+
+    if (!nextButton) {
+      break;
+    }
+
+    const disabled = await nextButton.isDisabled().catch(() => false);
+    if (disabled) {
+      break;
+    }
+
+    await nextButton.click().catch(() => undefined);
+    await page.waitForLoadState("networkidle").catch(() => undefined);
+    await page.waitForTimeout(800);
   }
 
   return firstVisible(page.locator(`text=${lectureName}`));
