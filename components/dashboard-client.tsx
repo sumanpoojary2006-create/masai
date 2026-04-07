@@ -489,48 +489,68 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
           </p>
         </div>
 
-        <div className="mt-6 overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead>
-              <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                <th className="pb-3 pr-4 pt-3">Lecture</th>
-                <th className="pb-3 pr-4 pt-3">Batch</th>
-                <th className="pb-3 pr-4 pt-3">Schedule</th>
-                <th className="pb-3 pr-4 pt-3 text-center">Pre-read</th>
-                <th className="pb-3 pr-4 pt-3 text-center">Notes</th>
-                <th className="pb-3 pt-3 text-center">Assignment</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredLectures.map((lecture) => (
-                <tr key={`manual-${lecture.id}`} className="align-top">
-                  <td className="py-4 pr-4">
-                    <p className="font-semibold text-ink">{lecture.lecture_name}</p>
-                    <p className="mt-1 text-sm text-slate-500">{lecture.module_name}</p>
-                  </td>
-                  <td className="py-4 pr-4 text-sm text-slate-600">{lecture.batch_name}</td>
-                  <td className="py-4 pr-4 text-sm text-slate-600">
-                    <p>{formatLectureDate(lecture.lecture_date)}</p>
-                    <p className="mt-1">
-                      {formatLectureTime(lecture.start_time)} - {formatLectureTime(lecture.end_time)}
-                    </p>
-                  </td>
-                  {(["preread", "notes", "assignment"] as const).map((type) => (
-                    <td key={type} className="py-4 pr-4 text-center">
-                      <label className="inline-flex items-center justify-center">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(manualChecks[manualCheckKey(lecture.id, type)])}
-                          onChange={() => toggleManualCheck(lecture.id, type)}
-                          className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
-                        />
-                      </label>
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-6 space-y-6">
+          {groupedLectures.map(([batchName, batchLectures]) => (
+            <div
+              key={`manual-${batchName}`}
+              className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50/70"
+            >
+              <div className="border-b border-slate-200 bg-white px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Batch
+                </p>
+                <h3 className="mt-1 font-[var(--font-heading)] text-xl font-bold text-ink">
+                  {batchName}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {batchLectures.length} lecture{batchLectures.length === 1 ? "" : "s"}
+                </p>
+              </div>
+
+              <div className="overflow-x-auto px-5 py-2">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead>
+                    <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      <th className="pb-3 pr-4 pt-3">Lecture</th>
+                      <th className="pb-3 pr-4 pt-3">Schedule</th>
+                      <th className="pb-3 pr-4 pt-3 text-center">Pre-read</th>
+                      <th className="pb-3 pr-4 pt-3 text-center">Notes</th>
+                      <th className="pb-3 pt-3 text-center">Assignment</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {batchLectures.map((lecture) => (
+                      <tr key={`manual-${lecture.id}`} className="align-top">
+                        <td className="py-4 pr-4">
+                          <p className="font-semibold text-ink">{lecture.lecture_name}</p>
+                          <p className="mt-1 text-sm text-slate-500">{lecture.module_name}</p>
+                        </td>
+                        <td className="py-4 pr-4 text-sm text-slate-600">
+                          <p>{formatLectureDate(lecture.lecture_date)}</p>
+                          <p className="mt-1">
+                            {formatLectureTime(lecture.start_time)} -{" "}
+                            {formatLectureTime(lecture.end_time)}
+                          </p>
+                        </td>
+                        {(["preread", "notes", "assignment"] as const).map((type) => (
+                          <td key={type} className="py-4 pr-4 text-center">
+                            <label className="inline-flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(manualChecks[manualCheckKey(lecture.id, type)])}
+                                onChange={() => toggleManualCheck(lecture.id, type)}
+                                className="h-5 w-5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-200"
+                              />
+                            </label>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
     </div>
