@@ -484,11 +484,10 @@ async function waitForTableRows(page: Page, timeoutMs = 10000) {
   return [] as string[];
 }
 
-async function findLectureRowText(
+async function findLectureResourceRowTexts(
   page: Page,
   lectureName: string,
   batchName: string,
-  resourceKeyword: RegExp,
   options?: {
     batchScoped?: boolean;
   }
@@ -496,6 +495,8 @@ async function findLectureRowText(
   const normalizedLectureName = normalizeText(lectureName);
   const normalizedBatchName = normalizeText(batchName);
   const seenPages = new Set<string>();
+  let prereadRowText: string | null = null;
+  let notesRowText: string | null = null;
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
     const rows = attempts === 0 ? await waitForTableRows(page) : await readTableRows(page);
@@ -511,24 +512,47 @@ async function findLectureRowText(
       const normalizedText = normalizeText(text);
       const matchesLecture = normalizedText.includes(normalizedLectureName);
       const matchesBatch = options?.batchScoped || normalizedText.includes(normalizedBatchName);
-      const matchesResource = resourceKeyword.test(text.toLowerCase());
+      const lowerText = text.toLowerCase();
+      const matchesPreread = /pre[- ]?reads?/i.test(lowerText);
+      const matchesNotes = /\bnotes?\b/i.test(lowerText);
 
-      if (
-        matchesBatch &&
-        matchesLecture &&
-        matchesResource
-      ) {
-        logLmsDebug("matched-row", { lectureName, batchName, text });
-        return text;
+      if (matchesBatch && matchesLecture) {
+        if (!prereadRowText && matchesPreread) {
+          prereadRowText = text;
+          logLmsDebug("matched-row", {
+            lectureName,
+            batchName,
+            resourceType: "preread",
+            text
+          });
+        }
+
+        if (!notesRowText && matchesNotes) {
+          notesRowText = text;
+          logLmsDebug("matched-row", {
+            lectureName,
+            batchName,
+            resourceType: "notes",
+            text
+          });
+        }
+
+        if (prereadRowText && notesRowText) {
+          return {
+            prereadRowText,
+            notesRowText
+          };
+        }
       }
 
-      if (matchesLecture || matchesResource) {
+      if (matchesLecture || matchesPreread || matchesNotes) {
         logLmsDebug("row-check", {
           lectureName,
           batchName,
           matchesLecture,
           matchesBatch,
-          matchesResource,
+          matchesPreread,
+          matchesNotes,
           text
         });
       }
@@ -539,7 +563,10 @@ async function findLectureRowText(
     }
   }
 
-  return null;
+  return {
+    prereadRowText,
+    notesRowText
+  };
 }
 
 function resourceRecordFromRowText(
@@ -686,20 +713,10 @@ async function scrapeLectureResourcesOnce(
   await waitForBodyText(page, lecture.lecture_name).catch(() => undefined);
   await waitForTableRows(page);
 
-  const prereadRowText = await findLectureRowText(
+  const { prereadRowText, notesRowText } = await findLectureResourceRowTexts(
     page,
     lecture.lecture_name,
     lecture.batch_name,
-    /pre[- ]?reads?/i,
-    {
-      batchScoped
-    }
-  );
-  const notesRowText = await findLectureRowText(
-    page,
-    lecture.lecture_name,
-    lecture.batch_name,
-    /\bnotes?\b/i,
     {
       batchScoped
     }
