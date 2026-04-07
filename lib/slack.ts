@@ -23,34 +23,55 @@ function sortAlerts(left: ComplianceAlertEvent, right: ComplianceAlertEvent) {
   return left.taskType.localeCompare(right.taskType);
 }
 
+function groupedAlertLines(alerts: ComplianceAlertEvent[]) {
+  const groupedByBatch = alerts
+    .sort(sortAlerts)
+    .reduce<Map<string, ComplianceAlertEvent[]>>((accumulator, alert) => {
+      const current = accumulator.get(alert.lecture.batch_name) ?? [];
+      current.push(alert);
+      accumulator.set(alert.lecture.batch_name, current);
+      return accumulator;
+    }, new Map());
+
+  const lines: string[] = [];
+
+  for (const [batchName, batchAlerts] of groupedByBatch.entries()) {
+    lines.push(batchName);
+    lines.push(...batchAlerts.map(alertLine));
+    lines.push("");
+  }
+
+  return lines;
+}
+
 function alertLine(event: ComplianceAlertEvent) {
   const label = TASK_LABELS[event.taskType];
 
   if (event.alertType === "completed") {
-    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} uploaded`;
+    return `• ${event.lecture.lecture_name} | ${label} uploaded`;
   }
 
   if (event.alertType === "missed") {
-    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} missed deadline`;
+    return `• ${event.lecture.lecture_name} | ${label} missed deadline`;
   }
 
   if (event.alertType === "reminder_2h") {
-    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 2 hours`;
+    return `• ${event.lecture.lecture_name} | ${label} due in 2 hours`;
   }
 
   if (event.alertType === "reminder_30m") {
-    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 30 minutes`;
+    return `• ${event.lecture.lecture_name} | ${label} due in 30 minutes`;
   }
 
   if (event.alertType === "reminder_6h") {
-    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 6 hours`;
+    return `• ${event.lecture.lecture_name} | ${label} due in 6 hours`;
   }
 
   if (event.alertType === "reminder_10h") {
-    return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 10 hours`;
+    return `• ${event.lecture.lecture_name} | ${label} due in 10 hours`;
   }
 
-  return `• ${event.lecture.batch_name} | ${event.lecture.lecture_name} | ${label} due in 6 hours`;
+  return `• ${event.lecture.lecture_name} | ${label} due in 6 hours`;
 }
 
 function section(title: string, alerts: ComplianceAlertEvent[]) {
@@ -58,7 +79,7 @@ function section(title: string, alerts: ComplianceAlertEvent[]) {
     return [];
   }
 
-  return [title, ...alerts.sort(sortAlerts).map(alertLine), ""];
+  return [title, ...groupedAlertLines(alerts)];
 }
 
 export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
