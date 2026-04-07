@@ -138,9 +138,11 @@ async function searchByLectureName(page: Page, lectureName: string) {
   await fillFirstMatching(
     page,
     [
+      'input[placeholder*="Title"]',
       'input[placeholder*="Search"]',
       'input[aria-label*="Search"]',
-      'input[type="search"]'
+      'input[type="search"]',
+      'input[name*="title"]'
     ],
     lectureName
   );
