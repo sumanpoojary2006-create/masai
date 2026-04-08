@@ -69,34 +69,34 @@ function alertLine(event: ComplianceAlertEvent) {
   const label = TASK_LABELS[event.taskType];
 
   if (event.alertType === "completed") {
-    return `• ${event.lecture.lecture_name} | ${label} uploaded`;
+    return `• ✅ ${event.lecture.lecture_name} | ${label} uploaded`;
   }
 
   if (event.alertType === "missed") {
-    return `• ${event.lecture.lecture_name} | ${label} missed deadline`;
+    return `• 🚨 ${event.lecture.lecture_name} | ${label} missed deadline`;
   }
 
   if (event.alertType === "reminder_2h") {
-    return `• ${event.lecture.lecture_name} | ${label} due in 2 hours`;
+    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 2 hours`;
   }
 
   if (event.alertType === "reminder_30m") {
-    return `• ${event.lecture.lecture_name} | ${label} due in 30 minutes`;
+    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 30 minutes`;
   }
 
   if (event.alertType === "reminder_6h") {
-    return `• ${event.lecture.lecture_name} | ${label} due in 6 hours`;
+    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 6 hours`;
   }
 
   if (event.alertType === "reminder_10h") {
-    return `• ${event.lecture.lecture_name} | ${label} due in 10 hours`;
+    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 10 hours`;
   }
 
-  return `• ${event.lecture.lecture_name} | ${label} due in 6 hours`;
+  return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 6 hours`;
 }
 
 function pendingLine(item: PendingDigestItem) {
-  return `• ${item.lecture.lecture_name} | ${TASK_LABELS[item.taskType]} pending`;
+  return `• 🕒 ${item.lecture.lecture_name} | ${TASK_LABELS[item.taskType]} pending`;
 }
 
 function section(title: string, alerts: ComplianceAlertEvent[]) {
@@ -174,13 +174,13 @@ function buildSlackDigest(
     .join(", ");
 
   const message = [
-    "Masai Resource Tracker Update",
-    lectureDates ? `Lecture dates: ${lectureDates}` : null,
+    "📣 Masai Resource Tracker Update",
+    lectureDates ? `🗓️ Lecture dates: ${lectureDates}` : null,
     "",
-    ...section("Completed", completedAlerts),
-    ...section("Pending / Upcoming", reminderAlerts),
-    ...pendingSection("Pending now", pendingItems),
-    ...section("Missed", missedAlerts)
+    ...section("✅ Completed", completedAlerts),
+    ...section("⏳ Pending / Upcoming", reminderAlerts),
+    ...pendingSection("🕒 Pending now", pendingItems),
+    ...section("🚨 Missed", missedAlerts)
   ]
     .filter((line): line is string => line !== null)
     .join("\n")
