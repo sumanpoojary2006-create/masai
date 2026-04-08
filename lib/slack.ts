@@ -4,6 +4,8 @@ import { TASK_LABELS } from "@/lib/constants";
 import { getAutomationEnv } from "@/lib/env";
 import { ComplianceAlertEvent } from "@/lib/types";
 
+type PendingDigestItem = Pick<ComplianceAlertEvent, "lecture" | "taskType" | "deadline">;
+
 function sortAlerts(left: ComplianceAlertEvent, right: ComplianceAlertEvent) {
   const dateCompare = left.lecture.lecture_date.localeCompare(right.lecture.lecture_date);
   if (dateCompare !== 0) {
@@ -44,6 +46,25 @@ function groupedAlertLines(alerts: ComplianceAlertEvent[]) {
   return lines;
 }
 
+function sortPendingItems(left: PendingDigestItem, right: PendingDigestItem) {
+  const dateCompare = left.lecture.lecture_date.localeCompare(right.lecture.lecture_date);
+  if (dateCompare !== 0) {
+    return dateCompare;
+  }
+
+  const batchCompare = left.lecture.batch_name.localeCompare(right.lecture.batch_name);
+  if (batchCompare !== 0) {
+    return batchCompare;
+  }
+
+  const lectureCompare = left.lecture.lecture_name.localeCompare(right.lecture.lecture_name);
+  if (lectureCompare !== 0) {
+    return lectureCompare;
+  }
+
+  return left.taskType.localeCompare(right.taskType);
+}
+
 function alertLine(event: ComplianceAlertEvent) {
   const label = TASK_LABELS[event.taskType];
 
@@ -74,6 +95,10 @@ function alertLine(event: ComplianceAlertEvent) {
   return `• ${event.lecture.lecture_name} | ${label} due in 6 hours`;
 }
 
+function pendingLine(item: PendingDigestItem) {
+  return `• ${item.lecture.lecture_name} | ${TASK_LABELS[item.taskType]} pending`;
+}
+
 function section(title: string, alerts: ComplianceAlertEvent[]) {
   if (alerts.length === 0) {
     return [];
@@ -82,8 +107,40 @@ function section(title: string, alerts: ComplianceAlertEvent[]) {
   return [title, ...groupedAlertLines(alerts)];
 }
 
-export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
-  if (alerts.length === 0) {
+function pendingSection(title: string, items: PendingDigestItem[]) {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const groupedByBatch = items
+    .sort(sortPendingItems)
+    .reduce<Map<string, PendingDigestItem[]>>((accumulator, item) => {
+      const current = accumulator.get(item.lecture.batch_name) ?? [];
+      current.push(item);
+      accumulator.set(item.lecture.batch_name, current);
+      return accumulator;
+    }, new Map());
+
+  const lines = [title];
+
+  for (const [batchName, batchItems] of groupedByBatch.entries()) {
+    lines.push(batchName);
+    lines.push(...batchItems.map(pendingLine));
+    lines.push("");
+  }
+
+  return lines;
+}
+
+export async function sendSlackAlerts(
+  alerts: ComplianceAlertEvent[],
+  options?: {
+    pendingItems?: PendingDigestItem[];
+  }
+) {
+  const pendingItems = options?.pendingItems ?? [];
+
+  if (alerts.length === 0 && pendingItems.length === 0) {
     return 0;
   }
 
@@ -97,6 +154,11 @@ export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
     .map((alert) =>
       DateTime.fromISO(alert.lecture.lecture_date, { zone: timezone }).toFormat("dd LLL yyyy")
     )
+    .concat(
+      pendingItems.map((item) =>
+        DateTime.fromISO(item.lecture.lecture_date, { zone: timezone }).toFormat("dd LLL yyyy")
+      )
+    )
     .filter((value, index, array) => array.indexOf(value) === index)
     .join(", ");
 
@@ -106,6 +168,7 @@ export async function sendSlackAlerts(alerts: ComplianceAlertEvent[]) {
     "",
     ...section("Completed", completedAlerts),
     ...section("Pending / Upcoming", reminderAlerts),
+    ...pendingSection("Pending now", pendingItems),
     ...section("Missed", missedAlerts)
   ]
     .filter((line): line is string => line !== null)

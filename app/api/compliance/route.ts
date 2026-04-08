@@ -3,9 +3,43 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 
 import { runComplianceCheck } from "@/lib/automation";
+import { getDashboardData } from "@/lib/queries";
+import { sendSlackAlerts } from "@/lib/slack";
+import { TASK_TYPES } from "@/lib/constants";
 
 export async function POST() {
   try {
+    const lectures = await getDashboardData();
+    const pendingItems = lectures.flatMap((lecture) =>
+      TASK_TYPES.flatMap((taskType) => {
+        const task = lecture.tasks[taskType];
+
+        if (!task || task.status !== "pending") {
+          return [];
+        }
+
+        return [
+          {
+            lecture: {
+              id: lecture.id,
+              batch_name: lecture.batch_name,
+              module_name: lecture.module_name,
+              lecture_name: lecture.lecture_name,
+              lecture_date: lecture.lecture_date,
+              start_time: lecture.start_time,
+              end_time: lecture.end_time
+            },
+            taskType,
+            deadline: task.deadline
+          }
+        ];
+      })
+    );
+
+    const pendingDigestSent = await sendSlackAlerts([], {
+      pendingItems
+    });
+
     const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubWorkflowId = process.env.GITHUB_WORKFLOW_ID ?? "compliance-check.yml";
@@ -56,7 +90,9 @@ export async function POST() {
 
       return NextResponse.json({
         message:
-          "Compliance workflow dispatched to GitHub Actions. Reminders and status updates will follow when that run completes.",
+          pendingDigestSent > 0
+            ? "Manual pending reminder sent to Slack. Compliance workflow dispatched to GitHub Actions and status updates will follow when that run completes."
+            : "Compliance workflow dispatched to GitHub Actions. No pending manual reminder was needed, and status updates will follow when that run completes.",
         mode: "github_dispatch"
       });
     }
@@ -64,7 +100,10 @@ export async function POST() {
     const result = await runComplianceCheck();
 
     return NextResponse.json({
-      message: "Compliance workflow completed.",
+      message:
+        pendingDigestSent > 0
+          ? "Manual pending reminder sent to Slack. Compliance workflow completed."
+          : "Compliance workflow completed.",
       result
     });
   } catch (error) {
