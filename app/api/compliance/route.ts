@@ -22,7 +22,9 @@ export async function POST() {
           return [];
         }
 
-        if (today && lecture.lecture_date !== today) {
+        const deadlineDate = DateTime.fromISO(task.deadline, { zone: timezone }).toISODate();
+
+        if (today && deadlineDate !== today) {
           return [];
         }
 
