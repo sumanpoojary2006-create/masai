@@ -1,20 +1,28 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { DateTime } from "luxon";
 
 import { runComplianceCheck } from "@/lib/automation";
+import { getAppTimezone } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
 import { sendManualPendingDigest } from "@/lib/slack";
 import { TASK_TYPES } from "@/lib/constants";
 
 export async function POST() {
   try {
+    const timezone = getAppTimezone();
+    const today = DateTime.now().setZone(timezone).toISODate();
     const lectures = await getDashboardData();
     const pendingItems = lectures.flatMap((lecture) =>
       TASK_TYPES.flatMap((taskType) => {
         const task = lecture.tasks[taskType];
 
         if (!task || task.status !== "pending") {
+          return [];
+        }
+
+        if (today && lecture.lecture_date !== today) {
           return [];
         }
 
