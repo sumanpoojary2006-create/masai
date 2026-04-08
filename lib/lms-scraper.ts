@@ -497,7 +497,7 @@ async function findLectureResourceRowTexts(
   const seenPages = new Set<string>();
   let prereadRowText: string | null = null;
   let notesRowText: string | null = null;
-  const notesNeedles = [/\bnotes?\b/i, /\blecture\s+notes?\b/i];
+  const notesNeedles = [/notes?/i, /lecture\s*notes?/i];
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
     const rows = attempts === 0 ? await waitForTableRows(page) : await readTableRows(page);
@@ -757,7 +757,7 @@ async function scrapeLectureResourcesOnce(
         }),
     notesRowText
       ? Promise.resolve(resourceRecordFromRowText(notesRowText, lecture.id, "notes"))
-      : detectResourceFromPageText(page, lecture, /\bnotes?\b/i, "notes", {
+      : detectResourceFromPageText(page, lecture, /notes?/i, "notes", {
           batchScoped
         })
   ]);
