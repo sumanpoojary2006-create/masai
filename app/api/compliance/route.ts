@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 import { runComplianceCheck } from "@/lib/automation";
 import { getDashboardData } from "@/lib/queries";
-import { sendSlackAlerts } from "@/lib/slack";
+import { sendManualPendingDigest } from "@/lib/slack";
 import { TASK_TYPES } from "@/lib/constants";
 
 export async function POST() {
@@ -36,9 +36,7 @@ export async function POST() {
       })
     );
 
-    const pendingDigestSent = await sendSlackAlerts([], {
-      pendingItems
-    });
+    const pendingDigestSent = await sendManualPendingDigest(pendingItems);
 
     const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";

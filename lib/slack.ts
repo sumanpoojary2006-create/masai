@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 
 import { TASK_LABELS } from "@/lib/constants";
-import { getAutomationEnv } from "@/lib/env";
+import { getAppTimezone, getAutomationEnv } from "@/lib/env";
 import { ComplianceAlertEvent } from "@/lib/types";
 
 type PendingDigestItem = Pick<ComplianceAlertEvent, "lecture" | "taskType" | "deadline">;
@@ -145,6 +145,17 @@ export async function sendSlackAlerts(
   }
 
   const { slackWebhookUrl, timezone } = getAutomationEnv();
+  const message = buildSlackDigest(alerts, pendingItems, timezone);
+  await postSlackMessage(slackWebhookUrl, message);
+
+  return 1;
+}
+
+function buildSlackDigest(
+  alerts: ComplianceAlertEvent[],
+  pendingItems: PendingDigestItem[],
+  timezone: string
+) {
   const completedAlerts = alerts.filter((alert) => alert.alertType === "completed");
   const reminderAlerts = alerts.filter(
     (alert) => alert.alertType.startsWith("reminder_")
@@ -175,6 +186,10 @@ export async function sendSlackAlerts(
     .join("\n")
     .trim();
 
+  return message;
+}
+
+async function postSlackMessage(slackWebhookUrl: string, message: string) {
   const response = await fetch(slackWebhookUrl, {
     method: "POST",
     headers: {
@@ -188,6 +203,22 @@ export async function sendSlackAlerts(
   if (!response.ok) {
     throw new Error(`Slack webhook failed with ${response.status}`);
   }
+}
+
+export async function sendManualPendingDigest(pendingItems: PendingDigestItem[]) {
+  if (pendingItems.length === 0) {
+    return 0;
+  }
+
+  const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
+
+  if (!slackWebhookUrl) {
+    throw new Error("Missing required environment variable: SLACK_WEBHOOK_URL");
+  }
+
+  const timezone = process.env.APP_TIMEZONE ?? getAppTimezone();
+  const message = buildSlackDigest([], pendingItems, timezone);
+  await postSlackMessage(slackWebhookUrl, message);
 
   return 1;
 }
