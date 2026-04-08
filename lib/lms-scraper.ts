@@ -497,6 +497,7 @@ async function findLectureResourceRowTexts(
   const seenPages = new Set<string>();
   let prereadRowText: string | null = null;
   let notesRowText: string | null = null;
+  const notesNeedles = [/\bnotes?\b/i, /\blecture\s+notes?\b/i];
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
     const rows = attempts === 0 ? await waitForTableRows(page) : await readTableRows(page);
@@ -514,7 +515,7 @@ async function findLectureResourceRowTexts(
       const matchesBatch = options?.batchScoped || normalizedText.includes(normalizedBatchName);
       const lowerText = text.toLowerCase();
       const matchesPreread = /pre[- ]?reads?/i.test(lowerText);
-      const matchesNotes = /\bnotes?\b/i.test(lowerText);
+      const matchesNotes = notesNeedles.some((pattern) => pattern.test(text));
 
       if (matchesBatch && matchesLecture) {
         if (!prereadRowText && matchesPreread) {
@@ -636,11 +637,17 @@ async function detectResourceFromPageText(
   }
 ): Promise<LmsTrackingRecord> {
   const resourceNeedles =
-    type === "preread"
+      type === "preread"
       ? ["pre read", "pre reads"]
       : type === "notes"
-        ? ["notes", "note"]
+        ? ["notes", "note", "lecture notes"]
         : ["assignment"];
+  const resourcePatternSource =
+    type === "preread"
+      ? "pre[- ]?reads?"
+      : type === "notes"
+        ? "lecture\\s+notes?|notes?|note"
+        : "assignment";
   const pageText = await waitForResourceText(
     page,
     lecture.lecture_name,
@@ -666,7 +673,27 @@ async function detectResourceFromPageText(
         }) ?? pageText
     : null;
 
-  if (!matchedWindow || !keyword.test(matchedWindow)) {
+  const fallbackWindow = pageText
+    ? (() => {
+        const escapedLectureName = escapeRegex(lecture.lecture_name);
+        const escapedBatchName = escapeRegex(lecture.batch_name);
+        const batchSegment = options?.batchScoped ? "" : `(?:[\\s\\S]{0,240}${escapedBatchName})`;
+        const forwardPattern = new RegExp(
+          `${escapedLectureName}${batchSegment}[\\s\\S]{0,500}(?:${resourcePatternSource})`,
+          "i"
+        );
+        const reversePattern = new RegExp(
+          `(?:${resourcePatternSource})[\\s\\S]{0,500}${escapedLectureName}${batchSegment}`,
+          "i"
+        );
+
+        return pageText.match(forwardPattern)?.[0] ?? pageText.match(reversePattern)?.[0] ?? null;
+      })()
+    : null;
+
+  const resourceWindow = matchedWindow ?? fallbackWindow;
+
+  if (!resourceWindow || !keyword.test(resourceWindow)) {
     return {
       lectureId: lecture.id,
       resourceType: type,
@@ -682,9 +709,9 @@ async function detectResourceFromPageText(
     lectureId: lecture.id,
     resourceType: type,
     found: true,
-    uploadedAt: extractTimestampFromText(matchedWindow),
+    uploadedAt: extractTimestampFromText(resourceWindow),
     rawPayload: {
-      matchedText: matchedWindow
+      matchedText: resourceWindow
     }
   };
 }
