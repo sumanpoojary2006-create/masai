@@ -45,3 +45,15 @@ export function formatLectureTime(time: string) {
     zone: getAppTimezone()
   }).toFormat("hh:mm a");
 }
+
+export function formatDeadline(deadline: string) {
+  const dateTime = DateTime.fromISO(deadline, {
+    zone: getAppTimezone()
+  });
+
+  if (!dateTime.isValid) {
+    return "Deadline unavailable";
+  }
+
+  return dateTime.toFormat("dd LLL, hh:mm a");
+}

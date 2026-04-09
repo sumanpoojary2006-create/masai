@@ -44,7 +44,7 @@ export function UploadForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-panel backdrop-blur"
+      className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur"
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
@@ -54,7 +54,7 @@ export function UploadForm() {
           <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
             Upload the lecture sheet
           </h2>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+          <p className="theme-muted mt-2 max-w-2xl text-sm">
             Accepts `.csv`, `.xlsx`, or `.xls` with the required columns for batch,
             module, lecture, date, and timings.
           </p>
@@ -69,24 +69,23 @@ export function UploadForm() {
         </button>
       </div>
 
-      <label className="mt-5 flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center transition hover:border-brand hover:bg-teal-50">
+      <label className="theme-dropzone mt-5 flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl px-6 py-8 text-center transition">
         <input
           type="file"
           accept=".csv,.xlsx,.xls"
           className="hidden"
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
         />
-        <span className="text-sm font-semibold text-slate-700">
+        <span className="text-sm font-semibold text-ink">
           {file ? file.name : "Drop a file here or click to browse"}
         </span>
-        <span className="mt-2 text-xs text-slate-500">
+        <span className="theme-muted mt-2 text-xs">
           Each imported lecture automatically creates Pre-read, Lecture Notes, and
           Assignment tasks.
         </span>
       </label>
 
-      {message ? <p className="mt-4 text-sm text-slate-600">{message}</p> : null}
+      {message ? <p className="theme-muted mt-4 text-sm">{message}</p> : null}
     </form>
   );
 }
-

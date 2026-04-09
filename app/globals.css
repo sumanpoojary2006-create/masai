@@ -6,17 +6,143 @@
   color-scheme: light;
   --font-body: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
   --font-heading: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+  --page-bg: #f8fafc;
+  --text-main: #101828;
+  --panel-bg: rgba(255, 255, 255, 0.9);
+  --panel-border: rgba(148, 163, 184, 0.22);
+  --subpanel-bg: rgba(248, 250, 252, 0.78);
+  --subpanel-header: rgba(255, 255, 255, 0.94);
+  --muted-text: #64748b;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --dropzone-bg: #f8fafc;
+  --dropzone-border: #cbd5e1;
+  --dropzone-hover-bg: #f0fdfa;
+  --button-secondary-bg: rgba(255, 255, 255, 0.92);
+  --button-secondary-border: #cbd5e1;
+  --button-secondary-text: #334155;
+  --edit-panel-bg: rgba(255, 255, 255, 0.94);
+  --notice-bg: #fffbeb;
+  --notice-border: #fcd34d;
+  --notice-text: #92400e;
+  --error-bg: #fff1f2;
+  --error-border: #fda4af;
+  --error-text: #9f1239;
 }
 
 body {
   min-height: 100vh;
-  background: #f8fafc;
-  color: #101828;
+  background: var(--page-bg);
+  color: var(--text-main);
   font-family: var(--font-body);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --page-bg: #09111f;
+  --text-main: #e2e8f0;
+  --panel-bg: rgba(15, 23, 42, 0.88);
+  --panel-border: rgba(71, 85, 105, 0.55);
+  --subpanel-bg: rgba(15, 23, 42, 0.72);
+  --subpanel-header: rgba(15, 23, 42, 0.94);
+  --muted-text: #94a3b8;
+  --input-bg: rgba(15, 23, 42, 0.95);
+  --input-border: #334155;
+  --dropzone-bg: rgba(15, 23, 42, 0.88);
+  --dropzone-border: #334155;
+  --dropzone-hover-bg: rgba(17, 94, 89, 0.24);
+  --button-secondary-bg: rgba(15, 23, 42, 0.94);
+  --button-secondary-border: #334155;
+  --button-secondary-text: #e2e8f0;
+  --edit-panel-bg: rgba(2, 6, 23, 0.9);
+  --notice-bg: rgba(146, 64, 14, 0.16);
+  --notice-border: rgba(245, 158, 11, 0.4);
+  --notice-text: #fde68a;
+  --error-bg: rgba(159, 18, 57, 0.16);
+  --error-border: rgba(244, 63, 94, 0.35);
+  --error-text: #fecdd3;
 }
 
 ::selection {
   background: rgba(15, 118, 110, 0.18);
+}
+
+.app-shell {
+  color: var(--text-main);
+}
+
+.theme-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+}
+
+.theme-subpanel {
+  background: var(--subpanel-bg);
+  border: 1px solid var(--panel-border);
+}
+
+.theme-subpanel-header {
+  background: var(--subpanel-header);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.theme-muted {
+  color: var(--muted-text);
+}
+
+.theme-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+}
+
+.theme-dropzone {
+  border: 1px dashed var(--dropzone-border);
+  background: var(--dropzone-bg);
+}
+
+.theme-dropzone:hover {
+  background: var(--dropzone-hover-bg);
+  border-color: #0f766e;
+}
+
+.theme-button-secondary {
+  background: var(--button-secondary-bg);
+  border: 1px solid var(--button-secondary-border);
+  color: var(--button-secondary-text);
+}
+
+.theme-button-secondary:hover {
+  filter: brightness(1.03);
+}
+
+.theme-edit-panel {
+  background: var(--edit-panel-bg);
+  border: 1px solid var(--panel-border);
+}
+
+.theme-toggle {
+  background: var(--button-secondary-bg);
+  border: 1px solid var(--button-secondary-border);
+  color: var(--button-secondary-text);
+}
+
+.theme-toggle:hover {
+  filter: brightness(1.03);
+}
+
+.theme-notice {
+  background: var(--notice-bg);
+  border: 1px solid var(--notice-border);
+  color: var(--notice-text);
+}
+
+.theme-error {
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+  color: var(--error-text);
 }
 
 @layer utilities {

@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { DashboardClient } from "@/components/dashboard-client";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { UploadForm } from "@/components/upload-form";
 import { hasSupabaseConfig } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
@@ -33,14 +34,15 @@ export default async function HomePage() {
   const summary = buildSummary(lectures);
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
-      <section>
+    <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
+      <section className="flex items-center justify-between gap-4">
         <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink sm:text-4xl">
           Masai Resource Tracker
         </h1>
+        <ThemeToggle />
       </section>
 
-      <section className="grid gap-4 rounded-[2rem] border border-slate-200 bg-white/75 p-5 shadow-panel backdrop-blur sm:grid-cols-2 lg:grid-cols-4">
+      <section className="summary-strip theme-panel grid gap-4 rounded-[2rem] p-5 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-3xl bg-ink p-5 text-white">
           <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
             Lectures
@@ -76,7 +78,7 @@ export default async function HomePage() {
       </section>
 
       {!hasSupabaseConfig() ? (
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-amber-900 shadow-panel">
+        <section className="theme-notice rounded-3xl p-6 shadow-panel">
           <h2 className="font-[var(--font-heading)] text-2xl font-bold">
             Add your environment variables to connect the app
           </h2>
@@ -88,7 +90,7 @@ export default async function HomePage() {
       ) : null}
 
       {loadError ? (
-        <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-900 shadow-panel">
+        <section className="theme-error rounded-3xl p-6 shadow-panel">
           <h2 className="font-[var(--font-heading)] text-2xl font-bold">
             Dashboard data could not be loaded
           </h2>
