@@ -59,7 +59,12 @@ function nextStatus(
   };
 }
 
-function chooseAlertType(task: TaskRecord, nextTaskStatus: TaskStatus, now: DateTime) {
+function chooseAlertType(
+  task: TaskRecord,
+  nextTaskStatus: TaskStatus,
+  now: DateTime,
+  sentAlertTypes: Set<AlertType>
+) {
   const deadline = DateTime.fromISO(task.deadline);
   const reminderSchedule = [
     { type: "reminder_10h" as AlertType, offsetMinutes: 10 * 60 },
@@ -76,13 +81,17 @@ function chooseAlertType(task: TaskRecord, nextTaskStatus: TaskStatus, now: Date
     return "completed" as AlertType;
   }
 
-  for (const reminder of reminderSchedule) {
+  const eligibleReminder = reminderSchedule.reduce<AlertType | null>((current, reminder) => {
     const target = deadline.minus({ minutes: reminder.offsetMinutes });
-    const windowEnds = target.plus({ minutes: 31 });
-
-    if (now >= target && now < windowEnds) {
+    if (now >= target && now < deadline && !sentAlertTypes.has(reminder.type)) {
       return reminder.type;
     }
+
+    return current;
+  }, null);
+
+  if (eligibleReminder) {
+    return eligibleReminder;
   }
 
   return null;
@@ -243,7 +252,17 @@ export async function runComplianceCheck(): Promise<ComplianceRunSummary> {
     }
 
     const previousTask = previousTaskMap.get(task.id);
-    const alertType = chooseAlertType(task as TaskRecord, task.status as TaskStatus, now);
+    const sentAlertTypes = new Set(
+      (existingAlerts ?? [])
+        .filter((alert) => alert.task_id === task.id)
+        .map((alert) => alert.alert_type as AlertType)
+    );
+    const alertType = chooseAlertType(
+      task as TaskRecord,
+      task.status as TaskStatus,
+      now,
+      sentAlertTypes
+    );
     if (!alertType) {
       return [];
     }

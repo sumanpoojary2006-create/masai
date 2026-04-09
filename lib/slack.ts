@@ -67,6 +67,15 @@ function sortPendingItems(left: PendingDigestItem, right: PendingDigestItem) {
 
 function alertLine(event: ComplianceAlertEvent) {
   const label = TASK_LABELS[event.taskType];
+  const timezone = getAppTimezone();
+  const deadline = DateTime.fromISO(event.deadline, { zone: timezone });
+  const deadlineLabel =
+    deadline.isValid &&
+    deadline.hasSame(DateTime.now().setZone(timezone), "day")
+      ? `due by ${deadline.toFormat("hh:mm a")} today`
+      : deadline.isValid
+        ? `due by ${deadline.toFormat("dd LLL hh:mm a")}`
+        : "pending";
 
   if (event.alertType === "completed") {
     return `• ✅ ${event.lecture.lecture_name} | ${label} uploaded`;
@@ -76,23 +85,7 @@ function alertLine(event: ComplianceAlertEvent) {
     return `• 🚨 ${event.lecture.lecture_name} | ${label} missed deadline`;
   }
 
-  if (event.alertType === "reminder_2h") {
-    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 2 hours`;
-  }
-
-  if (event.alertType === "reminder_30m") {
-    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 30 minutes`;
-  }
-
-  if (event.alertType === "reminder_6h") {
-    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 6 hours`;
-  }
-
-  if (event.alertType === "reminder_10h") {
-    return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 10 hours`;
-  }
-
-  return `• ⏳ ${event.lecture.lecture_name} | ${label} due in 6 hours`;
+  return `• ⏳ ${event.lecture.lecture_name} | ${label} ${deadlineLabel}`;
 }
 
 function pendingLine(item: PendingDigestItem) {
