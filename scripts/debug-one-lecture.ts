@@ -22,7 +22,7 @@ async function main() {
   const { data: lecture, error } = await supabase
     .from("lectures")
     .select(
-      "id,batch_name,module_name,lecture_name,lecture_date,start_time,end_time,tasks(id,lecture_id,type,deadline,status,completed_at)"
+      "id,user_id,batch_name,module_name,lecture_name,lecture_date,start_time,end_time,tasks(id,lecture_id,type,deadline,status,completed_at)"
     )
     .eq("lecture_name", lectureName)
     .single();

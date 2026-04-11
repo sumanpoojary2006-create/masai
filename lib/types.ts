@@ -10,12 +10,24 @@ export type AlertType =
 
 export interface LectureRecord {
   id: string;
+  user_id: string;
   batch_name: string;
   module_name: string;
   lecture_name: string;
   lecture_date: string;
   start_time: string;
   end_time: string;
+}
+
+export interface UserProfileRecord {
+  user_id: string;
+  email: string;
+  lms_username: string;
+  lms_password: string;
+  batch_name: string;
+  lecture_batch_url: string;
+  assignment_batch_url: string;
+  onboarding_complete: boolean;
 }
 
 export interface TaskRecord {
@@ -51,6 +63,10 @@ export interface LmsTrackingRecord {
 
 export interface AutomationLecture extends LectureRecord {
   tasks: TaskRecord[];
+}
+
+export interface AutomationProfile extends UserProfileRecord {
+  lectures: AutomationLecture[];
 }
 
 export interface ComplianceAlertEvent {

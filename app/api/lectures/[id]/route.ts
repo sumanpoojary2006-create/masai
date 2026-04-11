@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 
+import { getCurrentUser } from "@/lib/auth";
 import { TASK_TYPES } from "@/lib/constants";
 import { computeDeadline } from "@/lib/deadlines";
 import { toIsoDate, toSqlTime } from "@/lib/importer";
@@ -31,6 +32,19 @@ export async function PATCH(
   }
 ) {
   try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          message: "Please log in first."
+        },
+        {
+          status: 401
+        }
+      );
+    }
+
     const { id } = await resolveParams(context);
     const payload = (await request.json()) as Record<string, unknown>;
 
@@ -64,6 +78,7 @@ export async function PATCH(
         end_time: endTime
       })
       .eq("id", id)
+      .eq("user_id", user.id)
       .select("id, lecture_date, start_time, end_time")
       .maybeSingle();
 
@@ -152,6 +167,19 @@ export async function DELETE(
   }
 ) {
   try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          message: "Please log in first."
+        },
+        {
+          status: 401
+        }
+      );
+    }
+
     const { id } = await resolveParams(context);
 
     const supabase = createServerSupabase();
@@ -159,6 +187,7 @@ export async function DELETE(
       .from("lectures")
       .delete()
       .eq("id", id)
+      .eq("user_id", user.id)
       .select("id")
       .maybeSingle();
 

@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
+import { getCurrentUser } from "@/lib/auth";
 import { runComplianceCheck } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
@@ -11,9 +12,24 @@ import { TASK_TYPES } from "@/lib/constants";
 
 export async function POST() {
   try {
+    const user = await getCurrentUser();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          message: "Please log in first."
+        },
+        {
+          status: 401
+        }
+      );
+    }
+
     const timezone = getAppTimezone();
     const today = DateTime.now().setZone(timezone).toISODate();
-    const lectures = await getDashboardData();
+    const lectures = await getDashboardData({
+      userId: user.id
+    });
     const pendingItems = lectures.flatMap((lecture) =>
       TASK_TYPES.flatMap((taskType) => {
         const task = lecture.tasks[taskType];
@@ -32,6 +48,7 @@ export async function POST() {
           {
             lecture: {
               id: lecture.id,
+              user_id: lecture.user_id,
               batch_name: lecture.batch_name,
               module_name: lecture.module_name,
               lecture_name: lecture.lecture_name,
@@ -105,7 +122,9 @@ export async function POST() {
       });
     }
 
-    const result = await runComplianceCheck();
+    const result = await runComplianceCheck({
+      userId: user.id
+    });
 
     return NextResponse.json({
       message:

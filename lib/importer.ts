@@ -173,7 +173,13 @@ export function parseLectureWorkbook(fileBuffer: Buffer) {
   return compactRows(parsed);
 }
 
-export async function importLectureSheet(fileBuffer: Buffer) {
+export async function importLectureSheet(
+  fileBuffer: Buffer,
+  options: {
+    userId: string;
+    expectedBatchName?: string;
+  }
+) {
   const lectures = parseLectureWorkbook(fileBuffer);
   const supabase = createServerSupabase();
 
@@ -184,10 +190,27 @@ export async function importLectureSheet(fileBuffer: Buffer) {
     };
   }
 
+  if (options.expectedBatchName) {
+    const mismatchedBatches = [
+      ...new Set(
+        lectures
+          .map((lecture) => lecture.batch_name)
+          .filter((batchName) => batchName !== options.expectedBatchName)
+      )
+    ];
+
+    if (mismatchedBatches.length > 0) {
+      throw new Error(
+        `This account is configured for batch "${options.expectedBatchName}". Remove rows for: ${mismatchedBatches.join(", ")}`
+      );
+    }
+  }
+
   const { data: upsertedLectures, error: lectureError } = await supabase
     .from("lectures")
     .upsert(
       lectures.map((lecture) => ({
+        user_id: options.userId,
         batch_name: lecture.batch_name,
         module_name: lecture.module_name,
         lecture_name: lecture.lecture_name,
@@ -196,10 +219,10 @@ export async function importLectureSheet(fileBuffer: Buffer) {
         end_time: lecture.lecture_end_time
       })),
       {
-        onConflict: "batch_name,module_name,lecture_name,lecture_date,start_time"
+        onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time"
       }
     )
-    .select("id, batch_name, module_name, lecture_name, lecture_date, start_time, end_time");
+    .select("id, user_id, batch_name, module_name, lecture_name, lecture_date, start_time, end_time");
 
   if (lectureError || !upsertedLectures) {
     throw new Error(lectureError?.message ?? "Unable to upsert lectures");

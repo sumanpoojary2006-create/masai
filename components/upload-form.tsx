@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-export function UploadForm() {
+export function UploadForm({ batchName }: { batchName: string }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -55,8 +55,9 @@ export function UploadForm() {
             Upload the lecture sheet
           </h2>
           <p className="theme-muted mt-2 max-w-2xl text-sm">
-            Accepts `.csv`, `.xlsx`, or `.xls` with the required columns for batch,
-            module, lecture, date, and timings.
+            This profile is configured for batch `{batchName}`. Upload a `.csv`,
+            `.xlsx`, or `.xls` file for that batch only, with the required columns
+            for batch, module, lecture, date, and timings.
           </p>
         </div>
 

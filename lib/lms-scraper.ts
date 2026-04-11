@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { Browser, chromium, Locator, Page } from "playwright";
 
-import { getScopedLmsUrl } from "@/lib/lms-batch-urls";
+import { BatchUrlOverrides, getScopedLmsUrl } from "@/lib/lms-batch-urls";
 import { getAppTimezone } from "@/lib/env";
 import { AutomationLecture, LmsTrackingRecord, TaskType } from "@/lib/types";
 
@@ -721,9 +721,14 @@ async function scrapeLectureResourcesOnce(
   lecture: AutomationLecture,
   options?: {
     useDirectTitleUrl?: boolean;
+    batchUrls?: BatchUrlOverrides;
   }
 ) {
-  const scopedLectureUrl = getScopedLmsUrl("lectures", lecture.batch_name);
+  const scopedLectureUrl = getScopedLmsUrl(
+    "lectures",
+    lecture.batch_name,
+    options?.batchUrls
+  );
   const batchScoped = Boolean(scopedLectureUrl);
   const targetUrl = scopedLectureUrl
     ? scopedLectureUrl
@@ -809,13 +814,22 @@ async function login(page: Page, username: string, password: string) {
   await page.waitForTimeout(3000);
 }
 
-async function scrapeLectures(page: Page, lecture: AutomationLecture) {
-  if (getScopedLmsUrl("lectures", lecture.batch_name)) {
-    return scrapeLectureResourcesOnce(page, lecture);
+async function scrapeLectures(
+  page: Page,
+  lecture: AutomationLecture,
+  options?: {
+    batchUrls?: BatchUrlOverrides;
+  }
+) {
+  if (getScopedLmsUrl("lectures", lecture.batch_name, options?.batchUrls)) {
+    return scrapeLectureResourcesOnce(page, lecture, {
+      batchUrls: options?.batchUrls
+    });
   }
 
   const searchAttempt = await scrapeLectureResourcesOnce(page, lecture, {
-    useDirectTitleUrl: false
+    useDirectTitleUrl: false,
+    batchUrls: options?.batchUrls
   });
 
   if (searchAttempt.some((resource) => resource.found)) {
@@ -823,12 +837,23 @@ async function scrapeLectures(page: Page, lecture: AutomationLecture) {
   }
 
   return scrapeLectureResourcesOnce(page, lecture, {
-    useDirectTitleUrl: true
+    useDirectTitleUrl: true,
+    batchUrls: options?.batchUrls
   });
 }
 
-async function scrapeAssignments(page: Page, lecture: AutomationLecture) {
-  const scopedAssignmentUrl = getScopedLmsUrl("assignments", lecture.batch_name);
+async function scrapeAssignments(
+  page: Page,
+  lecture: AutomationLecture,
+  options?: {
+    batchUrls?: BatchUrlOverrides;
+  }
+) {
+  const scopedAssignmentUrl = getScopedLmsUrl(
+    "assignments",
+    lecture.batch_name,
+    options?.batchUrls
+  );
 
   if (scopedAssignmentUrl) {
     await page.goto(scopedAssignmentUrl, {
@@ -914,6 +939,9 @@ export async function scrapeLmsResources(
   credentials: {
     username: string;
     password: string;
+  },
+  options?: {
+    batchUrls?: BatchUrlOverrides;
   }
 ) {
   let browser: Browser | null = null;
@@ -928,8 +956,12 @@ export async function scrapeLmsResources(
     const records: LmsTrackingRecord[] = [];
 
     for (const lecture of lectures) {
-      const lectureResources = await scrapeLectures(page, lecture);
-      const assignmentResource = await scrapeAssignments(page, lecture);
+      const lectureResources = await scrapeLectures(page, lecture, {
+        batchUrls: options?.batchUrls
+      });
+      const assignmentResource = await scrapeAssignments(page, lecture, {
+        batchUrls: options?.batchUrls
+      });
       records.push(...lectureResources, assignmentResource);
     }
 
