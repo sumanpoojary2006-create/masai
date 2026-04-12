@@ -24,10 +24,15 @@ export interface UserProfileRecord {
   email: string;
   lms_username: string;
   lms_password: string;
+  onboarding_complete: boolean;
+}
+
+export interface UserBatchConfigRecord {
+  id?: string;
+  user_id?: string;
   batch_name: string;
   lecture_batch_url: string;
   assignment_batch_url: string;
-  onboarding_complete: boolean;
 }
 
 export interface TaskRecord {
@@ -67,6 +72,7 @@ export interface AutomationLecture extends LectureRecord {
 
 export interface AutomationProfile extends UserProfileRecord {
   lectures: AutomationLecture[];
+  batch_configs: UserBatchConfigRecord[];
 }
 
 export interface ComplianceAlertEvent {

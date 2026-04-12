@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 
-import { getCurrentUser, getUserProfile } from "@/lib/auth";
+import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
 import { importLectureSheet } from "@/lib/importer";
 
 export async function POST(request: Request) {
@@ -20,9 +20,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const profile = await getUserProfile(user.id);
+    const [profile, batchConfigs] = await Promise.all([
+      getUserProfile(user.id),
+      getUserBatchConfigs(user.id)
+    ]);
 
-    if (!profile?.onboarding_complete) {
+    if (!profile?.onboarding_complete || batchConfigs.length === 0) {
       return NextResponse.json(
         {
           message: "Complete your LMS setup before importing lectures."
@@ -50,7 +53,7 @@ export async function POST(request: Request) {
     const fileBuffer = Buffer.from(await file.arrayBuffer());
     const result = await importLectureSheet(fileBuffer, {
       userId: user.id,
-      expectedBatchName: profile.batch_name
+      allowedBatchNames: batchConfigs.map((config) => config.batch_name)
     });
 
     return NextResponse.json({

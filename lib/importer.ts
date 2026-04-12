@@ -177,7 +177,7 @@ export async function importLectureSheet(
   fileBuffer: Buffer,
   options: {
     userId: string;
-    expectedBatchName?: string;
+    allowedBatchNames?: string[];
   }
 ) {
   const lectures = parseLectureWorkbook(fileBuffer);
@@ -190,18 +190,18 @@ export async function importLectureSheet(
     };
   }
 
-  if (options.expectedBatchName) {
+  if (options.allowedBatchNames && options.allowedBatchNames.length > 0) {
     const mismatchedBatches = [
       ...new Set(
         lectures
           .map((lecture) => lecture.batch_name)
-          .filter((batchName) => batchName !== options.expectedBatchName)
+          .filter((batchName) => !options.allowedBatchNames?.includes(batchName))
       )
     ];
 
     if (mismatchedBatches.length > 0) {
       throw new Error(
-        `This account is configured for batch "${options.expectedBatchName}". Remove rows for: ${mismatchedBatches.join(", ")}`
+        `This account is configured for these batches: ${options.allowedBatchNames.join(", ")}. Remove rows for: ${mismatchedBatches.join(", ")}`
       );
     }
   }

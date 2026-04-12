@@ -23,6 +23,17 @@ create table if not exists public.user_profiles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.user_batch_configs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  batch_name text not null,
+  lecture_batch_url text not null,
+  assignment_batch_url text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint user_batch_configs_unique_batch unique (user_id, batch_name)
+);
+
 create table if not exists public.lectures (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
@@ -47,6 +58,24 @@ alter table public.user_profiles add column if not exists assignment_batch_url t
 alter table public.user_profiles add column if not exists onboarding_complete boolean not null default false;
 alter table public.user_profiles add column if not exists created_at timestamptz not null default now();
 alter table public.user_profiles add column if not exists updated_at timestamptz not null default now();
+alter table public.user_batch_configs add column if not exists created_at timestamptz not null default now();
+alter table public.user_batch_configs add column if not exists updated_at timestamptz not null default now();
+
+insert into public.user_batch_configs (user_id, batch_name, lecture_batch_url, assignment_batch_url)
+select
+  user_id,
+  batch_name,
+  lecture_batch_url,
+  coalesce(assignment_batch_url, replace(lecture_batch_url, '/lectures/', '/assignment/'))
+from public.user_profiles
+where batch_name is not null
+  and lecture_batch_url is not null
+  and not exists (
+    select 1
+    from public.user_batch_configs configs
+    where configs.user_id = public.user_profiles.user_id
+      and configs.batch_name = public.user_profiles.batch_name
+  );
 
 alter table public.lectures
 drop constraint if exists lectures_unique_schedule;
@@ -115,6 +144,12 @@ before update on public.user_profiles
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists user_batch_configs_set_updated_at on public.user_batch_configs;
+create trigger user_batch_configs_set_updated_at
+before update on public.user_batch_configs
+for each row
+execute function public.set_updated_at();
+
 drop trigger if exists tasks_set_updated_at on public.tasks;
 create trigger tasks_set_updated_at
 before update on public.tasks
@@ -124,6 +159,7 @@ execute function public.set_updated_at();
 create index if not exists lectures_batch_idx on public.lectures(batch_name);
 create index if not exists lectures_user_idx on public.lectures(user_id);
 create index if not exists lectures_date_idx on public.lectures(lecture_date desc);
+create index if not exists user_batch_configs_user_idx on public.user_batch_configs(user_id);
 create index if not exists tasks_status_idx on public.tasks(status);
 create index if not exists tasks_deadline_idx on public.tasks(deadline);
 create index if not exists lms_tracking_lecture_idx on public.lms_tracking(lecture_id);

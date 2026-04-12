@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { createServerSupabase } from "@/lib/supabase";
 import { createAuthSupabase } from "@/lib/supabase-server";
-import { UserProfileRecord } from "@/lib/types";
+import { UserBatchConfigRecord, UserProfileRecord } from "@/lib/types";
 
 export async function getCurrentUser() {
   const supabase = await createAuthSupabase();
@@ -22,9 +22,7 @@ export async function getUserProfile(userId: string) {
   const supabase = createServerSupabase();
   const { data, error } = await supabase
     .from("user_profiles")
-    .select(
-      "user_id, email, lms_username, lms_password, batch_name, lecture_batch_url, assignment_batch_url, onboarding_complete"
-    )
+    .select("user_id, email, lms_username, lms_password, onboarding_complete")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -33,6 +31,21 @@ export async function getUserProfile(userId: string) {
   }
 
   return (data as UserProfileRecord | null) ?? null;
+}
+
+export async function getUserBatchConfigs(userId: string) {
+  const supabase = createServerSupabase();
+  const { data, error } = await supabase
+    .from("user_batch_configs")
+    .select("id, user_id, batch_name, lecture_batch_url, assignment_batch_url")
+    .eq("user_id", userId)
+    .order("batch_name", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as UserBatchConfigRecord[];
 }
 
 export async function requireAuthenticatedUser() {
@@ -47,15 +60,19 @@ export async function requireAuthenticatedUser() {
 
 export async function requireOnboardedUser() {
   const user = await requireAuthenticatedUser();
-  const profile = await getUserProfile(user.id);
+  const [profile, batchConfigs] = await Promise.all([
+    getUserProfile(user.id),
+    getUserBatchConfigs(user.id)
+  ]);
 
-  if (!profile?.onboarding_complete) {
+  if (!profile?.onboarding_complete || batchConfigs.length === 0) {
     redirect("/setup");
   }
 
   return {
     user,
-    profile
+    profile,
+    batchConfigs
   };
 }
 
@@ -66,9 +83,12 @@ export async function redirectAuthenticatedUser() {
     return null;
   }
 
-  const profile = await getUserProfile(user.id);
+  const [profile, batchConfigs] = await Promise.all([
+    getUserProfile(user.id),
+    getUserBatchConfigs(user.id)
+  ]);
 
-  if (!profile?.onboarding_complete) {
+  if (!profile?.onboarding_complete || batchConfigs.length === 0) {
     redirect("/setup");
   }
 

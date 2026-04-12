@@ -123,6 +123,18 @@ export async function runComplianceCheck(options?: {
       continue;
     }
 
+    const batchUrlOverrides = Object.fromEntries(
+      profile.batch_configs.map((config) => [
+        config.batch_name,
+        {
+          lectures: config.lecture_batch_url,
+          assignments:
+            config.assignment_batch_url ||
+            deriveAssignmentBatchUrl(config.lecture_batch_url)
+        }
+      ])
+    );
+
     const trackingRecords = await scrapeLmsResources(
       lectures,
       {
@@ -130,14 +142,7 @@ export async function runComplianceCheck(options?: {
         password: profile.lms_password
       },
       {
-        batchUrls: {
-          [profile.batch_name]: {
-            lectures: profile.lecture_batch_url,
-            assignments:
-              profile.assignment_batch_url ||
-              deriveAssignmentBatchUrl(profile.lecture_batch_url)
-          }
-        }
+        batchUrls: batchUrlOverrides
       }
     );
 
@@ -342,7 +347,7 @@ export async function runComplianceCheck(options?: {
     summary.alertsSent += alertsSent;
 
     console.log(
-      `${profile.email} (${profile.batch_name}) => ${describeRun({
+      `${profile.email} (${profile.batch_configs.map((config) => config.batch_name).join(", ")}) => ${describeRun({
         checkedLectures: lectures.length,
         trackedResources: mergedTrackingRecords.length,
         updatedTasks: updatedTasks.length,

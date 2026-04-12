@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
-export function UploadForm({ batchName }: { batchName: string }) {
+export function UploadForm({ batchNames }: { batchNames: string[] }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const configuredBatchLabel = useMemo(() => batchNames.join(", "), [batchNames]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -55,9 +56,9 @@ export function UploadForm({ batchName }: { batchName: string }) {
             Upload the lecture sheet
           </h2>
           <p className="theme-muted mt-2 max-w-2xl text-sm">
-            This profile is configured for batch `{batchName}`. Upload a `.csv`,
-            `.xlsx`, or `.xls` file for that batch only, with the required columns
-            for batch, module, lecture, date, and timings.
+            This profile can manage these batches: `{configuredBatchLabel}`. Upload a `.csv`,
+            `.xlsx`, or `.xls` file using only those configured batch names, with the required
+            columns for batch, module, lecture, date, and timings.
           </p>
         </div>
 

@@ -4,6 +4,7 @@ import {
   DashboardLecture,
   TaskRecord,
   TaskStatus,
+  UserBatchConfigRecord,
   UserProfileRecord
 } from "@/lib/types";
 
@@ -93,7 +94,7 @@ export async function getAutomationProfiles(userId?: string) {
   let query = supabase
     .from("user_profiles")
     .select(
-      "user_id, email, lms_username, lms_password, batch_name, lecture_batch_url, assignment_batch_url, onboarding_complete"
+      "user_id, email, lms_username, lms_password, onboarding_complete, batch_configs:user_batch_configs(id, user_id, batch_name, lecture_batch_url, assignment_batch_url)"
     )
     .eq("onboarding_complete", true)
     .order("email", { ascending: true });
@@ -108,5 +109,12 @@ export async function getAutomationProfiles(userId?: string) {
     throw new Error(error.message);
   }
 
-  return (data ?? []) as UserProfileRecord[];
+  return ((data ?? []) as Array<
+    UserProfileRecord & {
+      batch_configs?: UserBatchConfigRecord[] | null;
+    }
+  >).map((profile) => ({
+    ...profile,
+    batch_configs: profile.batch_configs ?? []
+  }));
 }

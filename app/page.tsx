@@ -4,7 +4,7 @@ import { DashboardClient } from "@/components/dashboard-client";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UploadForm } from "@/components/upload-form";
-import { getCurrentUser, getUserProfile } from "@/lib/auth";
+import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
 import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
 import { DashboardLecture } from "@/lib/types";
@@ -51,9 +51,12 @@ export default async function HomePage() {
     redirect("/login");
   }
 
-  const profile = await getUserProfile(user.id);
+  const [profile, batchConfigs] = await Promise.all([
+    getUserProfile(user.id),
+    getUserBatchConfigs(user.id)
+  ]);
 
-  if (!profile?.onboarding_complete) {
+  if (!profile?.onboarding_complete || batchConfigs.length === 0) {
     redirect("/setup");
   }
 
@@ -79,7 +82,8 @@ export default async function HomePage() {
             Masai Resource Tracker
           </h1>
           <p className="theme-muted mt-2 text-sm">
-            Signed in as {user.email} • Batch {profile.batch_name}
+            Signed in as {user.email} • {batchConfigs.length} batch
+            {batchConfigs.length === 1 ? "" : "es"} configured
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -132,7 +136,7 @@ export default async function HomePage() {
         </section>
       ) : null}
 
-      <UploadForm batchName={profile.batch_name} />
+      <UploadForm batchNames={batchConfigs.map((config) => config.batch_name)} />
       <DashboardClient lectures={lectures} />
     </main>
   );
