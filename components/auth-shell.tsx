@@ -43,7 +43,7 @@ export function AuthShell({
               </p>
               <ul className="theme-muted mt-4 space-y-2 text-sm">
                 <li>LMS login for that owner</li>
-                <li>One batch configuration with its scoped LMS URLs</li>
+                <li>One or more batch configurations with scoped LMS URLs</li>
                 <li>Private lecture imports, task tracking, and edits</li>
               </ul>
             </div>

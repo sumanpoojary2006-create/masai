@@ -42,6 +42,7 @@ export function SetupProfileForm({
   initialProfile: Partial<SetupProfile>;
   initialBatchConfigs: UserBatchConfigRecord[];
 }) {
+  const isEditingExistingProfile = initialBatchConfigs.length > 0;
   const router = useRouter();
   const [form, setForm] = useState<SetupProfile>({
     email: initialProfile.email ?? "",
@@ -131,10 +132,12 @@ export function SetupProfileForm({
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
         <h2 className="font-[var(--font-heading)] text-2xl font-bold text-ink">
-          Complete your profile
+          {isEditingExistingProfile ? "Update your profile" : "Complete your profile"}
         </h2>
         <p className="theme-muted mt-2 text-sm">
-          This setup is one-time. It connects your personal LMS access and all the batch-scoped LMS pages you want to manage with this login.
+          {isEditingExistingProfile
+            ? "You can update LMS credentials here anytime and add or revise batch-specific LMS URLs without affecting other users."
+            : "This setup is one-time. It connects your personal LMS access and all the batch-scoped LMS pages you want to manage with this login."}
         </p>
       </div>
 
@@ -253,7 +256,7 @@ export function SetupProfileForm({
         disabled={isPending}
         className="inline-flex h-11 w-full items-center justify-center rounded-full bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
       >
-        {isPending ? "Saving profile..." : "Save and continue"}
+        {isPending ? "Saving profile..." : isEditingExistingProfile ? "Save changes" : "Save and continue"}
       </button>
     </form>
   );

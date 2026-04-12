@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
+
 import { DashboardClient } from "@/components/dashboard-client";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -87,6 +89,12 @@ export default async function HomePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <Link
+            href="/profile"
+            className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
+          >
+            Profile
+          </Link>
           <ThemeToggle />
           <LogoutButton />
         </div>
