@@ -1,5 +1,6 @@
 import { analyzePendingLoReports, fetchAndAnalyzePendingSummaries } from "../lib/automation";
 import { getAutomationProfiles } from "../lib/queries";
+import { sendLoSyncSlackNotification } from "../lib/slack";
 
 async function main() {
   const profiles = await getAutomationProfiles();
@@ -41,6 +42,18 @@ async function main() {
           : (r.reason ?? "");
         console.log(`  ${icon} ${r.lectureName}: ${detail}`);
       }
+    }
+
+    // Step 3 — Send Slack notification to the LO channel
+    console.log("\n[Step 3] Sending Slack notification…");
+    try {
+      await sendLoSyncSlackNotification({
+        fetchResults,
+        analyzeResults,
+        email: profile.email
+      });
+    } catch (err) {
+      console.error("[Step 3] Slack notification failed:", err);
     }
   }
 

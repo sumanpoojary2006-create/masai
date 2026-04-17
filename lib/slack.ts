@@ -210,6 +210,71 @@ async function postSlackMessage(slackWebhookUrl: string, message: string) {
   }
 }
 
+export async function sendLoSyncSlackNotification(params: {
+  fetchResults: Array<{ lectureName: string; status: string; reason?: string }>;
+  analyzeResults: Array<{ lectureName: string; status: string; coveredCount?: number; missingCount?: number; reason?: string }>;
+  email: string;
+}) {
+  const webhookUrl = process.env.LO_SLACK_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn("[lo-slack] LO_SLACK_WEBHOOK_URL not set — skipping Slack notification");
+    return;
+  }
+
+  const timezone = process.env.APP_TIMEZONE ?? getAppTimezone();
+  const now = DateTime.now().setZone(timezone).toFormat("dd LLL yyyy, hh:mm a");
+
+  const lines: string[] = [
+    `📚 *LO Sync Report* — ${now}`,
+    `👤 ${params.email}`,
+    ""
+  ];
+
+  // ── Transcript fetch results ──
+  const fetched = params.fetchResults.filter((r) => r.status === "fetched");
+  const fetchErrors = params.fetchResults.filter((r) => r.status === "error");
+  const fetchSkipped = params.fetchResults.filter((r) => r.status === "skipped");
+
+  lines.push("*📥 Transcripts Fetched*");
+  if (fetched.length === 0 && fetchErrors.length === 0) {
+    lines.push("  — No new transcripts");
+  } else {
+    fetched.forEach((r) => lines.push(`  ✅ ${r.lectureName}${r.reason ? ` _(${r.reason})_` : ""}`));
+    fetchErrors.forEach((r) => lines.push(`  ❌ ${r.lectureName} — ${r.reason ?? "failed"}`));
+  }
+  if (fetchSkipped.length > 0) {
+    lines.push(`  _${fetchSkipped.length} skipped (already done or no session link)_`);
+  }
+
+  lines.push("");
+
+  // ── LO analysis results ──
+  const analyzed = params.analyzeResults.filter((r) => r.status === "analyzed");
+  const analyzeErrors = params.analyzeResults.filter((r) => r.status === "error");
+  const analyzeSkipped = params.analyzeResults.filter((r) => r.status === "skipped");
+
+  lines.push("*🧠 LO Analysis*");
+  if (analyzed.length === 0 && analyzeErrors.length === 0) {
+    lines.push("  — No pending reports to analyse");
+  } else {
+    analyzed.forEach((r) => {
+      const total = (r.coveredCount ?? 0) + (r.missingCount ?? 0);
+      const pct = total > 0 ? Math.round(((r.coveredCount ?? 0) / total) * 100) : 0;
+      const bar = pct === 100 ? "🟢" : pct >= 60 ? "🟡" : "🔴";
+      lines.push(`  ${bar} *${r.lectureName}* — ${r.coveredCount ?? 0}/${total} LOs covered (${pct}%)`);
+      if (r.reason) lines.push(`     _${r.reason}_`);
+    });
+    analyzeErrors.forEach((r) => lines.push(`  ❌ ${r.lectureName} — ${r.reason ?? "failed"}`));
+  }
+  if (analyzeSkipped.length > 0) {
+    lines.push(`  _${analyzeSkipped.length} skipped (no LOs set)_`);
+  }
+
+  const message = lines.join("\n");
+  await postSlackMessage(webhookUrl, message);
+  console.log("[lo-slack] Notification sent.");
+}
+
 export async function sendManualPendingDigest(
   pendingItems: PendingDigestItem[],
   options?: { mentionUserId?: string | null }
