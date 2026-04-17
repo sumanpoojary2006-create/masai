@@ -339,7 +339,6 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                     <thead>
                       <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                         <th className="pb-3 pr-4 pt-3">Lecture</th>
-                        <th className="pb-3 pr-4 pt-3">Learning Objectives</th>
                         <th className="pb-3 pr-4 pt-3">Schedule</th>
                         <th className="pb-3 pr-4 pt-3">Pre-read</th>
                         <th className="pb-3 pr-4 pt-3">Notes</th>
@@ -354,13 +353,6 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             <td className="py-4 pr-4">
                               <p className="font-semibold text-ink">{lecture.lecture_name}</p>
                               <p className="theme-muted mt-1 text-sm">{lecture.module_name}</p>
-                            </td>
-                            <td className="py-4 pr-4 max-w-[220px]">
-                              {lecture.learning_objective ? (
-                                <p className="theme-muted text-sm leading-relaxed">{lecture.learning_objective}</p>
-                              ) : (
-                                <span className="theme-muted text-sm italic">—</span>
-                              )}
                             </td>
                             <td className="theme-muted py-4 pr-4 text-sm">
                               <p>{formatLectureDate(lecture.lecture_date)}</p>
@@ -395,7 +387,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                           </tr>
                           {editingId === lecture.id ? (
                             <tr className="bg-white/90 dark:bg-slate-900/80">
-                              <td colSpan={7} className="px-0 pb-5 pt-1">
+                              <td colSpan={6} className="px-0 pb-5 pt-1">
                                 <div className="theme-edit-panel rounded-2xl p-4">
                                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                               <label className="theme-muted flex flex-col gap-2 text-sm font-medium">

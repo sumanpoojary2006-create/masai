@@ -90,6 +90,12 @@ export default async function HomePage() {
         </div>
         <div className="flex items-center gap-3">
           <Link
+            href="/lo-tracker"
+            className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
+          >
+            LO Tracker
+          </Link>
+          <Link
             href="/profile"
             className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
           >

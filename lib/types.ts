@@ -15,9 +15,29 @@ export interface LectureRecord {
   module_name: string;
   lecture_name: string;
   learning_objective: string;
+  session_link: string;
   lecture_date: string;
   start_time: string;
   end_time: string;
+}
+
+export type LoReportStatus = "pending" | "analyzing" | "completed" | "error";
+
+export interface LoReport {
+  id: string;
+  lecture_id: string;
+  user_id: string;
+  transcript: string;
+  covered_los: string[];
+  missing_los: string[];
+  status: LoReportStatus;
+  generated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoTrackerRow extends LectureRecord {
+  lo_report: LoReport | null;
 }
 
 export interface UserProfileRecord {

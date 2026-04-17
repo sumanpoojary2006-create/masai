@@ -2,6 +2,8 @@ import { TASK_TYPES } from "@/lib/constants";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   DashboardLecture,
+  LoReport,
+  LoTrackerRow,
   TaskRecord,
   TaskStatus,
   UserBatchConfigRecord,
@@ -88,6 +90,48 @@ export async function getAutomationLectures(userId: string) {
     start_time: lecture.start_time,
     end_time: lecture.end_time,
     tasks: (lecture.tasks ?? []) as TaskRecord[]
+  }));
+}
+
+export async function getLoTrackerData(userId: string): Promise<LoTrackerRow[]> {
+  const supabase = createServerSupabase();
+
+  const { data: lectures, error: lectureError } = await supabase
+    .from("lectures")
+    .select(
+      "id, user_id, batch_name, module_name, lecture_name, learning_objective, session_link, lecture_date, start_time, end_time"
+    )
+    .eq("user_id", userId)
+    .order("lecture_date", { ascending: false })
+    .order("start_time", { ascending: false });
+
+  if (lectureError) throw new Error(lectureError.message);
+  if (!lectures || lectures.length === 0) return [];
+
+  const lectureIds = lectures.map((l) => l.id);
+  const { data: reports, error: reportError } = await supabase
+    .from("lo_reports")
+    .select("*")
+    .in("lecture_id", lectureIds);
+
+  if (reportError) throw new Error(reportError.message);
+
+  const reportMap = new Map<string, LoReport>(
+    ((reports ?? []) as LoReport[]).map((r) => [r.lecture_id, r])
+  );
+
+  return lectures.map((lecture) => ({
+    id: lecture.id,
+    user_id: lecture.user_id,
+    batch_name: lecture.batch_name,
+    module_name: lecture.module_name ?? "",
+    lecture_name: lecture.lecture_name,
+    learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
+    session_link: (lecture as Record<string, unknown>).session_link as string ?? "",
+    lecture_date: lecture.lecture_date,
+    start_time: lecture.start_time,
+    end_time: lecture.end_time,
+    lo_report: reportMap.get(lecture.id) ?? null
   }));
 }
 
