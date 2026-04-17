@@ -98,6 +98,7 @@ export async function POST() {
             covered_los: analysis.covered_los,
             missing_los: analysis.missing_los,
             status: "completed",
+            fallback: analysis.fallback ?? false,
             generated_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           },
@@ -109,7 +110,8 @@ export async function POST() {
           lectureName,
           status: "analyzed",
           coveredCount: analysis.covered_los.length,
-          missingCount: analysis.missing_los.length
+          missingCount: analysis.missing_los.length,
+          reason: analysis.fallback ? "⚠ Gemini quota exhausted — keyword matching used (re-analyze when quota resets)" : undefined
         });
       } catch (err) {
         const reason = err instanceof Error ? err.message : "Analysis failed";

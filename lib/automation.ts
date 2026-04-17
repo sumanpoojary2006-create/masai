@@ -221,14 +221,21 @@ export async function fetchAndAnalyzePendingSummaries(
               covered_los: result.covered_los,
               missing_los: result.missing_los,
               status: "completed",
+              fallback: result.fallback ?? false,
               generated_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             },
             { onConflict: "lecture_id" }
           );
 
-          console.log(`[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing`);
-          results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "fetched" });
+          const method = result.fallback ? "keyword fallback" : "Gemini";
+          console.log(`[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing (${method})`);
+          results.push({
+            lectureId: lecture.id,
+            lectureName: lecture.lecture_name,
+            status: "fetched",
+            reason: result.fallback ? "⚠ Keyword matching used (Gemini quota exhausted)" : undefined
+          });
         } catch (analysisErr) {
           // Transcript was already saved above — log the analysis failure but don't fail the whole run
           const reason = analysisErr instanceof Error ? analysisErr.message : "LO analysis failed";

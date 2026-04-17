@@ -548,37 +548,50 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
 
                       {/* Covered LOs */}
                       <td className="py-4 pr-4 min-w-[200px]">
-                        {report?.covered_los && report.covered_los.length > 0 ? (
-                          <ul className="space-y-1">
-                            {report.covered_los.map((lo, i) => (
-                              <li key={i} className="flex items-start gap-1.5">
-                                <span className="mt-0.5 text-emerald-500 dark:text-emerald-400 flex-shrink-0">✓</span>
-                                <span className="text-xs text-ink leading-relaxed">{lo}</span>
-                              </li>
-                            ))}
-                          </ul>
+                        {report?.status === "completed" ? (
+                          <div className="space-y-1.5">
+                            {report.fallback && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300" title="Gemini quota was exhausted — results are based on keyword matching, not AI analysis. Re-analyze when quota resets.">
+                                ⚠ Keyword match
+                              </span>
+                            )}
+                            {report.covered_los && report.covered_los.length > 0 ? (
+                              <ul className="space-y-1">
+                                {report.covered_los.map((lo, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="mt-0.5 text-emerald-500 dark:text-emerald-400 flex-shrink-0">✓</span>
+                                    <span className="text-xs text-ink leading-relaxed">{lo}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="theme-muted text-xs italic">None covered</span>
+                            )}
+                          </div>
                         ) : (
-                          <span className="theme-muted text-xs italic">
-                            {report?.status === "completed" ? "None covered" : "—"}
-                          </span>
+                          <span className="theme-muted text-xs italic">—</span>
                         )}
                       </td>
 
                       {/* Missing LOs */}
                       <td className="py-4 min-w-[200px]">
-                        {report?.missing_los && report.missing_los.length > 0 ? (
-                          <ul className="space-y-1">
-                            {report.missing_los.map((lo, i) => (
-                              <li key={i} className="flex items-start gap-1.5">
-                                <span className="mt-0.5 text-rose-500 dark:text-rose-400 flex-shrink-0">✗</span>
-                                <span className="text-xs text-ink leading-relaxed">{lo}</span>
-                              </li>
-                            ))}
-                          </ul>
+                        {report?.status === "completed" ? (
+                          <div className="space-y-1.5">
+                            {report.missing_los && report.missing_los.length > 0 ? (
+                              <ul className="space-y-1">
+                                {report.missing_los.map((lo, i) => (
+                                  <li key={i} className="flex items-start gap-1.5">
+                                    <span className="mt-0.5 text-rose-500 dark:text-rose-400 flex-shrink-0">✗</span>
+                                    <span className="text-xs text-ink leading-relaxed">{lo}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">All covered! 🎉</span>
+                            )}
+                          </div>
                         ) : (
-                          <span className="theme-muted text-xs italic">
-                            {report?.status === "completed" ? "All covered! 🎉" : "—"}
-                          </span>
+                          <span className="theme-muted text-xs italic">—</span>
                         )}
                       </td>
                     </tr>

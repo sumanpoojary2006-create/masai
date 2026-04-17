@@ -31,6 +31,8 @@ export interface LoReport {
   covered_los: string[];
   missing_los: string[];
   status: LoReportStatus;
+  /** true when Gemini quota was exhausted and keyword matching was used instead */
+  fallback?: boolean;
   generated_at: string | null;
   created_at: string;
   updated_at: string;
