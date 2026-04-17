@@ -81,6 +81,10 @@ html[data-theme="dark"] {
   color: var(--text-main);
 }
 
+html[data-theme="dark"] .text-ink {
+  color: var(--text-main);
+}
+
 .theme-panel {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
