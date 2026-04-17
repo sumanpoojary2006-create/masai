@@ -129,20 +129,33 @@ export async function fetchAndAnalyzePendingSummaries(
   const now = DateTime.now().setZone(timezone);
 
   const lectures = await getAutomationLectures(profile.user_id);
+  console.log(`[lo-sync] ${profile.email}: ${lectures.length} total lectures`);
 
   // Lectures that ended > 1.5 hours ago and have a session link
   const eligible = lectures.filter((lecture) => {
-    const sessionLink = lecture.session_link;
-    if (!sessionLink?.trim()) return false;
+    // Normalize: Supabase may return null even if TS type says string
+    const sessionLink = String(lecture.session_link ?? "").trim();
+    if (!sessionLink) {
+      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — no session link`);
+      return false;
+    }
 
     const lectureEnd = DateTime.fromISO(
       `${lecture.lecture_date}T${lecture.end_time}`,
       { zone: timezone }
     ).plus({ hours: 1, minutes: 30 });
 
-    return now >= lectureEnd;
+    const ended = now >= lectureEnd;
+    if (!ended) {
+      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — ends ${lectureEnd.toISO()} (now: ${now.toISO()})`);
+      return false;
+    }
+
+    console.log(`[lo-sync]   ELIGIBLE "${lecture.lecture_name}" — link: ${sessionLink.slice(0, 60)}`);
+    return true;
   });
 
+  console.log(`[lo-sync] ${eligible.length} eligible lectures (ended + have session link)`);
   if (eligible.length === 0) return [];
 
   // Get existing lo_reports for these lectures
@@ -160,17 +173,20 @@ export async function fetchAndAnalyzePendingSummaries(
 
   for (const lecture of eligible) {
     const report = reportMap.get(lecture.id);
-    const alreadyDone = report?.status === "completed" && report?.transcript?.trim();
+    const alreadyDone = report?.status === "completed" && Boolean(report?.transcript?.trim());
 
     if (alreadyDone) {
+      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — already completed`);
       results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "Already completed" });
       continue;
     }
 
-    try {
-      console.log(`[lo-auto] Fetching summary for "${lecture.lecture_name}"…`);
+    const sessionLink = String(lecture.session_link ?? "").trim();
+    console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from ${sessionLink}`);
 
-      const summary = await scrapeLectureSummary(lecture.session_link, {
+    try {
+
+      const summary = await scrapeLectureSummary(sessionLink, {
         username: profile.lms_username,
         password: profile.lms_password
       });
