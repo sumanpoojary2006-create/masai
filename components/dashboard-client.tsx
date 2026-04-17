@@ -18,6 +18,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const router = useRouter();
   const [batchFilter, setBatchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -38,8 +40,10 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     const statusMatches =
       statusFilter === "all" ||
       Object.values(lecture.tasks).some((task) => task?.status === statusFilter);
+    const dateFromMatches = !dateFrom || lecture.lecture_date >= dateFrom;
+    const dateToMatches = !dateTo || lecture.lecture_date <= dateTo;
 
-    return batchMatches && statusMatches;
+    return batchMatches && statusMatches && dateFromMatches && dateToMatches;
   });
   const groupedLectures = Object.entries(
     filteredLectures.reduce<Record<string, DashboardLecture[]>>((accumulator, lecture) => {
@@ -224,12 +228,12 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
             </h2>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <button
               type="button"
               disabled={isPending || isSyncing}
               onClick={handleSync}
-              className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+              className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
             >
               {isSyncing ? "Syncing..." : "Sync Up"}
             </button>
@@ -264,6 +268,37 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 ))}
               </select>
             </label>
+
+            <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
+              From
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              />
+            </label>
+
+            <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
+              To
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              />
+            </label>
+
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={() => { setDateFrom(""); setDateTo(""); }}
+                className="self-end inline-flex h-11 items-center justify-center rounded-full border border-slate-300 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
+              >
+                Clear dates
+              </button>
+            )}
           </div>
         </div>
 
