@@ -164,8 +164,9 @@ ${transcript}
 Evaluation rules — read carefully:
 - Be GENEROUS. Mark an LO as COVERED if the topic appears ANYWHERE in the summary, even briefly.
 - A topic is COVERED if: it was introduced, mentioned, touched upon, defined, demonstrated, or discussed — even at a surface level.
+- PARTIAL coverage counts as FULL coverage. If the topic was partially explained or only introduced, that is enough — mark it as COVERED.
 - A topic is MISSING ONLY IF: the topic is completely absent from the summary — not mentioned or referenced in any way whatsoever.
-- Do NOT penalise for depth. An introduction or brief mention counts as covered.
+- Do NOT penalise for depth, completeness, or how much detail was given. Any mention counts.
 - Do NOT require exact wording. If the concept behind the LO is present, it is covered.
 - When in doubt, mark it as COVERED.
 
