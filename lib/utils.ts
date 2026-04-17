@@ -25,15 +25,15 @@ export function isLateCompletion(completedAt: string | null, deadline: string) {
 export function statusClasses(status: TaskStatus, isLate = false) {
   if (status === "completed") {
     if (isLate) {
-      return "bg-emerald-100 text-amber-700 ring-emerald-200";
+      return "bg-emerald-100 text-amber-700 ring-emerald-200 dark:bg-emerald-950/60 dark:text-amber-300 dark:ring-emerald-800";
     }
 
-    return "bg-emerald-100 text-emerald-700 ring-emerald-200";
+    return "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-800";
   }
 
   if (status === "missed") {
-    return "bg-rose-100 text-rose-700 ring-rose-200";
+    return "bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-800";
   }
 
-  return "bg-amber-100 text-amber-700 ring-amber-200";
+  return "bg-amber-100 text-amber-700 ring-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-800";
 }

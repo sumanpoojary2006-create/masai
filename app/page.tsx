@@ -109,24 +109,24 @@ export default async function HomePage() {
             {summary.lectures}
           </p>
         </div>
-        <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-900">
-          <p className="text-xs uppercase tracking-[0.22em] text-emerald-700">
+        <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
+          <p className="text-xs uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-400">
             Completed
           </p>
           <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
             {summary.completed}
           </p>
         </div>
-        <div className="rounded-3xl bg-amber-50 p-5 text-amber-900">
-          <p className="text-xs uppercase tracking-[0.22em] text-amber-700">
+        <div className="rounded-3xl bg-amber-50 p-5 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+          <p className="text-xs uppercase tracking-[0.22em] text-amber-700 dark:text-amber-400">
             Pending
           </p>
           <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
             {summary.pending}
           </p>
         </div>
-        <div className="rounded-3xl bg-rose-50 p-5 text-rose-900">
-          <p className="text-xs uppercase tracking-[0.22em] text-rose-700">
+        <div className="rounded-3xl bg-rose-50 p-5 text-rose-900 dark:bg-rose-950/50 dark:text-rose-200">
+          <p className="text-xs uppercase tracking-[0.22em] text-rose-700 dark:text-rose-400">
             Missed
           </p>
           <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">

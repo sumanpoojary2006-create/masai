@@ -188,7 +188,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
   if (lectures.length === 0) {
     return (
-      <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel">
+      <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel dark:border-slate-700 dark:bg-slate-800/40">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
           No Data Yet
         </p>
@@ -270,7 +270,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         {message ? <p className="theme-muted mt-4 text-sm">{message}</p> : null}
 
         {groupedLectures.length === 0 ? (
-          <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+          <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-800/40">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
               No Matching Lectures
             </p>
@@ -286,7 +286,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 className="theme-subpanel overflow-hidden rounded-3xl"
               >
                 <div className="theme-subpanel-header px-5 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
                     Batch
                   </p>
                   <h3 className="mt-1 font-[var(--font-heading)] text-xl font-bold text-ink">
@@ -298,9 +298,9 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 </div>
 
                 <div className="overflow-x-auto px-5 py-2">
-                  <table className="min-w-full divide-y divide-slate-200/70">
+                  <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
                     <thead>
-                      <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                         <th className="pb-3 pr-4 pt-3">Lecture</th>
                         <th className="pb-3 pr-4 pt-3">Schedule</th>
                         <th className="pb-3 pr-4 pt-3">Pre-read</th>
@@ -309,7 +309,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                         <th className="pb-3 pt-3">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100/80">
+                    <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
                       {batchLectures.map((lecture) => (
                         <Fragment key={lecture.id}>
                           <tr className="align-top">
@@ -341,7 +341,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                                   type="button"
                                   disabled={isPending && deletingId === lecture.id}
                                   onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
-                                  className="inline-flex h-9 items-center justify-center rounded-full border border-rose-200 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                                  className="inline-flex h-9 items-center justify-center rounded-full border border-rose-200 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:disabled:border-slate-700 dark:disabled:text-slate-600"
                                 >
                                   {deletingId === lecture.id ? "Deleting..." : "Delete"}
                                 </button>
@@ -349,7 +349,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             </td>
                           </tr>
                           {editingId === lecture.id ? (
-                            <tr className="bg-white/90">
+                            <tr className="bg-white/90 dark:bg-slate-900/80">
                               <td colSpan={6} className="px-0 pb-5 pt-1">
                                 <div className="theme-edit-panel rounded-2xl p-4">
                                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
