@@ -91,30 +91,59 @@ export async function getAutomationLectures(userId: string) {
 
 export async function getAutomationProfiles(userId?: string) {
   const supabase = createServerSupabase();
-  let query = supabase
+  let profileQuery = supabase
     .from("user_profiles")
-    .select(
-      "user_id, email, lms_username, lms_password, onboarding_complete, batch_configs:user_batch_configs(id, user_id, batch_name, lecture_batch_url, assignment_batch_url)"
-    )
+    .select("user_id, email, lms_username, lms_password, onboarding_complete")
     .eq("onboarding_complete", true)
     .order("email", { ascending: true });
 
   if (userId) {
-    query = query.eq("user_id", userId);
+    profileQuery = profileQuery.eq("user_id", userId);
   }
 
-  const { data, error } = await query;
+  const { data: profiles, error: profileError } = await profileQuery;
 
-  if (error) {
-    throw new Error(error.message);
+  if (profileError) {
+    throw new Error(profileError.message);
   }
 
-  return ((data ?? []) as Array<
-    UserProfileRecord & {
-      batch_configs?: UserBatchConfigRecord[] | null;
-    }
-  >).map((profile) => ({
+  const typedProfiles = (profiles ?? []) as UserProfileRecord[];
+
+  if (typedProfiles.length === 0) {
+    return [];
+  }
+
+  let batchConfigQuery = supabase
+    .from("user_batch_configs")
+    .select("id, user_id, batch_name, lecture_batch_url, assignment_batch_url")
+    .in(
+      "user_id",
+      typedProfiles.map((profile) => profile.user_id)
+    )
+    .order("batch_name", { ascending: true });
+
+  if (userId) {
+    batchConfigQuery = batchConfigQuery.eq("user_id", userId);
+  }
+
+  const { data: batchConfigs, error: batchConfigError } = await batchConfigQuery;
+
+  if (batchConfigError) {
+    throw new Error(batchConfigError.message);
+  }
+
+  const batchConfigsByUser = (batchConfigs ?? []).reduce<Map<string, UserBatchConfigRecord[]>>(
+    (accumulator, config) => {
+      const current = accumulator.get(config.user_id) ?? [];
+      current.push(config as UserBatchConfigRecord);
+      accumulator.set(config.user_id, current);
+      return accumulator;
+    },
+    new Map()
+  );
+
+  return typedProfiles.map((profile) => ({
     ...profile,
-    batch_configs: profile.batch_configs ?? []
+    batch_configs: batchConfigsByUser.get(profile.user_id) ?? []
   }));
 }
