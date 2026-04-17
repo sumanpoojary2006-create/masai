@@ -116,7 +116,8 @@ function keywordFallback(learningObjectives: string, transcript: string): LoAnal
     const matched = keywords.filter((kw) => transcriptLower.includes(kw));
     const ratio = matched.length / keywords.length;
     console.log(`[lo-analyzer:fallback] "${lo}" — ${matched.length}/${keywords.length} (${Math.round(ratio * 100)}%)`);
-    (ratio >= 0.4 ? covered_los : missing_los).push(lo);
+    // Generous threshold: even 1 keyword match out of 4+ counts as covered
+    (ratio >= 0.25 || matched.length >= 1 ? covered_los : missing_los).push(lo);
   }
 
   return { covered_los, missing_los, fallback: true };
@@ -146,7 +147,7 @@ export async function analyzeLosFromTranscript(
 1. A list of Learning Objectives (LOs) for a lecture
 2. A transcript or summary of what was actually taught in the lecture
 
-Your task is to analyse which Learning Objectives were COVERED in the transcript and which were MISSED.
+Your task is to decide which Learning Objectives were COVERED and which were completely MISSING.
 
 ---
 
@@ -160,13 +161,17 @@ ${transcript}
 
 ---
 
-Instructions:
-- Read each Learning Objective individually.
-- If the transcript discusses the concept, topic, or skill described in the LO — even if not word-for-word — mark it as COVERED.
-- If the transcript does not address the LO at all — mark it as MISSING.
-- Return ONLY a valid JSON object with two keys: "covered_los" and "missing_los".
-- Each key holds an array of strings — copy the exact LO text from the list above.
-- Do NOT add any commentary, markdown fences, or text outside the JSON.
+Evaluation rules — read carefully:
+- Be GENEROUS. Mark an LO as COVERED if the topic appears ANYWHERE in the summary, even briefly.
+- A topic is COVERED if: it was introduced, mentioned, touched upon, defined, demonstrated, or discussed — even at a surface level.
+- A topic is MISSING ONLY IF: the topic is completely absent from the summary — not mentioned or referenced in any way whatsoever.
+- Do NOT penalise for depth. An introduction or brief mention counts as covered.
+- Do NOT require exact wording. If the concept behind the LO is present, it is covered.
+- When in doubt, mark it as COVERED.
+
+Return ONLY a valid JSON object with two keys: "covered_los" and "missing_los".
+Each key holds an array of strings — copy the exact LO text from the list above.
+Do NOT add any commentary, markdown fences, or text outside the JSON.
 
 Example output:
 {
