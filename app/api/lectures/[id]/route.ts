@@ -55,10 +55,10 @@ export async function PATCH(
     const startTime = toSqlTime(payload.start_time);
     const endTime = toSqlTime(payload.end_time);
 
-    if (!batchName || !moduleName || !lectureName) {
+    if (!batchName || !lectureName) {
       return NextResponse.json(
         {
-          message: "Batch, module, and lecture name are required."
+          message: "Batch name and lecture name are required."
         },
         {
           status: 400
