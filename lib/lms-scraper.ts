@@ -998,9 +998,7 @@ async function scrapeAssignments(
   const normalizedLectureName = normalizeText(lecture.lecture_name);
   const normalizedBatchName = normalizeText(lecture.batch_name);
   const batchScoped = Boolean(scopedAssignmentUrl);
-  let objectiveMatch: { text: string; uploadedAt: string | null } | null = null;
-  let subjectiveMatch: { text: string; uploadedAt: string | null } | null = null;
-  let anyMatch: { text: string; uploadedAt: string | null } | null = null;
+  let match: { text: string; uploadedAt: string | null } | null = null;
   const seenPages = new Set<string>();
 
   for (let attempts = 0; attempts < 15; attempts += 1) {
@@ -1016,24 +1014,11 @@ async function scrapeAssignments(
         continue;
       }
 
-      const uploadedAt = extractTimestampFromText(associatedText);
-
-      // Track the first matching row as a broad fallback regardless of type keyword
-      if (!anyMatch) {
-        anyMatch = { text: associatedText, uploadedAt };
-      }
-
-      if (!objectiveMatch && /\bobjective\b/i.test(associatedText)) {
-        objectiveMatch = { text: associatedText, uploadedAt };
-      }
-
-      if (!subjectiveMatch && /\bsubjective\b/i.test(associatedText)) {
-        subjectiveMatch = { text: associatedText, uploadedAt };
-      }
+      match = { text: associatedText, uploadedAt: extractTimestampFromText(associatedText) };
+      break;
     }
 
-    // Stop early if we have both typed matches
-    if (objectiveMatch && subjectiveMatch) {
+    if (match) {
       break;
     }
 
@@ -1042,29 +1027,13 @@ async function scrapeAssignments(
     }
   }
 
-  // Found if objective OR subjective is present, or any row for this lecture appeared
-  // on the assignment page (handles batches that don't use objective/subjective labels)
-  const found = Boolean(objectiveMatch || subjectiveMatch || anyMatch);
-  const bestMatch = objectiveMatch ?? subjectiveMatch ?? anyMatch;
-
   return {
     lectureId: lecture.id,
     resourceType: "assignment" as const,
-    found,
-    uploadedAt: found
-      ? latestTimestamp([
-          objectiveMatch?.uploadedAt,
-          subjectiveMatch?.uploadedAt,
-          bestMatch?.uploadedAt
-        ])
-      : null,
+    found: Boolean(match),
+    uploadedAt: match?.uploadedAt ?? null,
     rawPayload: {
-      objectiveFound: Boolean(objectiveMatch),
-      subjectiveFound: Boolean(subjectiveMatch),
-      anyMatchFound: Boolean(anyMatch),
-      objectiveText: objectiveMatch?.text ?? null,
-      subjectiveText: subjectiveMatch?.text ?? null,
-      anyMatchText: anyMatch?.text ?? null
+      matchedText: match?.text ?? null
     }
   };
 }
