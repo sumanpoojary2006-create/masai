@@ -3,12 +3,14 @@ import { DateTime } from "luxon";
 import { TASK_LABELS } from "@/lib/constants";
 import { getAutomationEnv } from "@/lib/env";
 import { deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
-import { scrapeLmsResources } from "@/lib/lms-scraper";
+import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
+import { scrapeLectureSummary, scrapeLmsResources } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles } from "@/lib/queries";
 import { sendSlackAlerts } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   AlertType,
+  AutomationProfile,
   ComplianceAlertEvent,
   ComplianceRunSummary,
   LmsTrackingRecord,
@@ -101,6 +103,120 @@ function chooseAlertType(
 
 function describeRun(summary: ComplianceRunSummary) {
   return `Checked ${summary.checkedLectures} lectures, tracked ${summary.trackedResources} LMS resources, updated ${summary.updatedTasks} tasks, and sent ${summary.alertsSent} Slack message(s).`;
+}
+
+/**
+ * For a given profile, finds all lectures that:
+ *  - have a session_link
+ *  - ended more than 1.5 hours ago
+ *  - do NOT yet have a completed lo_report with transcript
+ *
+ * Then scrapes the LMS summary tab and (if learning_objective is set)
+ * auto-runs the Gemini LO analysis — fully hands-free.
+ */
+export async function fetchAndAnalyzePendingSummaries(
+  profile: Pick<AutomationProfile, "user_id" | "lms_username" | "lms_password" | "email">
+): Promise<number> {
+  const supabase = createServerSupabase();
+  const timezone = getAutomationEnv().timezone;
+  const now = DateTime.now().setZone(timezone);
+
+  const lectures = await getAutomationLectures(profile.user_id);
+
+  // Lectures that ended > 1.5 hours ago and have a session link
+  const eligible = lectures.filter((lecture) => {
+    const sessionLink = lecture.session_link;
+    if (!sessionLink?.trim()) return false;
+
+    const lectureEnd = DateTime.fromISO(
+      `${lecture.lecture_date}T${lecture.end_time}`,
+      { zone: timezone }
+    ).plus({ hours: 1, minutes: 30 });
+
+    return now >= lectureEnd;
+  });
+
+  if (eligible.length === 0) return 0;
+
+  // Get existing lo_reports for these lectures
+  const { data: existingReports } = await supabase
+    .from("lo_reports")
+    .select("lecture_id, status, transcript")
+    .in("lecture_id", eligible.map((l) => l.id));
+
+  const reportMap = new Map(
+    ((existingReports ?? []) as Array<{ lecture_id: string; status: string; transcript: string }>)
+      .map((r) => [r.lecture_id, r])
+  );
+
+  // Only process lectures that don't have a completed report with transcript yet
+  const toProcess = eligible.filter((lecture) => {
+    const report = reportMap.get(lecture.id);
+    return !report || report.status !== "completed" || !report.transcript?.trim();
+  });
+
+  if (toProcess.length === 0) return 0;
+
+  let processed = 0;
+
+  for (const lecture of toProcess) {
+    try {
+      console.log(`[lo-auto] Fetching summary for "${lecture.lecture_name}"…`);
+
+      const summary = await scrapeLectureSummary(lecture.session_link, {
+        username: profile.lms_username,
+        password: profile.lms_password
+      });
+
+      const learningObjective = lecture.learning_objective?.trim() ?? "";
+
+      if (learningObjective) {
+        // Save transcript + run LO analysis in one step
+        const result = await analyzeLosFromTranscript(learningObjective, summary);
+
+        await supabase.from("lo_reports").upsert(
+          {
+            lecture_id: lecture.id,
+            user_id: profile.user_id,
+            transcript: summary,
+            covered_los: result.covered_los,
+            missing_los: result.missing_los,
+            status: "completed",
+            generated_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "lecture_id" }
+        );
+
+        console.log(
+          `[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing`
+        );
+      } else {
+        // No LOs yet — store transcript only, mark pending analysis
+        await supabase.from("lo_reports").upsert(
+          {
+            lecture_id: lecture.id,
+            user_id: profile.user_id,
+            transcript: summary,
+            covered_los: [],
+            missing_los: [],
+            status: "pending",
+            generated_at: null,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "lecture_id" }
+        );
+
+        console.log(`[lo-auto] "${lecture.lecture_name}" → transcript stored, no LOs to analyse`);
+      }
+
+      processed++;
+    } catch (err) {
+      console.error(`[lo-auto] Failed for "${lecture.lecture_name}":`, err);
+    }
+  }
+
+  return processed;
 }
 
 export async function runComplianceCheck(options?: {
@@ -344,6 +460,16 @@ export async function runComplianceCheck(options?: {
       if (persistAlertError) {
         throw new Error(persistAlertError.message);
       }
+    }
+
+    // Auto-fetch LMS summaries + run LO analysis for concluded lectures
+    try {
+      const summariesFetched = await fetchAndAnalyzePendingSummaries(profile);
+      if (summariesFetched > 0) {
+        console.log(`[lo-auto] Auto-fetched and analysed ${summariesFetched} lecture summary(s) for ${profile.email}`);
+      }
+    } catch (err) {
+      console.error("[lo-auto] Summary fetch step failed:", err);
     }
 
     summary.checkedLectures += lectures.length;

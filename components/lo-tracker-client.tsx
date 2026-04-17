@@ -148,6 +148,8 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   const [batchFilter, setBatchFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const batches = [...new Set(rows.map((r) => r.batch_name))].sort();
@@ -158,6 +160,18 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
     const toOk = !dateTo || r.lecture_date <= dateTo;
     return batchOk && fromOk && toOk;
   });
+
+  function handleSyncTranscripts() {
+    startTransition(async () => {
+      setIsSyncing(true);
+      setSyncMessage(null);
+      const res = await fetch("/api/lo-tracker/sync", { method: "POST" });
+      const json = (await res.json()) as { message?: string };
+      setSyncMessage(json.message ?? (res.ok ? "Sync complete." : "Sync failed."));
+      setIsSyncing(false);
+      if (res.ok) router.refresh();
+    });
+  }
 
   function startEditLink(row: LoTrackerRow) {
     setEditLinkId(row.id);
@@ -204,9 +218,21 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
             <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
               Learning Objectives coverage per lecture
             </h2>
+            {syncMessage && (
+              <p className="mt-2 text-sm theme-muted">{syncMessage}</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <button
+              type="button"
+              disabled={isPending || isSyncing}
+              onClick={handleSyncTranscripts}
+              className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
+            >
+              {isSyncing ? "Fetching…" : "Sync Transcripts"}
+            </button>
+
             <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
               Batch
               <select
