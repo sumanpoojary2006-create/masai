@@ -7,12 +7,12 @@ import { ParsedLectureRow, TaskRecord } from "@/lib/types";
 
 const REQUIRED_HEADERS = [
   "batch_name",
-  "module_name",
   "lecture_name",
-  "lecture_date",
-  "lecture_start_time",
-  "lecture_end_time"
+  "lecture_date"
 ] as const;
+
+const DEFAULT_START_TIME = "20:00:00";
+const DEFAULT_END_TIME = "21:30:00";
 
 function normaliseHeader(input: string) {
   return input.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
@@ -111,10 +111,8 @@ function compactRows(rows: ParsedLectureRow[]) {
   for (const row of rows) {
     const key = [
       row.batch_name,
-      row.module_name,
       row.lecture_name,
-      row.lecture_date,
-      row.lecture_start_time
+      row.lecture_date
     ].join("::");
 
     deduped.set(key, row);
@@ -155,14 +153,14 @@ export function parseLectureWorkbook(fileBuffer: Buffer) {
 
       const row: ParsedLectureRow = {
         batch_name: String(normalised.batch_name).trim(),
-        module_name: String(normalised.module_name).trim(),
+        module_name: String(normalised.module_name ?? "").trim(),
         lecture_name: String(normalised.lecture_name).trim(),
         lecture_date: toIsoDate(normalised.lecture_date),
-        lecture_start_time: toSqlTime(normalised.lecture_start_time),
-        lecture_end_time: toSqlTime(normalised.lecture_end_time)
+        lecture_start_time: DEFAULT_START_TIME,
+        lecture_end_time: DEFAULT_END_TIME
       };
 
-      if (!row.batch_name || !row.module_name || !row.lecture_name) {
+      if (!row.batch_name || !row.lecture_name) {
         return null;
       }
 
