@@ -1,12 +1,10 @@
-name: Compliance Check
+name: LO Sync
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:
-  compliance:
+  lo-sync:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -24,14 +22,12 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
-      - name: Run compliance automation
-        run: npm run compliance
+      - name: Run LO sync
+        run: npx tsx scripts/run-lo-sync.ts
         env:
           LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
           LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
-

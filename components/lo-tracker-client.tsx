@@ -166,8 +166,17 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
       setIsSyncing(true);
       setSyncResults(null);
       const res = await fetch("/api/lo-tracker/sync", { method: "POST" });
-      const json = (await res.json()) as { results?: Array<{ lectureId: string; lectureName: string; status: string; reason?: string }>; message?: string };
-      setSyncResults(json.results ?? []);
+      const json = (await res.json()) as {
+        results?: Array<{ lectureId: string; lectureName: string; status: string; reason?: string }>;
+        message?: string;
+        dispatched?: boolean;
+      };
+      if (json.dispatched) {
+        // Workflow dispatched — show message, no per-lecture results yet
+        setSyncResults([{ lectureId: "dispatch", lectureName: "GitHub Actions", status: "fetched", reason: json.message }]);
+      } else {
+        setSyncResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
+      }
       setIsSyncing(false);
       if (res.ok) router.refresh();
     });
