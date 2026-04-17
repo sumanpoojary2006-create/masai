@@ -185,48 +185,62 @@ export async function fetchAndAnalyzePendingSummaries(
     console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from ${sessionLink}`);
 
     try {
-
       const summary = await scrapeLectureSummary(sessionLink, {
         username: profile.lms_username,
         password: profile.lms_password
       });
 
+      // ── Step 1: Save transcript immediately so it's never lost on analysis failure ──
+      await supabase.from("lo_reports").upsert(
+        {
+          lecture_id: lecture.id,
+          user_id: profile.user_id,
+          transcript: summary,
+          covered_los: [],
+          missing_los: [],
+          status: "pending",
+          generated_at: null,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: "lecture_id" }
+      );
+      console.log(`[lo-auto] "${lecture.lecture_name}" → transcript saved (${summary.length} chars)`);
+
+      // ── Step 2: Run LO analysis only if learning objectives are set ──
       const learningObjective = lecture.learning_objective?.trim() ?? "";
 
       if (learningObjective) {
-        const result = await analyzeLosFromTranscript(learningObjective, summary);
+        try {
+          const result = await analyzeLosFromTranscript(learningObjective, summary);
 
-        await supabase.from("lo_reports").upsert(
-          {
-            lecture_id: lecture.id,
-            user_id: profile.user_id,
-            transcript: summary,
-            covered_los: result.covered_los,
-            missing_los: result.missing_los,
-            status: "completed",
-            generated_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: "lecture_id" }
-        );
+          await supabase.from("lo_reports").upsert(
+            {
+              lecture_id: lecture.id,
+              user_id: profile.user_id,
+              transcript: summary,
+              covered_los: result.covered_los,
+              missing_los: result.missing_los,
+              status: "completed",
+              generated_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            },
+            { onConflict: "lecture_id" }
+          );
 
-        console.log(`[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing`);
-        results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "fetched" });
+          console.log(`[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing`);
+          results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "fetched" });
+        } catch (analysisErr) {
+          // Transcript was already saved above — log the analysis failure but don't fail the whole run
+          const reason = analysisErr instanceof Error ? analysisErr.message : "LO analysis failed";
+          console.error(`[lo-auto] LO analysis failed for "${lecture.lecture_name}" (transcript saved): ${reason}`);
+          results.push({
+            lectureId: lecture.id,
+            lectureName: lecture.lecture_name,
+            status: "fetched",
+            reason: `Transcript saved — LO analysis failed: ${reason.slice(0, 120)}`
+          });
+        }
       } else {
-        await supabase.from("lo_reports").upsert(
-          {
-            lecture_id: lecture.id,
-            user_id: profile.user_id,
-            transcript: summary,
-            covered_los: [],
-            missing_los: [],
-            status: "pending",
-            generated_at: null,
-            updated_at: new Date().toISOString()
-          },
-          { onConflict: "lecture_id" }
-        );
-
         console.log(`[lo-auto] "${lecture.lecture_name}" → transcript stored, no LOs to analyse`);
         results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "fetched", reason: "Transcript stored — add Learning Objectives to run analysis" });
       }
