@@ -310,9 +310,13 @@ export async function sendLoMorningReport(params: {
     return;
   }
 
-  // Only send if at least one lecture has missing LOs
+  // Only send if at least one lecture has NO covered LOs at all (0% coverage).
+  // Partial coverage (even 1 LO covered) = treated as fully covered — no alert needed.
   const hasMissingLOs = recent.some(
-    (r) => r.lo_report?.status === "completed" && (r.lo_report.missing_los?.length ?? 0) > 0
+    (r) =>
+      r.lo_report?.status === "completed" &&
+      (r.lo_report.covered_los?.length ?? 0) === 0 &&
+      (r.lo_report.missing_los?.length ?? 0) > 0
   );
 
   if (!hasMissingLOs) {
@@ -354,17 +358,17 @@ export async function sendLoMorningReport(params: {
       const covered = report.covered_los?.length ?? 0;
       const missing = report.missing_los?.length ?? 0;
       const total = covered + missing;
-      const pct = total > 0 ? Math.round((covered / total) * 100) : 0;
-      const bar = pct === 100 ? "🟢" : pct >= 60 ? "🟡" : "🔴";
       const fallbackNote = report.fallback ? " _(keyword match)_" : "";
 
-      totalCovered += covered;
-      totalLOs += total;
-
-      lines.push(`  ${bar} *${row.lecture_name}* _(${date})_ — ${covered}/${total} LOs covered (${pct}%)${fallbackNote}`);
-
-      if (missing > 0) {
+      // Partial coverage = fully covered — only flag lectures with zero covered LOs
+      if (covered > 0) {
+        lines.push(`  🟢 *${row.lecture_name}* _(${date})_ — Covered${fallbackNote}`);
+        totalCovered += total;
+        totalLOs += total;
+      } else {
+        lines.push(`  🔴 *${row.lecture_name}* _(${date})_ — No LOs covered${fallbackNote}`);
         (report.missing_los ?? []).forEach((lo) => lines.push(`     • ✗ ${lo}`));
+        totalLOs += total;
       }
     }
     lines.push("");
