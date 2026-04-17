@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
+import { sendLoSyncSlackNotification } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 
 export interface AnalyzePendingResult {
@@ -130,6 +131,13 @@ export async function POST() {
 
     const analyzed = results.filter((r) => r.status === "analyzed").length;
     const failed = results.filter((r) => r.status === "error").length;
+
+    // Send Slack notification (best-effort — never block the response)
+    sendLoSyncSlackNotification({
+      fetchResults: [],          // manual trigger — no new scraping
+      analyzeResults: results,
+      email: user.email ?? user.id
+    }).catch((err) => console.error("[analyze-pending] Slack notification failed:", err));
 
     return NextResponse.json({
       message: `${analyzed} analyzed, ${failed} failed.`,
