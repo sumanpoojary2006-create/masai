@@ -11,7 +11,7 @@ export async function analyzeLosFromTranscript(
   learningObjectives: string,
   transcript: string
 ): Promise<LoAnalysisResult> {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
   const prompt = `You are an educational quality analyst. You will be given:
 1. A list of Learning Objectives (LOs) for a lecture
