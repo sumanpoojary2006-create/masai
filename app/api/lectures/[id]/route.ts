@@ -51,6 +51,7 @@ export async function PATCH(
     const batchName = String(payload.batch_name ?? "").trim();
     const moduleName = String(payload.module_name ?? "").trim();
     const lectureName = String(payload.lecture_name ?? "").trim();
+    const learningObjective = String(payload.learning_objective ?? "").trim();
     const lectureDate = toIsoDate(payload.lecture_date);
     const startTime = toSqlTime(payload.start_time);
     const endTime = toSqlTime(payload.end_time);
@@ -73,6 +74,7 @@ export async function PATCH(
         batch_name: batchName,
         module_name: moduleName,
         lecture_name: lectureName,
+        learning_objective: learningObjective,
         lecture_date: lectureDate,
         start_time: startTime,
         end_time: endTime

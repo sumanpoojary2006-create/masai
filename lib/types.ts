@@ -14,6 +14,7 @@ export interface LectureRecord {
   batch_name: string;
   module_name: string;
   lecture_name: string;
+  learning_objective: string;
   lecture_date: string;
   start_time: string;
   end_time: string;
@@ -54,6 +55,7 @@ export interface ParsedLectureRow {
   batch_name: string;
   module_name: string;
   lecture_name: string;
+  learning_objective: string;
   lecture_date: string;
   lecture_start_time: string;
   lecture_end_time: string;

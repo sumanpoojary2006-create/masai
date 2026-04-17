@@ -27,7 +27,7 @@ export async function getDashboardData(filters: {
   const { data, error } = await supabase
     .from("lectures")
     .select(
-      "id, user_id, batch_name, module_name, lecture_name, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
+      "id, user_id, batch_name, module_name, lecture_name, learning_objective, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
     )
     .eq("user_id", filters.userId)
     .order("lecture_date", { ascending: false })
@@ -43,6 +43,7 @@ export async function getDashboardData(filters: {
     batch_name: lecture.batch_name,
     module_name: lecture.module_name,
     lecture_name: lecture.lecture_name,
+    learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
     lecture_date: lecture.lecture_date,
     start_time: lecture.start_time,
     end_time: lecture.end_time,
@@ -67,7 +68,7 @@ export async function getAutomationLectures(userId: string) {
   const { data, error } = await supabase
     .from("lectures")
     .select(
-      "id, user_id, batch_name, module_name, lecture_name, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
+      "id, user_id, batch_name, module_name, lecture_name, learning_objective, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
     )
     .eq("user_id", userId)
     .order("lecture_date", { ascending: false });
@@ -82,6 +83,7 @@ export async function getAutomationLectures(userId: string) {
     batch_name: lecture.batch_name,
     module_name: lecture.module_name,
     lecture_name: lecture.lecture_name,
+    learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
     lecture_date: lecture.lecture_date,
     start_time: lecture.start_time,
     end_time: lecture.end_time,

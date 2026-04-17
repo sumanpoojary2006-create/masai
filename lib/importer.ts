@@ -155,6 +155,7 @@ export function parseLectureWorkbook(fileBuffer: Buffer) {
         batch_name: String(normalised.batch_name).trim(),
         module_name: String(normalised.module_name ?? "").trim(),
         lecture_name: String(normalised.lecture_name).trim(),
+        learning_objective: String(normalised.learning_objective ?? "").trim(),
         lecture_date: toIsoDate(normalised.lecture_date),
         lecture_start_time: DEFAULT_START_TIME,
         lecture_end_time: DEFAULT_END_TIME
@@ -212,6 +213,7 @@ export async function importLectureSheet(
         batch_name: lecture.batch_name,
         module_name: lecture.module_name,
         lecture_name: lecture.lecture_name,
+        learning_objective: lecture.learning_objective,
         lecture_date: lecture.lecture_date,
         start_time: lecture.lecture_start_time,
         end_time: lecture.lecture_end_time

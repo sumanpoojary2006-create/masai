@@ -28,6 +28,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     batch_name: "",
     module_name: "",
     lecture_name: "",
+    learning_objective: "",
     lecture_date: "",
     start_time: "",
     end_time: ""
@@ -92,6 +93,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       batch_name: lecture.batch_name,
       module_name: lecture.module_name,
       lecture_name: lecture.lecture_name,
+      learning_objective: lecture.learning_objective ?? "",
       lecture_date: lecture.lecture_date,
       start_time: lecture.start_time.slice(0, 5),
       end_time: lecture.end_time.slice(0, 5)
@@ -337,6 +339,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                     <thead>
                       <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                         <th className="pb-3 pr-4 pt-3">Lecture</th>
+                        <th className="pb-3 pr-4 pt-3">Learning Objectives</th>
                         <th className="pb-3 pr-4 pt-3">Schedule</th>
                         <th className="pb-3 pr-4 pt-3">Pre-read</th>
                         <th className="pb-3 pr-4 pt-3">Notes</th>
@@ -351,6 +354,13 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             <td className="py-4 pr-4">
                               <p className="font-semibold text-ink">{lecture.lecture_name}</p>
                               <p className="theme-muted mt-1 text-sm">{lecture.module_name}</p>
+                            </td>
+                            <td className="py-4 pr-4 max-w-[220px]">
+                              {lecture.learning_objective ? (
+                                <p className="theme-muted text-sm leading-relaxed">{lecture.learning_objective}</p>
+                              ) : (
+                                <span className="theme-muted text-sm italic">—</span>
+                              )}
                             </td>
                             <td className="theme-muted py-4 pr-4 text-sm">
                               <p>{formatLectureDate(lecture.lecture_date)}</p>
@@ -385,7 +395,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                           </tr>
                           {editingId === lecture.id ? (
                             <tr className="bg-white/90 dark:bg-slate-900/80">
-                              <td colSpan={6} className="px-0 pb-5 pt-1">
+                              <td colSpan={7} className="px-0 pb-5 pt-1">
                                 <div className="theme-edit-panel rounded-2xl p-4">
                                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                               <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
@@ -409,6 +419,15 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                                 <input
                                   value={editForm.lecture_name}
                                   onChange={(event) => updateField("lecture_name", event.target.value)}
+                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                                />
+                              </label>
+                              <label className="theme-muted col-span-full flex flex-col gap-2 text-sm font-medium xl:col-span-3">
+                                Learning Objectives
+                                <input
+                                  value={editForm.learning_objective}
+                                  onChange={(event) => updateField("learning_objective", event.target.value)}
+                                  placeholder="e.g. Understand transformer architecture"
                                   className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
                                 />
                               </label>
