@@ -269,36 +269,36 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
               </select>
             </label>
 
-            <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-              From
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setDateFrom(event.target.value)}
-                className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-              />
-            </label>
-
-            <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-              To
-              <input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(event) => setDateTo(event.target.value)}
-                className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-              />
-            </label>
-
-            {(dateFrom || dateTo) && (
-              <button
-                type="button"
-                onClick={() => { setDateFrom(""); setDateTo(""); }}
-                className="self-end inline-flex h-11 items-center justify-center rounded-full border border-slate-300 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:text-slate-200"
-              >
-                Clear dates
-              </button>
-            )}
+            {/* From / To date range — grouped so they never split across rows */}
+            <div className="theme-muted flex flex-col gap-2 text-sm font-medium">
+              Week
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                />
+                <span className="text-slate-400 dark:text-slate-500">→</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(event) => setDateTo(event.target.value)}
+                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                />
+                {(dateFrom || dateTo) && (
+                  <button
+                    type="button"
+                    onClick={() => { setDateFrom(""); setDateTo(""); }}
+                    className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-400 transition hover:border-rose-300 hover:text-rose-500 dark:border-slate-600 dark:text-slate-500 dark:hover:border-rose-700 dark:hover:text-rose-400"
+                    title="Clear date filter"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
