@@ -774,7 +774,7 @@ async function login(page: Page, username: string, password: string) {
   });
   await page.waitForTimeout(1500);
 
-  await fillFirstMatching(
+  const usernameFilled = await fillFirstMatching(
     page,
     [
       'input[type="email"]',
@@ -784,17 +784,26 @@ async function login(page: Page, username: string, password: string) {
     ],
     username
   );
-  await fillFirstMatching(
+  const passwordFilled = await fillFirstMatching(
     page,
     ['input[type="password"]', 'input[name="password"]', 'input[placeholder="password"]'],
     password
   );
 
+  if (!usernameFilled || !passwordFilled) {
+    throw new Error("Unable to find the LMS username/password fields");
+  }
+
   const submitCandidates = [
     page.getByRole("button", { name: /log in|login|sign in/i }),
     page.locator("button").filter({ hasText: /log in|login|sign in/i }),
+    page.getByRole("button", { name: /continue|submit|next/i }),
+    page.locator("button").filter({ hasText: /continue|submit|next/i }),
+    page.locator('[type="submit"]'),
     page.locator("button"),
-    page.locator('input[type="submit"]')
+    page.locator('input[type="submit"]'),
+    page.locator('a[role="button"]'),
+    page.locator("[role='button']")
   ];
 
   let submitButton: Locator | null = null;
@@ -805,13 +814,50 @@ async function login(page: Page, username: string, password: string) {
     }
   }
 
-  if (!submitButton) {
-    throw new Error("Unable to find the LMS login button");
+  if (submitButton) {
+    await submitButton.click().catch(() => undefined);
+  } else {
+    const passwordField = await firstVisible(
+      page.locator(
+        ['input[type="password"]', 'input[name="password"]', 'input[placeholder="password"]'].join(
+          ", "
+        )
+      )
+    );
+
+    if (passwordField) {
+      await passwordField.press("Enter").catch(() => undefined);
+    } else {
+      await page.keyboard.press("Enter").catch(() => undefined);
+    }
+
+    await page
+      .locator("form")
+      .first()
+      .evaluate((form) => {
+        if (form instanceof HTMLFormElement) {
+          form.requestSubmit();
+        }
+      })
+      .catch(() => undefined);
   }
 
-  await submitButton.click();
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(3000);
+
+  const currentUrl = page.url();
+  const bodyText =
+    (await page.evaluate(() => document.body?.textContent ?? "").catch(() => "")) ?? "";
+
+  if (
+    currentUrl.includes("/login") ||
+    /invalid|incorrect|unauthorized|sign in|log in/i.test(bodyText)
+  ) {
+    logLmsDebug("login-page-after-submit", {
+      currentUrl,
+      bodySnippet: bodyText.slice(0, 500)
+    });
+  }
 }
 
 async function scrapeLectures(
