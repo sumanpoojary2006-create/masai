@@ -275,6 +275,97 @@ export async function sendLoSyncSlackNotification(params: {
   console.log("[lo-slack] Notification sent.");
 }
 
+export async function sendLoMorningReport(params: {
+  rows: Array<{
+    lecture_name: string;
+    batch_name: string;
+    lecture_date: string;
+    learning_objective: string;
+    lo_report: {
+      status: string;
+      covered_los: string[];
+      missing_los: string[];
+      fallback?: boolean;
+    } | null;
+  }>;
+  email: string;
+}) {
+  const webhookUrl = process.env.LO_SLACK_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn("[lo-slack] LO_SLACK_WEBHOOK_URL not set — skipping morning report");
+    return;
+  }
+
+  const timezone = process.env.APP_TIMEZONE ?? getAppTimezone();
+  const today = DateTime.now().setZone(timezone).toFormat("dd LLL yyyy");
+
+  // Only include lectures from the last 7 days that have LOs set
+  const cutoff = DateTime.now().setZone(timezone).minus({ days: 7 }).toISODate();
+  const recent = params.rows.filter(
+    (r) => r.lecture_date >= cutoff! && r.learning_objective?.trim()
+  );
+
+  if (recent.length === 0) {
+    console.log("[lo-slack] No recent lectures with LOs — skipping morning report");
+    return;
+  }
+
+  // Group by batch, sorted alphabetically
+  const byBatch = recent.reduce<Map<string, typeof recent>>((acc, r) => {
+    acc.set(r.batch_name, [...(acc.get(r.batch_name) ?? []), r]);
+    return acc;
+  }, new Map([...new Set(recent.map((r) => r.batch_name))].sort().map((b) => [b, []])));
+
+  const lines: string[] = [
+    `🌅 *LO Coverage Report — ${today}*`,
+    `👤 ${params.email}`,
+    ""
+  ];
+
+  let totalCovered = 0;
+  let totalLOs = 0;
+
+  for (const [batchName, lectures] of byBatch.entries()) {
+    if (lectures.length === 0) continue;
+    lines.push(`*${batchName}*`);
+
+    for (const row of lectures) {
+      const report = row.lo_report;
+      const date = DateTime.fromISO(row.lecture_date, { zone: timezone }).toFormat("dd LLL");
+
+      if (!report || report.status !== "completed") {
+        const badge = !report ? "⬜" : "⏳";
+        lines.push(`  ${badge} ${row.lecture_name} _(${date})_ — not analysed yet`);
+        continue;
+      }
+
+      const covered = report.covered_los?.length ?? 0;
+      const missing = report.missing_los?.length ?? 0;
+      const total = covered + missing;
+      const pct = total > 0 ? Math.round((covered / total) * 100) : 0;
+      const bar = pct === 100 ? "🟢" : pct >= 60 ? "🟡" : "🔴";
+      const fallbackNote = report.fallback ? " _(keyword match)_" : "";
+
+      totalCovered += covered;
+      totalLOs += total;
+
+      lines.push(`  ${bar} *${row.lecture_name}* _(${date})_ — ${covered}/${total} LOs covered (${pct}%)${fallbackNote}`);
+
+      if (missing > 0) {
+        (report.missing_los ?? []).forEach((lo) => lines.push(`     • ✗ ${lo}`));
+      }
+    }
+    lines.push("");
+  }
+
+  // Overall summary line
+  const overallPct = totalLOs > 0 ? Math.round((totalCovered / totalLOs) * 100) : 0;
+  lines.push(`📊 *Overall (last 7 days): ${totalCovered}/${totalLOs} LOs covered (${overallPct}%)*`);
+
+  await postSlackMessage(webhookUrl, lines.join("\n"));
+  console.log("[lo-slack] Morning report sent.");
+}
+
 export async function sendManualPendingDigest(
   pendingItems: PendingDigestItem[],
   options?: { mentionUserId?: string | null }

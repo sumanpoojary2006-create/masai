@@ -1,0 +1,31 @@
+name: LO Morning Report
+
+on:
+  schedule:
+    # Every day at 9:00 AM IST (3:30 AM UTC)
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  lo-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Send LO morning report to Slack
+        run: npx tsx scripts/send-lo-report.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          LO_SLACK_WEBHOOK_URL: ${{ secrets.LO_SLACK_WEBHOOK_URL }}
+          APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
