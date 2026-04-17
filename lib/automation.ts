@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 
 import { TASK_LABELS } from "@/lib/constants";
-import { getAutomationEnv } from "@/lib/env";
+import { getAppTimezone, getAutomationEnv } from "@/lib/env";
 import { deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { scrapeLectureSummary, scrapeLmsResources } from "@/lib/lms-scraper";
@@ -125,7 +125,7 @@ export async function fetchAndAnalyzePendingSummaries(
   profile: Pick<AutomationProfile, "user_id" | "lms_username" | "lms_password" | "email">
 ): Promise<SummaryFetchResult[]> {
   const supabase = createServerSupabase();
-  const timezone = getAutomationEnv().timezone;
+  const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
 
   const lectures = await getAutomationLectures(profile.user_id);
