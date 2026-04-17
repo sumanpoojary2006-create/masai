@@ -1076,3 +1076,77 @@ export async function scrapeLmsResources(
     }
   }
 }
+
+/**
+ * Scrapes the Summary tab from a Masai LMS lecture detail page.
+ * sessionLink should be like: https://experience-admin.masaischool.com/lectures/detail/?id=145613
+ */
+export async function scrapeLectureSummary(
+  sessionLink: string,
+  credentials: { username: string; password: string }
+): Promise<string> {
+  // Build the summary tab URL
+  const url = new URL(sessionLink);
+  url.searchParams.set("tab", "summary");
+  const summaryUrl = url.toString();
+
+  let browser: Browser | null = null;
+
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+
+    await login(page, credentials.username, credentials.password);
+
+    await page.goto(summaryUrl, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle").catch(() => undefined);
+    await page.waitForTimeout(2000);
+
+    // Try clicking the Summary tab if not already on it
+    const summaryTab = page.getByRole("tab", { name: /summary/i })
+      .or(page.locator("button, a").filter({ hasText: /^summary$/i }));
+
+    const tab = await summaryTab.first().isVisible().catch(() => false);
+    if (tab) {
+      await summaryTab.first().click().catch(() => undefined);
+      await page.waitForTimeout(1500);
+    }
+
+    // Extract text from the summary content area
+    const summaryText = await page.evaluate(() => {
+      // Try to find the summary/content container
+      const selectors = [
+        '[class*="summary"]',
+        '[class*="content"]',
+        '[class*="detail"]',
+        "main article",
+        "main",
+        ".tab-content",
+        '[role="tabpanel"]'
+      ];
+
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && (el.textContent?.trim().length ?? 0) > 100) {
+          return el.textContent?.trim() ?? "";
+        }
+      }
+
+      return document.body.innerText ?? "";
+    });
+
+    if (!summaryText || summaryText.trim().length < 50) {
+      throw new Error("Could not extract summary text from the LMS page. Make sure the session link is correct and the summary has been generated.");
+    }
+
+    // Clean up whitespace
+    return summaryText
+      .replace(/\t/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}

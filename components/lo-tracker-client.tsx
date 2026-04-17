@@ -47,8 +47,28 @@ function TranscriptPanel({
 }) {
   const [transcript, setTranscript] = useState(row.lo_report?.transcript ?? "");
   const [isPending, startTransition] = useTransition();
+  const [isFetching, setIsFetching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const canAnalyze = lectureEnded(row.lecture_date, row.end_time);
+  const hasSessionLink = Boolean(row.session_link);
+
+  function handleFetchFromLms() {
+    startTransition(async () => {
+      setIsFetching(true);
+      setMessage(null);
+      const res = await fetch(`/api/lo-tracker/${row.id}/fetch-summary`, {
+        method: "POST"
+      });
+      const json = (await res.json()) as { message?: string; transcript?: string };
+      if (res.ok && json.transcript) {
+        setTranscript(json.transcript);
+        setMessage("Summary fetched! Review it below then click Analyze LOs.");
+      } else {
+        setMessage(json.message ?? "Failed to fetch summary.");
+      }
+      setIsFetching(false);
+    });
+  }
 
   function handleAnalyze() {
     startTransition(async () => {
@@ -66,26 +86,52 @@ function TranscriptPanel({
 
   return (
     <div className="space-y-3">
+      {/* Fetch from LMS button */}
+      {hasSessionLink && canAnalyze && (
+        <button
+          type="button"
+          disabled={isPending || isFetching}
+          onClick={handleFetchFromLms}
+          className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-2xl border border-brand/40 bg-brand/10 px-4 text-xs font-semibold text-brand transition hover:bg-brand/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand/30 dark:bg-brand/10"
+        >
+          {isFetching ? (
+            <><span className="animate-spin">⟳</span> Fetching from LMS…</>
+          ) : (
+            <><span>⬇</span> Fetch Summary from LMS</>
+          )}
+        </button>
+      )}
+
       <textarea
-        rows={5}
+        rows={6}
         value={transcript}
         onChange={(e) => setTranscript(e.target.value)}
-        placeholder="Paste the lecture transcript or summary here…"
+        placeholder={
+          hasSessionLink
+            ? "Click 'Fetch Summary from LMS' above, or paste manually…"
+            : "Paste the lecture transcript or summary here…"
+        }
         className="theme-input w-full rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100 resize-none"
       />
+
       {!canAnalyze && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          Analysis unlocks 1 hour after the lecture ends.
+          ⏳ Analysis unlocks 1 hour after the lecture ends.
         </p>
       )}
-      {message && <p className="text-xs theme-muted">{message}</p>}
+      {message && (
+        <p className={`text-xs ${message.includes("fetched") ? "text-emerald-600 dark:text-emerald-400" : "theme-muted"}`}>
+          {message}
+        </p>
+      )}
+
       <button
         type="button"
-        disabled={isPending || !transcript.trim() || !canAnalyze}
+        disabled={isPending || isFetching || !transcript.trim() || !canAnalyze}
         onClick={handleAnalyze}
         className="inline-flex h-9 items-center justify-center rounded-full bg-brand px-5 text-xs font-semibold text-white transition hover:bg-teal-500 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700"
       >
-        {isPending ? "Analyzing…" : "Analyze LOs"}
+        {isPending && !isFetching ? "Analyzing…" : "Analyze LOs"}
       </button>
     </div>
   );
