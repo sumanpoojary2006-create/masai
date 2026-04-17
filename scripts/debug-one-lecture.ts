@@ -22,7 +22,7 @@ async function main() {
   const { data: lecture, error } = await supabase
     .from("lectures")
     .select(
-      "id,user_id,batch_name,module_name,lecture_name,lecture_date,start_time,end_time,tasks(id,lecture_id,type,deadline,status,completed_at)"
+      "id,user_id,batch_name,module_name,lecture_name,learning_objective,session_link,lecture_date,start_time,end_time,tasks(id,lecture_id,type,deadline,status,completed_at)"
     )
     .eq("lecture_name", lectureName)
     .single();
@@ -31,7 +31,11 @@ async function main() {
     throw new Error(error?.message ?? `Lecture not found: ${lectureName}`);
   }
 
-  const result = await scrapeLmsResources([lecture], {
+  const result = await scrapeLmsResources([{
+    ...lecture,
+    learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
+    session_link: (lecture as Record<string, unknown>).session_link as string ?? ""
+  }], {
     username: process.env.LMS_USERNAME,
     password: process.env.LMS_PASSWORD
   });

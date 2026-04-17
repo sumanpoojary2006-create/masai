@@ -307,6 +307,8 @@ export async function runComplianceCheck(options?: {
             batch_name: lecture.batch_name,
             module_name: lecture.module_name,
             lecture_name: lecture.lecture_name,
+            learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
+            session_link: (lecture as Record<string, unknown>).session_link as string ?? "",
             lecture_date: lecture.lecture_date,
             start_time: lecture.start_time,
             end_time: lecture.end_time

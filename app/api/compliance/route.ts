@@ -53,6 +53,8 @@ export async function POST() {
               batch_name: lecture.batch_name,
               module_name: lecture.module_name,
               lecture_name: lecture.lecture_name,
+              learning_objective: lecture.learning_objective ?? "",
+              session_link: lecture.session_link ?? "",
               lecture_date: lecture.lecture_date,
               start_time: lecture.start_time,
               end_time: lecture.end_time
