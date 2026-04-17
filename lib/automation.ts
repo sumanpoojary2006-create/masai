@@ -33,20 +33,20 @@ function nextStatus(
   now: DateTime,
   stickyCompletedTaskIds: Set<string>
 ) {
-  if (task.status === "completed" || stickyCompletedTaskIds.has(task.id)) {
+  const resourceFound =
+    Boolean(tracking?.found) ||
+    task.status === "completed" ||
+    stickyCompletedTaskIds.has(task.id);
+
+  // Resource was uploaded — completed regardless of when (before or after deadline)
+  if (resourceFound) {
     return {
       status: "completed" as TaskStatus,
       completedAt: tracking?.uploadedAt ?? task.completed_at ?? now.toUTC().toISO()
     };
   }
 
-  if (tracking?.found) {
-    return {
-      status: "completed" as TaskStatus,
-      completedAt: tracking.uploadedAt ?? task.completed_at ?? now.toUTC().toISO()
-    };
-  }
-
+  // Deadline passed and resource never uploaded — missed
   if (DateTime.fromISO(task.deadline) <= now) {
     return {
       status: "missed" as TaskStatus,
@@ -54,6 +54,7 @@ function nextStatus(
     };
   }
 
+  // Deadline not yet passed and not uploaded — pending
   return {
     status: "pending" as TaskStatus,
     completedAt: null

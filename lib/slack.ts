@@ -78,7 +78,14 @@ function alertLine(event: ComplianceAlertEvent) {
         : "pending";
 
   if (event.alertType === "completed") {
-    return `• ✅ ${event.lecture.lecture_name} | ${label} uploaded`;
+    const isLate =
+      Boolean(event.completedAt) &&
+      Boolean(event.deadline) &&
+      new Date(event.completedAt!).getTime() > new Date(event.deadline).getTime() + 60_000;
+
+    return isLate
+      ? `• 🟡 ${event.lecture.lecture_name} | ${label} uploaded late`
+      : `• ✅ ${event.lecture.lecture_name} | ${label} uploaded`;
   }
 
   if (event.alertType === "missed") {
