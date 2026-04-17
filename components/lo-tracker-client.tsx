@@ -171,6 +171,14 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
     return batchOk && fromOk && toOk;
   });
 
+  // Group by batch name, sorted alphabetically (same as dashboard)
+  const groupedRows = Object.entries(
+    filtered.reduce<Record<string, typeof filtered>>((acc, row) => {
+      acc[row.batch_name] = [...(acc[row.batch_name] ?? []), row];
+      return acc;
+    }, {})
+  ).sort(([a], [b]) => a.localeCompare(b));
+
   function handleSyncTranscripts() {
     startTransition(async () => {
       setIsSyncing(true);
@@ -377,26 +385,36 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
           </div>
         </div>
 
-        {/* Table */}
-        {filtered.length === 0 ? (
+        {/* Grouped tables */}
+        {groupedRows.length === 0 ? (
           <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center dark:border-slate-700 dark:bg-slate-800/40">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">No Matching Lectures</p>
           </div>
         ) : (
-          <div className="mt-6 overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
-              <thead>
-                <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  <th className="pb-3 pr-4 pt-3">Lecture</th>
-                  <th className="pb-3 pr-4 pt-3">Learning Objectives</th>
-                  <th className="pb-3 pr-4 pt-3">Session Link</th>
-                  <th className="pb-3 pr-4 pt-3">Transcript</th>
-                  <th className="pb-3 pr-4 pt-3">Covered LO's</th>
-                  <th className="pb-3 pt-3">Missing LO's</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
-                {filtered.map((row) => {
+          <div className="mt-6 space-y-8">
+            {groupedRows.map(([batchName, batchRows]) => (
+              <div key={batchName}>
+                {/* Batch header */}
+                <div className="mb-3 flex items-center gap-3">
+                  <p className="text-sm font-bold uppercase tracking-[0.2em] text-brand">{batchName}</p>
+                  <span className="theme-muted text-xs">{batchRows.length} lecture{batchRows.length === 1 ? "" : "s"}</span>
+                  <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+                </div>
+
+                <div className="overflow-x-auto rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+                  <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
+                    <thead>
+                      <tr className="bg-slate-50/80 dark:bg-slate-800/40 text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                        <th className="pb-3 pl-4 pr-4 pt-3">Lecture</th>
+                        <th className="pb-3 pr-4 pt-3">Learning Objectives</th>
+                        <th className="pb-3 pr-4 pt-3">Session Link</th>
+                        <th className="pb-3 pr-4 pt-3">Transcript</th>
+                        <th className="pb-3 pr-4 pt-3">Covered LO's</th>
+                        <th className="pb-3 pr-4 pt-3">Missing LO's</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
+                      {batchRows.map((row) => {
                   const report = row.lo_report;
                   const isTranscriptOpen = transcriptOpenId === row.id;
                   const isEditingLink = editLinkId === row.id;
@@ -405,9 +423,8 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                   return (
                     <tr key={row.id} className="align-top">
                       {/* Lecture */}
-                      <td className="py-4 pr-4 min-w-[160px]">
+                      <td className="py-4 pl-4 pr-4 min-w-[160px]">
                         <p className="font-semibold text-ink">{row.lecture_name}</p>
-                        <p className="theme-muted mt-1 text-xs">{row.batch_name}</p>
                         <p className="theme-muted mt-0.5 text-xs">
                           {formatLectureDate(row.lecture_date)} · {formatLectureTime(row.start_time)} – {formatLectureTime(row.end_time)}
                         </p>
@@ -596,9 +613,12 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </section>
