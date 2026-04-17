@@ -1079,16 +1079,19 @@ export async function scrapeLmsResources(
 
 /**
  * Scrapes the Summary tab from a Masai LMS lecture detail page.
- * sessionLink should be like: https://experience-admin.masaischool.com/lectures/detail/?id=145613
+ * sessionLink: https://experience-admin.masaischool.com/lectures/detail/?id=145613
  */
 export async function scrapeLectureSummary(
   sessionLink: string,
   credentials: { username: string; password: string }
 ): Promise<string> {
-  // Build the summary tab URL
-  const url = new URL(sessionLink);
-  url.searchParams.set("tab", "summary");
-  const summaryUrl = url.toString();
+  // Strip any existing tab param and force ?tab=summary
+  const baseUrl = sessionLink.split("?")[0];
+  const idMatch = sessionLink.match(/[?&]id=(\d+)/);
+  if (!idMatch) {
+    throw new Error("Could not parse lecture ID from session link. Expected URL like …/lectures/detail/?id=145613");
+  }
+  const summaryUrl = `${baseUrl}?id=${idMatch[1]}&tab=summary`;
 
   let browser: Browser | null = null;
 
@@ -1096,50 +1099,94 @@ export async function scrapeLectureSummary(
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
 
+    // Login first, then navigate to summary URL
     await login(page, credentials.username, credentials.password);
 
+    logLmsDebug("navigating to summary url", summaryUrl);
     await page.goto(summaryUrl, { waitUntil: "domcontentloaded" });
+
+    // Wait for React SPA to hydrate and render the tab content
     await page.waitForLoadState("networkidle").catch(() => undefined);
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
-    // Try clicking the Summary tab if not already on it
-    const summaryTab = page.getByRole("tab", { name: /summary/i })
-      .or(page.locator("button, a").filter({ hasText: /^summary$/i }));
+    // Explicitly click the Summary tab to ensure it is active
+    const tabCandidates = [
+      page.getByRole("tab", { name: /^summary$/i }),
+      page.locator("button").filter({ hasText: /^summary$/i }),
+      page.locator("a").filter({ hasText: /^summary$/i }),
+      page.locator("[class*='tab']").filter({ hasText: /^summary$/i })
+    ];
 
-    const tab = await summaryTab.first().isVisible().catch(() => false);
-    if (tab) {
-      await summaryTab.first().click().catch(() => undefined);
-      await page.waitForTimeout(1500);
+    for (const candidate of tabCandidates) {
+      try {
+        const el = candidate.first();
+        if (await el.isVisible({ timeout: 2000 })) {
+          await el.click();
+          logLmsDebug("clicked Summary tab");
+          break;
+        }
+      } catch {
+        // try next candidate
+      }
     }
 
-    // Extract text from the summary content area
+    // Wait for content to appear after tab click
+    await page.waitForTimeout(3000);
+
+    // Wait until meaningful text is visible on the page
+    await page.waitForFunction(
+      () => (document.body.innerText?.length ?? 0) > 300,
+      { timeout: 10000 }
+    ).catch(() => undefined);
+
+    // Extract the summary text — try progressively broader selectors
     const summaryText = await page.evaluate(() => {
-      // Try to find the summary/content container
-      const selectors = [
-        '[class*="summary"]',
-        '[class*="content"]',
-        '[class*="detail"]',
-        "main article",
-        "main",
-        ".tab-content",
-        '[role="tabpanel"]'
+      // Remove noisy nav/header/footer/sidebar elements first
+      const noise = ["nav", "header", "footer", "aside", "[class*='sidebar']", "[class*='navbar']", "[class*='navigation']"];
+      noise.forEach((sel) => {
+        document.querySelectorAll(sel).forEach((el) => {
+          (el as HTMLElement).style.display = "none";
+        });
+      });
+
+      // Priority selectors — try to get the tab content area specifically
+      const contentSelectors = [
+        "[class*='tabPanel']",
+        "[class*='tab-panel']",
+        "[class*='tab_panel']",
+        "[role='tabpanel']",
+        "[class*='TabPanel']",
+        "[class*='summary']",
+        "[class*='Summary']",
+        "article",
+        "main"
       ];
 
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el && (el.textContent?.trim().length ?? 0) > 100) {
-          return el.textContent?.trim() ?? "";
+      for (const sel of contentSelectors) {
+        const els = document.querySelectorAll(sel);
+        for (const el of els) {
+          const text = (el as HTMLElement).innerText?.trim() ?? "";
+          // Must have substantial content — skip tiny panels
+          if (text.length > 200) {
+            return text;
+          }
         }
       }
 
-      return document.body.innerText ?? "";
+      // Last resort: full body text, trimmed
+      return document.body.innerText?.trim() ?? "";
     });
 
-    if (!summaryText || summaryText.trim().length < 50) {
-      throw new Error("Could not extract summary text from the LMS page. Make sure the session link is correct and the summary has been generated.");
+    logLmsDebug("extracted summary length", summaryText.length);
+
+    if (!summaryText || summaryText.trim().length < 100) {
+      throw new Error(
+        "Summary not found on the LMS page. " +
+        "Make sure the summary has been generated (check the Summary tab manually) " +
+        "and the session link points to a lecture detail page."
+      );
     }
 
-    // Clean up whitespace
     return summaryText
       .replace(/\t/g, " ")
       .replace(/\n{3,}/g, "\n\n")
