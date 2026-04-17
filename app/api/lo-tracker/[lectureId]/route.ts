@@ -143,7 +143,7 @@ export async function POST(
       report: savedReport as LoReport
     });
   } catch (error) {
-    // On error, mark report as errored
+    // On error, reset to "pending" so transcript is preserved and retryable
     try {
       const lectureId = await resolveParams(context);
       const user = await getCurrentUser();
@@ -151,7 +151,7 @@ export async function POST(
         const supabase = createServerSupabase();
         await supabase
           .from("lo_reports")
-          .update({ status: "error", updated_at: new Date().toISOString() })
+          .update({ status: "pending", updated_at: new Date().toISOString() })
           .eq("lecture_id", lectureId)
           .eq("user_id", user.id);
       }

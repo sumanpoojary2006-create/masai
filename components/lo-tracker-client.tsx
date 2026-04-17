@@ -267,23 +267,38 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                       <tr className="bg-slate-50/50 dark:bg-slate-800/40 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                         <th className="px-4 py-2 text-left">Lecture</th>
                         <th className="px-4 py-2 text-left">Result</th>
-                        <th className="px-4 py-2 text-left">Detail</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
                       {actionResults.map((r) => (
                         <tr key={r.lectureId}>
-                          <td className="px-4 py-2 text-ink font-medium">{r.lectureName}</td>
-                          <td className="px-4 py-2 whitespace-nowrap">
+                          <td className="px-4 py-2 text-ink font-medium align-top">{r.lectureName}</td>
+                          <td className="px-4 py-2 align-top">
                             {(r.status === "fetched" || r.status === "analyzed") && (
-                              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-                                ✓ {r.status === "analyzed" ? `${r.coveredCount ?? 0} covered / ${r.missingCount ?? 0} missing` : "Fetched"}
-                              </span>
+                              <div>
+                                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-sm">
+                                  ✓ {r.status === "analyzed" ? `${r.coveredCount ?? 0} covered / ${r.missingCount ?? 0} missing` : "Dispatched"}
+                                </span>
+                                {r.reason && <p className="mt-0.5 text-xs theme-muted">{r.reason}</p>}
+                              </div>
                             )}
-                            {r.status === "skipped" && <span className="text-slate-400">— Skipped</span>}
-                            {r.status === "error"   && <span className="text-rose-600 dark:text-rose-400 font-semibold">✗ Failed</span>}
+                            {r.status === "skipped" && (
+                              <div>
+                                <span className="text-slate-400 text-sm">— Skipped</span>
+                                {r.reason && <p className="mt-0.5 text-xs theme-muted">{r.reason}</p>}
+                              </div>
+                            )}
+                            {r.status === "error" && (
+                              <div>
+                                <span className="text-rose-600 dark:text-rose-400 font-semibold text-sm">✗ Failed</span>
+                                {r.reason && (
+                                  <p className="mt-1 text-xs text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 rounded-lg px-2 py-1 break-words max-w-sm">
+                                    {r.reason}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </td>
-                          <td className="px-4 py-2 theme-muted text-xs max-w-xs truncate">{r.reason ?? ""}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -495,13 +510,15 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                               <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 animate-pulse dark:bg-amber-950/60 dark:text-amber-300">
                                 ⟳ Analyzing…
                               </span>
-                            ) : report?.status === "error" ? (
-                              <span className="inline-flex w-fit items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
-                                ✗ Fetch failed
-                              </span>
                             ) : report?.transcript ? (
+                              /* transcript exists but analysis pending/failed — show stored badge */
                               <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
                                 ○ Transcript stored
+                              </span>
+                            ) : report?.status === "error" ? (
+                              /* no transcript at all and errored */
+                              <span className="inline-flex w-fit items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                ✗ Fetch failed
                               </span>
                             ) : (
                               <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">

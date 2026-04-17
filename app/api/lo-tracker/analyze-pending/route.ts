@@ -114,9 +114,11 @@ export async function POST() {
       } catch (err) {
         const reason = err instanceof Error ? err.message : "Analysis failed";
 
+        // Keep status as "pending" so transcript is preserved and retryable.
+        // Only overwrite back from "analyzing" — don't touch if already something else.
         await supabase
           .from("lo_reports")
-          .update({ status: "error", updated_at: new Date().toISOString() })
+          .update({ status: "pending", updated_at: new Date().toISOString() })
           .eq("lecture_id", report.lecture_id)
           .eq("user_id", user.id);
 
