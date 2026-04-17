@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { Browser, chromium, Locator, Page } from "playwright";
+import { Browser, chromium, Frame, Locator, Page } from "playwright";
 
 import { BatchUrlOverrides, getScopedLmsUrl } from "@/lib/lms-batch-urls";
 import { getAppTimezone } from "@/lib/env";
@@ -177,12 +177,31 @@ async function waitForResourceText(
 }
 
 async function fillFirstMatching(page: Page, selectors: string[], value: string) {
-  for (const selector of selectors) {
-    const locator = page.locator(selector).first();
-    if (await locator.isVisible().catch(() => false)) {
-      await locator.fill("");
-      await locator.fill(value);
-      return true;
+  const searchContexts: Array<Page | Frame> = [page, ...page.frames()];
+
+  for (const context of searchContexts) {
+    for (const selector of selectors) {
+      const locator = context.locator(selector).first();
+      if (await locator.isVisible().catch(() => false)) {
+        await locator.fill("").catch(() => undefined);
+        await locator.fill(value);
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function hasVisibleMatching(page: Page, selectors: string[]) {
+  const searchContexts: Array<Page | Frame> = [page, ...page.frames()];
+
+  for (const context of searchContexts) {
+    for (const selector of selectors) {
+      const locator = context.locator(selector).first();
+      if (await locator.isVisible().catch(() => false)) {
+        return true;
+      }
     }
   }
 
@@ -769,24 +788,86 @@ async function scrapeLectureResourcesOnce(
 }
 
 async function login(page: Page, username: string, password: string) {
+  const usernameSelectors = [
+    'input[type="email"]',
+    'input[name="email"]',
+    'input[name="username"]',
+    'input[autocomplete="username"]',
+    'input[autocomplete="email"]',
+    'input[placeholder*="gmail.com"]',
+    'input[placeholder*="email" i]',
+    'input[type="text"]'
+  ];
+  const passwordSelectors = [
+    'input[type="password"]',
+    'input[name="password"]',
+    'input[autocomplete="current-password"]',
+    'input[placeholder="password"]',
+    'input[placeholder*="password" i]'
+  ];
+
   await page.goto(LMS_URL, {
     waitUntil: "domcontentloaded"
   });
   await page.waitForTimeout(1500);
 
+  const loginTriggers = [
+    page.getByRole("link", { name: /log in|login|sign in|signin/i }),
+    page.getByRole("button", { name: /log in|login|sign in|signin/i }),
+    page.locator("a").filter({ hasText: /log in|login|sign in|signin/i }),
+    page.locator("button").filter({ hasText: /log in|login|sign in|signin/i })
+  ];
+
+  if (
+    !(await hasVisibleMatching(page, usernameSelectors)) ||
+    !(await hasVisibleMatching(page, passwordSelectors))
+  ) {
+    for (const candidate of loginTriggers) {
+      const trigger = await firstVisible(candidate);
+      if (!trigger) {
+        continue;
+      }
+
+      await trigger.click().catch(() => undefined);
+      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+      await page.waitForTimeout(1500);
+
+      if (
+        (await hasVisibleMatching(page, usernameSelectors)) &&
+        (await hasVisibleMatching(page, passwordSelectors))
+      ) {
+        break;
+      }
+    }
+  }
+
+  if (
+    !(await hasVisibleMatching(page, usernameSelectors)) ||
+    !(await hasVisibleMatching(page, passwordSelectors))
+  ) {
+    for (const candidateUrl of [`${LMS_URL}/login`, `${LMS_URL}/signin`]) {
+      await page.goto(candidateUrl, {
+        waitUntil: "domcontentloaded"
+      });
+      await page.waitForTimeout(1500);
+
+      if (
+        (await hasVisibleMatching(page, usernameSelectors)) &&
+        (await hasVisibleMatching(page, passwordSelectors))
+      ) {
+        break;
+      }
+    }
+  }
+
   const usernameFilled = await fillFirstMatching(
     page,
-    [
-      'input[type="email"]',
-      'input[name="email"]',
-      'input[name="username"]',
-      'input[placeholder*="gmail.com"]'
-    ],
+    usernameSelectors,
     username
   );
   const passwordFilled = await fillFirstMatching(
     page,
-    ['input[type="password"]', 'input[name="password"]', 'input[placeholder="password"]'],
+    passwordSelectors,
     password
   );
 
@@ -819,9 +900,7 @@ async function login(page: Page, username: string, password: string) {
   } else {
     const passwordField = await firstVisible(
       page.locator(
-        ['input[type="password"]', 'input[name="password"]', 'input[placeholder="password"]'].join(
-          ", "
-        )
+        passwordSelectors.join(", ")
       )
     );
 
