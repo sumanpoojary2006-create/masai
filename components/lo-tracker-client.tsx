@@ -149,7 +149,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncResults, setSyncResults] = useState<Array<{ lectureId: string; lectureName: string; status: string; reason?: string }> | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const batches = [...new Set(rows.map((r) => r.batch_name))].sort();
@@ -164,10 +164,10 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   function handleSyncTranscripts() {
     startTransition(async () => {
       setIsSyncing(true);
-      setSyncMessage(null);
+      setSyncResults(null);
       const res = await fetch("/api/lo-tracker/sync", { method: "POST" });
-      const json = (await res.json()) as { message?: string };
-      setSyncMessage(json.message ?? (res.ok ? "Sync complete." : "Sync failed."));
+      const json = (await res.json()) as { results?: Array<{ lectureId: string; lectureName: string; status: string; reason?: string }>; message?: string };
+      setSyncResults(json.results ?? []);
       setIsSyncing(false);
       if (res.ok) router.refresh();
     });
@@ -218,8 +218,35 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
             <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
               Learning Objectives coverage per lecture
             </h2>
-            {syncMessage && (
-              <p className="mt-2 text-sm theme-muted">{syncMessage}</p>
+            {syncResults !== null && (
+              <div className="mt-3 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden text-sm">
+                {syncResults.length === 0 ? (
+                  <p className="px-4 py-3 theme-muted">No eligible lectures found to sync.</p>
+                ) : (
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800/60 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        <th className="px-4 py-2 text-left">Lecture</th>
+                        <th className="px-4 py-2 text-left">Result</th>
+                        <th className="px-4 py-2 text-left">Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                      {syncResults.map((r) => (
+                        <tr key={r.lectureId}>
+                          <td className="px-4 py-2 text-ink font-medium">{r.lectureName}</td>
+                          <td className="px-4 py-2">
+                            {r.status === "fetched" && <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">✓ Fetched</span>}
+                            {r.status === "skipped" && <span className="text-slate-400">— Skipped</span>}
+                            {r.status === "error"   && <span className="text-rose-600 dark:text-rose-400 font-semibold">✗ Failed</span>}
+                          </td>
+                          <td className="px-4 py-2 theme-muted text-xs">{r.reason ?? ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             )}
           </div>
 
@@ -398,28 +425,48 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                             onDone={() => { setTranscriptOpenId(null); router.refresh(); }}
                           />
                         ) : (
-                          <div className="flex flex-col gap-1.5">
-                            {report?.transcript ? (
-                              <p className="theme-muted text-xs line-clamp-3 leading-relaxed">
-                                {report.transcript}
-                              </p>
+                          <div className="flex flex-col gap-2">
+                            {/* Status badge */}
+                            {!ended ? (
+                              <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                ⏳ After lecture ends
+                              </span>
+                            ) : report?.status === "completed" && report?.transcript ? (
+                              <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                ✓ Transcript ready
+                              </span>
+                            ) : report?.status === "analyzing" ? (
+                              <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 animate-pulse dark:bg-amber-950/60 dark:text-amber-300">
+                                ⟳ Analyzing…
+                              </span>
+                            ) : report?.status === "error" ? (
+                              <span className="inline-flex w-fit items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                ✗ Fetch failed
+                              </span>
+                            ) : report?.transcript ? (
+                              <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                                ○ Transcript stored
+                              </span>
                             ) : (
-                              <span className="theme-muted text-xs italic">
-                                {ended ? "No transcript yet" : "Available after lecture ends"}
+                              <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                — Not fetched
                               </span>
                             )}
-                            {report?.status === "analyzing" && (
-                              <span className="text-xs text-amber-600 dark:text-amber-400 animate-pulse">
-                                Analyzing…
-                              </span>
+
+                            {/* Transcript snippet */}
+                            {report?.transcript && (
+                              <p className="theme-muted text-xs line-clamp-2 leading-relaxed">
+                                {report.transcript.slice(0, 140)}…
+                              </p>
                             )}
+
                             {ended && (
                               <button
                                 type="button"
                                 onClick={() => setTranscriptOpenId(row.id)}
                                 className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
                               >
-                                {report?.transcript ? "Edit & Re-analyze" : "Add Transcript"}
+                                {report?.transcript ? "Edit / Re-analyze" : "Add Manually"}
                               </button>
                             )}
                           </div>

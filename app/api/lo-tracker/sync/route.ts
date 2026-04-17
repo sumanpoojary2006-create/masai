@@ -1,5 +1,5 @@
 export const runtime = "nodejs";
-export const maxDuration = 300; // up to 5 min for multiple lectures
+export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 
@@ -15,27 +15,24 @@ export async function POST() {
     }
 
     const profiles = await getAutomationProfiles(user.id);
-
     if (profiles.length === 0) {
-      return NextResponse.json({ message: "No profile found.", fetched: 0 });
+      return NextResponse.json({ message: "No profile found.", results: [] });
     }
 
-    let totalFetched = 0;
+    const allResults = [];
     for (const profile of profiles) {
-      const fetched = await fetchAndAnalyzePendingSummaries(profile);
-      totalFetched += fetched;
+      const results = await fetchAndAnalyzePendingSummaries(profile);
+      allResults.push(...results);
     }
 
-    return NextResponse.json({
-      message:
-        totalFetched > 0
-          ? `Fetched and analysed ${totalFetched} lecture summary(s).`
-          : "No new summaries to fetch. All eligible lectures are up to date.",
-      fetched: totalFetched
-    });
+    const fetched = allResults.filter((r) => r.status === "fetched");
+    const errors  = allResults.filter((r) => r.status === "error");
+    const skipped = allResults.filter((r) => r.status === "skipped");
+
+    return NextResponse.json({ results: allResults, fetched: fetched.length, errors: errors.length, skipped: skipped.length });
   } catch (error) {
     return NextResponse.json(
-      { message: error instanceof Error ? error.message : "Sync failed." },
+      { message: error instanceof Error ? error.message : "Sync failed.", results: [] },
       { status: 500 }
     );
   }

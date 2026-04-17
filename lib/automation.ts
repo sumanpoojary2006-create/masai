@@ -114,9 +114,16 @@ function describeRun(summary: ComplianceRunSummary) {
  * Then scrapes the LMS summary tab and (if learning_objective is set)
  * auto-runs the Gemini LO analysis — fully hands-free.
  */
+export interface SummaryFetchResult {
+  lectureId: string;
+  lectureName: string;
+  status: "fetched" | "skipped" | "error";
+  reason?: string;
+}
+
 export async function fetchAndAnalyzePendingSummaries(
   profile: Pick<AutomationProfile, "user_id" | "lms_username" | "lms_password" | "email">
-): Promise<number> {
+): Promise<SummaryFetchResult[]> {
   const supabase = createServerSupabase();
   const timezone = getAutomationEnv().timezone;
   const now = DateTime.now().setZone(timezone);
@@ -136,7 +143,7 @@ export async function fetchAndAnalyzePendingSummaries(
     return now >= lectureEnd;
   });
 
-  if (eligible.length === 0) return 0;
+  if (eligible.length === 0) return [];
 
   // Get existing lo_reports for these lectures
   const { data: existingReports } = await supabase
@@ -149,17 +156,17 @@ export async function fetchAndAnalyzePendingSummaries(
       .map((r) => [r.lecture_id, r])
   );
 
-  // Only process lectures that don't have a completed report with transcript yet
-  const toProcess = eligible.filter((lecture) => {
+  const results: SummaryFetchResult[] = [];
+
+  for (const lecture of eligible) {
     const report = reportMap.get(lecture.id);
-    return !report || report.status !== "completed" || !report.transcript?.trim();
-  });
+    const alreadyDone = report?.status === "completed" && report?.transcript?.trim();
 
-  if (toProcess.length === 0) return 0;
+    if (alreadyDone) {
+      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "Already completed" });
+      continue;
+    }
 
-  let processed = 0;
-
-  for (const lecture of toProcess) {
     try {
       console.log(`[lo-auto] Fetching summary for "${lecture.lecture_name}"…`);
 
@@ -171,7 +178,6 @@ export async function fetchAndAnalyzePendingSummaries(
       const learningObjective = lecture.learning_objective?.trim() ?? "";
 
       if (learningObjective) {
-        // Save transcript + run LO analysis in one step
         const result = await analyzeLosFromTranscript(learningObjective, summary);
 
         await supabase.from("lo_reports").upsert(
@@ -188,11 +194,9 @@ export async function fetchAndAnalyzePendingSummaries(
           { onConflict: "lecture_id" }
         );
 
-        console.log(
-          `[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing`
-        );
+        console.log(`[lo-auto] "${lecture.lecture_name}" → ${result.covered_los.length} covered, ${result.missing_los.length} missing`);
+        results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "fetched" });
       } else {
-        // No LOs yet — store transcript only, mark pending analysis
         await supabase.from("lo_reports").upsert(
           {
             lecture_id: lecture.id,
@@ -208,15 +212,16 @@ export async function fetchAndAnalyzePendingSummaries(
         );
 
         console.log(`[lo-auto] "${lecture.lecture_name}" → transcript stored, no LOs to analyse`);
+        results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "fetched", reason: "Transcript stored — add Learning Objectives to run analysis" });
       }
-
-      processed++;
     } catch (err) {
+      const reason = err instanceof Error ? err.message : "Unknown error";
       console.error(`[lo-auto] Failed for "${lecture.lecture_name}":`, err);
+      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "error", reason });
     }
   }
 
-  return processed;
+  return results;
 }
 
 export async function runComplianceCheck(options?: {
@@ -464,10 +469,11 @@ export async function runComplianceCheck(options?: {
 
     // Auto-fetch LMS summaries + run LO analysis for concluded lectures
     try {
-      const summariesFetched = await fetchAndAnalyzePendingSummaries(profile);
-      if (summariesFetched > 0) {
-        console.log(`[lo-auto] Auto-fetched and analysed ${summariesFetched} lecture summary(s) for ${profile.email}`);
-      }
+      const summaryResults = await fetchAndAnalyzePendingSummaries(profile);
+      const fetched = summaryResults.filter((r) => r.status === "fetched").length;
+      const errors = summaryResults.filter((r) => r.status === "error");
+      if (fetched > 0) console.log(`[lo-auto] Auto-fetched ${fetched} summary(s) for ${profile.email}`);
+      errors.forEach((r) => console.error(`[lo-auto] Error for "${r.lectureName}": ${r.reason}`));
     } catch (err) {
       console.error("[lo-auto] Summary fetch step failed:", err);
     }
