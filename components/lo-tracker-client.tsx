@@ -137,9 +137,17 @@ function TranscriptPanel({
   );
 }
 
+interface ActionResult {
+  lectureId: string;
+  lectureName: string;
+  status: string;
+  reason?: string;
+  coveredCount?: number;
+  missingCount?: number;
+}
+
 export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   const router = useRouter();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [transcriptOpenId, setTranscriptOpenId] = useState<string | null>(null);
   const [editLinkId, setEditLinkId] = useState<string | null>(null);
   const [linkValue, setLinkValue] = useState("");
@@ -149,7 +157,9 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncResults, setSyncResults] = useState<Array<{ lectureId: string; lectureName: string; status: string; reason?: string }> | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [actionResults, setActionResults] = useState<ActionResult[] | null>(null);
+  const [actionLabel, setActionLabel] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const batches = [...new Set(rows.map((r) => r.batch_name))].sort();
@@ -164,20 +174,37 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   function handleSyncTranscripts() {
     startTransition(async () => {
       setIsSyncing(true);
-      setSyncResults(null);
+      setActionResults(null);
+      setActionLabel("Sync Transcripts");
       const res = await fetch("/api/lo-tracker/sync", { method: "POST" });
       const json = (await res.json()) as {
-        results?: Array<{ lectureId: string; lectureName: string; status: string; reason?: string }>;
+        results?: ActionResult[];
         message?: string;
         dispatched?: boolean;
       };
       if (json.dispatched) {
-        // Workflow dispatched — show message, no per-lecture results yet
-        setSyncResults([{ lectureId: "dispatch", lectureName: "GitHub Actions", status: "fetched", reason: json.message }]);
+        setActionResults([{ lectureId: "dispatch", lectureName: "GitHub Actions", status: "fetched", reason: json.message }]);
       } else {
-        setSyncResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
+        setActionResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
       }
       setIsSyncing(false);
+      if (res.ok) router.refresh();
+    });
+  }
+
+  function handleAnalyzePending() {
+    startTransition(async () => {
+      setIsAnalyzing(true);
+      setActionResults(null);
+      setActionLabel("Analyze LOs");
+      const res = await fetch("/api/lo-tracker/analyze-pending", { method: "POST" });
+      const json = (await res.json()) as { results?: ActionResult[]; message?: string };
+      setActionResults(
+        json.results?.length
+          ? json.results
+          : [{ lectureId: "info", lectureName: "–", status: "skipped", reason: json.message ?? "Nothing to analyze." }]
+      );
+      setIsAnalyzing(false);
       if (res.ok) router.refresh();
     });
   }
@@ -222,34 +249,41 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
       {/* Filters */}
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">LO Tracker</p>
             <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
               Learning Objectives coverage per lecture
             </h2>
-            {syncResults !== null && (
+            {actionResults !== null && (
               <div className="mt-3 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden text-sm">
-                {syncResults.length === 0 ? (
-                  <p className="px-4 py-3 theme-muted">No eligible lectures found to sync.</p>
+                <div className="bg-slate-50 dark:bg-slate-800/60 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  {actionLabel} Results
+                </div>
+                {actionResults.length === 0 ? (
+                  <p className="px-4 py-3 theme-muted">No eligible lectures found.</p>
                 ) : (
                   <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
                     <thead>
-                      <tr className="bg-slate-50 dark:bg-slate-800/60 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <tr className="bg-slate-50/50 dark:bg-slate-800/40 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                         <th className="px-4 py-2 text-left">Lecture</th>
                         <th className="px-4 py-2 text-left">Result</th>
                         <th className="px-4 py-2 text-left">Detail</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                      {syncResults.map((r) => (
+                      {actionResults.map((r) => (
                         <tr key={r.lectureId}>
                           <td className="px-4 py-2 text-ink font-medium">{r.lectureName}</td>
-                          <td className="px-4 py-2">
-                            {r.status === "fetched" && <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">✓ Fetched</span>}
+                          <td className="px-4 py-2 whitespace-nowrap">
+                            {(r.status === "fetched" || r.status === "analyzed") && (
+                              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                ✓ {r.status === "analyzed" ? `${r.coveredCount ?? 0} covered / ${r.missingCount ?? 0} missing` : "Fetched"}
+                              </span>
+                            )}
                             {r.status === "skipped" && <span className="text-slate-400">— Skipped</span>}
                             {r.status === "error"   && <span className="text-rose-600 dark:text-rose-400 font-semibold">✗ Failed</span>}
                           </td>
-                          <td className="px-4 py-2 theme-muted text-xs">{r.reason ?? ""}</td>
+                          <td className="px-4 py-2 theme-muted text-xs max-w-xs truncate">{r.reason ?? ""}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -262,11 +296,24 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <button
               type="button"
-              disabled={isPending || isSyncing}
+              disabled={isPending || isSyncing || isAnalyzing}
               onClick={handleSyncTranscripts}
               className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
             >
               {isSyncing ? "Fetching…" : "Sync Transcripts"}
+            </button>
+
+            <button
+              type="button"
+              disabled={isPending || isSyncing || isAnalyzing}
+              onClick={handleAnalyzePending}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full border-2 border-brand px-6 text-sm font-semibold text-brand transition hover:bg-brand hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 dark:border-brand dark:text-brand dark:hover:bg-brand dark:hover:text-white dark:disabled:border-slate-700 dark:disabled:text-slate-600"
+            >
+              {isAnalyzing ? (
+                <><span className="animate-spin inline-block">⟳</span> Analyzing…</>
+              ) : (
+                <><span>✦</span> Analyze Pending LOs</>
+              )}
             </button>
 
             <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
