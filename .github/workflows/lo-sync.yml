@@ -29,5 +29,6 @@ jobs:
           LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}

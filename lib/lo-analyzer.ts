@@ -1,81 +1,99 @@
+import Groq from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");
+export interface LoAnalysisResult {
+  covered_los: string[];
+  missing_los: string[];
+  /** true when AI was unavailable and keyword matching was used instead */
+  fallback?: boolean;
+}
 
-// Models tried in order — if one is 429/unavailable we fall through to the next
-const MODEL_PRIORITY = [
+// ─────────────────────────────────────────────
+// 1. Groq (free, 14 400 req/day — primary)
+// ─────────────────────────────────────────────
+const GROQ_MODELS = [
+  "llama-3.3-70b-versatile",
+  "llama3-70b-8192",
+  "mixtral-8x7b-32768"
+];
+
+async function analyzeWithGroq(prompt: string): Promise<string> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY not set");
+
+  const groq = new Groq({ apiKey });
+
+  for (const model of GROQ_MODELS) {
+    try {
+      console.log(`[lo-analyzer] Groq model "${model}"…`);
+      const chat = await groq.chat.completions.create({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 1024
+      });
+      const text = chat.choices[0]?.message?.content ?? "";
+      if (text) {
+        console.log(`[lo-analyzer] Groq success with "${model}"`);
+        return text;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("429") || msg.toLowerCase().includes("rate limit") || msg.toLowerCase().includes("quota")) {
+        console.warn(`[lo-analyzer] Groq "${model}" rate-limited, trying next…`);
+        continue;
+      }
+      console.warn(`[lo-analyzer] Groq "${model}" error: ${msg}`);
+    }
+  }
+  throw new Error("GROQ_EXHAUSTED");
+}
+
+// ─────────────────────────────────────────────
+// 2. Gemini (free fallback)
+// ─────────────────────────────────────────────
+const GEMINI_MODELS = [
   "gemini-1.5-flash",
   "gemini-1.5-flash-latest",
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite"
 ];
 
-export interface LoAnalysisResult {
-  covered_los: string[];
-  missing_los: string[];
-  /** true when Gemini was unavailable and keyword matching was used instead */
-  fallback?: boolean;
-}
+async function analyzeWithGemini(prompt: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
-async function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+  const genAI = new GoogleGenerativeAI(apiKey);
 
-async function generateWithRetry(prompt: string): Promise<string> {
-  let lastError: unknown;
-
-  for (const modelName of MODEL_PRIORITY) {
+  for (const modelName of GEMINI_MODELS) {
     const model = genAI.getGenerativeModel({ model: modelName });
-
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        console.log(`[lo-analyzer] Trying model "${modelName}" (attempt ${attempt})`);
+        console.log(`[lo-analyzer] Gemini "${modelName}" (attempt ${attempt})…`);
         const result = await model.generateContent(prompt);
-        console.log(`[lo-analyzer] Success with model "${modelName}"`);
-        return result.response.text();
+        const text = result.response.text();
+        if (text) {
+          console.log(`[lo-analyzer] Gemini success with "${modelName}"`);
+          return text;
+        }
       } catch (err) {
-        lastError = err;
         const msg = err instanceof Error ? err.message : String(err);
-
-        // 429 quota exceeded — short wait then try next model immediately
         if (msg.includes("429") || msg.toLowerCase().includes("quota")) {
-          if (attempt === 1) {
-            console.warn(`[lo-analyzer] Quota on "${modelName}" (attempt ${attempt}), waiting 3s…`);
-            await sleep(3000);
-            continue;
-          }
-          console.warn(`[lo-analyzer] Quota on "${modelName}" still exhausted, moving to next model`);
-          break;
+          if (attempt === 1) { await new Promise((r) => setTimeout(r, 3000)); continue; }
+          break; // try next model
         }
-
-        // 404 / model not found — skip to next model immediately
-        if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
-          console.warn(`[lo-analyzer] Model "${modelName}" not found, trying next…`);
-          break;
-        }
-
-        // Other error — rethrow immediately
+        if (msg.includes("404") || msg.toLowerCase().includes("not found")) break;
         throw err;
       }
     }
   }
-
-  throw new Error(
-    `QUOTA_EXHAUSTED: ${lastError instanceof Error ? lastError.message : String(lastError)}`
-  );
+  throw new Error("GEMINI_EXHAUSTED");
 }
 
-/**
- * Keyword-based fallback matcher used when all Gemini models are quota-exhausted.
- *
- * Strategy: for each LO, extract meaningful words (≥4 chars, not stopwords),
- * then check how many appear in the transcript (case-insensitive).
- * If ≥ 40% of the keywords match → COVERED.
- */
-function keywordFallbackAnalysis(
-  learningObjectives: string,
-  transcript: string
-): LoAnalysisResult {
+// ─────────────────────────────────────────────
+// 3. Keyword fallback (always works, no API)
+// ─────────────────────────────────────────────
+function keywordFallback(learningObjectives: string, transcript: string): LoAnalysisResult {
   const STOPWORDS = new Set([
     "the","and","for","that","this","with","from","have","will","are","was",
     "been","they","their","there","which","when","what","where","into","about",
@@ -85,47 +103,41 @@ function keywordFallbackAnalysis(
   ]);
 
   const transcriptLower = transcript.toLowerCase();
-
-  // Parse LOs — split by newline or semicolon
-  const loLines = learningObjectives
-    .split(/[\n;]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
+  const loLines = learningObjectives.split(/[\n;]+/).map((s) => s.trim()).filter(Boolean);
   const covered_los: string[] = [];
   const missing_los: string[] = [];
 
   for (const lo of loLines) {
-    // Extract keywords: words ≥4 chars, not stopwords
-    const keywords = lo
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
+    const keywords = lo.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
       .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
 
-    if (keywords.length === 0) {
-      // No meaningful keywords — assume covered
-      covered_los.push(lo);
-      continue;
-    }
+    if (keywords.length === 0) { covered_los.push(lo); continue; }
 
     const matched = keywords.filter((kw) => transcriptLower.includes(kw));
-    const matchRatio = matched.length / keywords.length;
-
-    console.log(
-      `[lo-analyzer:fallback] "${lo}" — ${matched.length}/${keywords.length} keywords matched (${Math.round(matchRatio * 100)}%)`
-    );
-
-    if (matchRatio >= 0.4) {
-      covered_los.push(lo);
-    } else {
-      missing_los.push(lo);
-    }
+    const ratio = matched.length / keywords.length;
+    console.log(`[lo-analyzer:fallback] "${lo}" — ${matched.length}/${keywords.length} (${Math.round(ratio * 100)}%)`);
+    (ratio >= 0.4 ? covered_los : missing_los).push(lo);
   }
 
   return { covered_los, missing_los, fallback: true };
 }
 
+// ─────────────────────────────────────────────
+// Parse JSON from AI response
+// ─────────────────────────────────────────────
+function parseLoJson(raw: string): { covered_los: string[]; missing_los: string[] } {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("AI did not return valid JSON.");
+  const parsed = JSON.parse(jsonMatch[0]) as { covered_los?: unknown; missing_los?: unknown };
+  return {
+    covered_los: Array.isArray(parsed.covered_los) ? parsed.covered_los.map(String) : [],
+    missing_los: Array.isArray(parsed.missing_los) ? parsed.missing_los.map(String) : []
+  };
+}
+
+// ─────────────────────────────────────────────
+// Main export
+// ─────────────────────────────────────────────
 export async function analyzeLosFromTranscript(
   learningObjectives: string,
   transcript: string
@@ -162,36 +174,26 @@ Example output:
   "missing_los": ["Implement BERT fine-tuning from scratch"]
 }`;
 
+  // 1. Try Groq
   try {
-    const raw = await generateWithRetry(prompt);
-
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("Gemini did not return valid JSON for LO analysis.");
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      covered_los?: unknown;
-      missing_los?: unknown;
-    };
-
-    return {
-      covered_los: Array.isArray(parsed.covered_los)
-        ? parsed.covered_los.map(String)
-        : [],
-      missing_los: Array.isArray(parsed.missing_los)
-        ? parsed.missing_los.map(String)
-        : []
-    };
+    const raw = await analyzeWithGroq(prompt);
+    return parseLoJson(raw);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-
-    // All Gemini models quota-exhausted → fall back to keyword matching
-    if (msg.startsWith("QUOTA_EXHAUSTED")) {
-      console.warn("[lo-analyzer] All Gemini models exhausted — using keyword fallback");
-      return keywordFallbackAnalysis(learningObjectives, transcript);
-    }
-
-    throw err;
+    if (msg !== "GROQ_EXHAUSTED" && !msg.includes("GROQ_API_KEY")) throw err;
+    console.warn("[lo-analyzer] Groq unavailable, trying Gemini…");
   }
+
+  // 2. Try Gemini
+  try {
+    const raw = await analyzeWithGemini(prompt);
+    return parseLoJson(raw);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg !== "GEMINI_EXHAUSTED" && !msg.includes("GEMINI_API_KEY")) throw err;
+    console.warn("[lo-analyzer] Gemini unavailable, using keyword fallback…");
+  }
+
+  // 3. Keyword fallback — always works
+  return keywordFallback(learningObjectives, transcript);
 }
