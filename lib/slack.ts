@@ -299,14 +299,24 @@ export async function sendLoMorningReport(params: {
   const timezone = process.env.APP_TIMEZONE ?? getAppTimezone();
   const today = DateTime.now().setZone(timezone).toFormat("dd LLL yyyy");
 
-  // Only include lectures from the last 7 days that have LOs set
-  const cutoff = DateTime.now().setZone(timezone).minus({ days: 7 }).toISODate();
+  // Only look at yesterday's lectures that have LOs set
+  const yesterday = DateTime.now().setZone(timezone).minus({ days: 1 }).toISODate()!;
   const recent = params.rows.filter(
-    (r) => r.lecture_date >= cutoff! && r.learning_objective?.trim()
+    (r) => r.lecture_date === yesterday && r.learning_objective?.trim()
   );
 
   if (recent.length === 0) {
-    console.log("[lo-slack] No recent lectures with LOs — skipping morning report");
+    console.log("[lo-slack] No lectures from yesterday with LOs — skipping morning report");
+    return;
+  }
+
+  // Only send if at least one lecture has missing LOs
+  const hasMissingLOs = recent.some(
+    (r) => r.lo_report?.status === "completed" && (r.lo_report.missing_los?.length ?? 0) > 0
+  );
+
+  if (!hasMissingLOs) {
+    console.log("[lo-slack] All yesterday's LOs covered — no report needed 🎉");
     return;
   }
 
@@ -316,8 +326,10 @@ export async function sendLoMorningReport(params: {
     return acc;
   }, new Map([...new Set(recent.map((r) => r.batch_name))].sort().map((b) => [b, []])));
 
+  const yesterdayLabel = DateTime.fromISO(yesterday, { zone: timezone }).toFormat("dd LLL yyyy");
+
   const lines: string[] = [
-    `🌅 *LO Coverage Report — ${today}*`,
+    `🚨 *Missing LOs — ${yesterdayLabel}*`,
     `👤 ${params.email}`,
     ""
   ];
