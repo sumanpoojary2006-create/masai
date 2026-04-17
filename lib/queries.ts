@@ -93,7 +93,7 @@ export async function getAutomationProfiles(userId?: string) {
   const supabase = createServerSupabase();
   let profileQuery = supabase
     .from("user_profiles")
-    .select("user_id, email, lms_username, lms_password, onboarding_complete")
+    .select("user_id, email, lms_username, lms_password, onboarding_complete, slack_member_id")
     .eq("onboarding_complete", true)
     .order("email", { ascending: true });
 

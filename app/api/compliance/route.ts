@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, getUserProfile } from "@/lib/auth";
 import { runComplianceCheck } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
@@ -27,9 +27,10 @@ export async function POST() {
 
     const timezone = getAppTimezone();
     const today = DateTime.now().setZone(timezone).toISODate();
-    const lectures = await getDashboardData({
-      userId: user.id
-    });
+    const [lectures, userProfile] = await Promise.all([
+      getDashboardData({ userId: user.id }),
+      getUserProfile(user.id)
+    ]);
     const pendingItems = lectures.flatMap((lecture) =>
       TASK_TYPES.flatMap((taskType) => {
         const task = lecture.tasks[taskType];
@@ -63,7 +64,9 @@ export async function POST() {
       })
     );
 
-    const pendingDigestSent = await sendManualPendingDigest(pendingItems);
+    const pendingDigestSent = await sendManualPendingDigest(pendingItems, {
+      mentionUserId: userProfile?.slack_member_id
+    });
 
     const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";

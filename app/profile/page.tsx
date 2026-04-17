@@ -34,7 +34,8 @@ export default async function ProfilePage() {
         initialProfile={{
           email: user.email ?? "",
           lms_username: profile?.lms_username ?? "",
-          lms_password: profile?.lms_password ?? ""
+          lms_password: profile?.lms_password ?? "",
+          slack_member_id: profile?.slack_member_id ?? ""
         }}
         initialBatchConfigs={batchConfigs}
       />

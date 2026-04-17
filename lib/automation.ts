@@ -326,7 +326,9 @@ export async function runComplianceCheck(options?: {
       (alert) => !sentKeys.has(`${alert.taskId}:${alert.alertType}`)
     );
 
-    const alertsSent = await sendSlackAlerts(alertsToSend);
+    const alertsSent = await sendSlackAlerts(alertsToSend, {
+      mentionUserId: profile.slack_member_id
+    });
 
     if (alertsToSend.length > 0) {
       const { error: persistAlertError } = await supabase.from("alert_events").insert(

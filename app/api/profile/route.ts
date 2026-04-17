@@ -24,6 +24,7 @@ export async function PUT(request: Request) {
     const payload = (await request.json()) as Record<string, unknown>;
     const lmsUsername = String(payload.lms_username ?? "").trim();
     const lmsPassword = String(payload.lms_password ?? "").trim();
+    const slackMemberId = String(payload.slack_member_id ?? "").trim() || null;
     const batchConfigs = Array.isArray(payload.batch_configs)
       ? payload.batch_configs
           .map((entry) => {
@@ -98,7 +99,8 @@ export async function PUT(request: Request) {
         batch_name: primaryBatch.batch_name,
         lecture_batch_url: primaryBatch.lecture_batch_url,
         assignment_batch_url: primaryBatch.assignment_batch_url,
-        onboarding_complete: true
+        onboarding_complete: true,
+        slack_member_id: slackMemberId
       },
       {
         onConflict: "user_id"

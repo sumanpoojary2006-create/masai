@@ -25,6 +25,7 @@ export interface UserProfileRecord {
   lms_username: string;
   lms_password: string;
   onboarding_complete: boolean;
+  slack_member_id?: string | null;
 }
 
 export interface UserBatchConfigRecord {

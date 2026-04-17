@@ -22,7 +22,7 @@ export async function getUserProfile(userId: string) {
   const supabase = createServerSupabase();
   const { data, error } = await supabase
     .from("user_profiles")
-    .select("user_id, email, lms_username, lms_password, onboarding_complete")
+    .select("user_id, email, lms_username, lms_password, onboarding_complete, slack_member_id")
     .eq("user_id", userId)
     .maybeSingle();
 

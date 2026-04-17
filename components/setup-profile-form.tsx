@@ -9,6 +9,7 @@ type SetupProfile = {
   email: string;
   lms_username: string;
   lms_password: string;
+  slack_member_id: string;
 };
 
 type BatchConfigInput = {
@@ -47,7 +48,8 @@ export function SetupProfileForm({
   const [form, setForm] = useState<SetupProfile>({
     email: initialProfile.email ?? "",
     lms_username: initialProfile.lms_username ?? "",
-    lms_password: initialProfile.lms_password ?? ""
+    lms_password: initialProfile.lms_password ?? "",
+    slack_member_id: initialProfile.slack_member_id ?? ""
   });
   const [batchConfigs, setBatchConfigs] = useState<BatchConfigInput[]>(
     initialBatchConfigs.length > 0
@@ -161,6 +163,20 @@ export function SetupProfileForm({
           onChange={(event) => updateProfileField("lms_password", event.target.value)}
           className="theme-input rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
         />
+      </label>
+
+      <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+        Slack Member ID
+        <input
+          type="text"
+          value={form.slack_member_id}
+          onChange={(event) => updateProfileField("slack_member_id", event.target.value)}
+          placeholder="e.g. U012AB3CD — found in your Slack profile"
+          className="theme-input rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+        />
+        <span className="theme-muted text-xs">
+          Used to tag you in Slack notifications. In Slack: click your avatar → Profile → ⋯ → Copy member ID.
+        </span>
       </label>
 
       <div className="space-y-4">

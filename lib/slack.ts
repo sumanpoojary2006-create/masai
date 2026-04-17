@@ -129,6 +129,7 @@ export async function sendSlackAlerts(
   alerts: ComplianceAlertEvent[],
   options?: {
     pendingItems?: PendingDigestItem[];
+    mentionUserId?: string | null;
   }
 ) {
   const pendingItems = options?.pendingItems ?? [];
@@ -138,7 +139,7 @@ export async function sendSlackAlerts(
   }
 
   const { slackWebhookUrl, timezone } = getAutomationEnv();
-  const message = buildSlackDigest(alerts, pendingItems, timezone);
+  const message = buildSlackDigest(alerts, pendingItems, timezone, options?.mentionUserId);
   await postSlackMessage(slackWebhookUrl, message);
 
   return 1;
@@ -147,7 +148,8 @@ export async function sendSlackAlerts(
 function buildSlackDigest(
   alerts: ComplianceAlertEvent[],
   pendingItems: PendingDigestItem[],
-  timezone: string
+  timezone: string,
+  mentionUserId?: string | null
 ) {
   const completedAlerts = alerts.filter((alert) => alert.alertType === "completed");
   const reminderAlerts = alerts.filter(
@@ -166,7 +168,10 @@ function buildSlackDigest(
     .filter((value, index, array) => array.indexOf(value) === index)
     .join(", ");
 
+  const mention = mentionUserId ? `<@${mentionUserId}>` : null;
+
   const message = [
+    mention,
     "📣 Masai Resource Tracker Update",
     lectureDates ? `🗓️ Lecture dates: ${lectureDates}` : null,
     "",
@@ -198,7 +203,10 @@ async function postSlackMessage(slackWebhookUrl: string, message: string) {
   }
 }
 
-export async function sendManualPendingDigest(pendingItems: PendingDigestItem[]) {
+export async function sendManualPendingDigest(
+  pendingItems: PendingDigestItem[],
+  options?: { mentionUserId?: string | null }
+) {
   if (pendingItems.length === 0) {
     return 0;
   }
@@ -210,7 +218,7 @@ export async function sendManualPendingDigest(pendingItems: PendingDigestItem[])
   }
 
   const timezone = process.env.APP_TIMEZONE ?? getAppTimezone();
-  const message = buildSlackDigest([], pendingItems, timezone);
+  const message = buildSlackDigest([], pendingItems, timezone, options?.mentionUserId);
   await postSlackMessage(slackWebhookUrl, message);
 
   return 1;
