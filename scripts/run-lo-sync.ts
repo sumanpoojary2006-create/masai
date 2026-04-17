@@ -1,4 +1,4 @@
-import { fetchAndAnalyzePendingSummaries } from "../lib/automation";
+import { analyzePendingLoReports, fetchAndAnalyzePendingSummaries } from "../lib/automation";
 import { getAutomationProfiles } from "../lib/queries";
 
 async function main() {
@@ -10,21 +10,41 @@ async function main() {
   }
 
   for (const profile of profiles) {
-    console.log(`\nProcessing: ${profile.email}`);
-    const results = await fetchAndAnalyzePendingSummaries(profile);
+    console.log(`\n════════════════════════════════════`);
+    console.log(`Processing: ${profile.email}`);
+    console.log(`════════════════════════════════════`);
 
-    if (results.length === 0) {
-      console.log("  No eligible lectures.");
-      continue;
+    // Step 1 — Scrape LMS and fetch any new transcripts + run analysis on them
+    console.log("\n[Step 1] Fetching transcripts from LMS…");
+    const fetchResults = await fetchAndAnalyzePendingSummaries(profile);
+
+    if (fetchResults.length === 0) {
+      console.log("  No eligible lectures to scrape.");
+    } else {
+      for (const r of fetchResults) {
+        const icon = r.status === "fetched" ? "✓" : r.status === "error" ? "✗" : "—";
+        console.log(`  ${icon} ${r.lectureName}: ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
+      }
     }
 
-    for (const r of results) {
-      const icon = r.status === "fetched" ? "✓" : r.status === "error" ? "✗" : "—";
-      console.log(`  ${icon} ${r.lectureName}: ${r.status}${r.reason ? ` (${r.reason})` : ""}`);
-    }
+    // Step 2 — Analyse any reports that have a transcript but no completed analysis
+    console.log("\n[Step 2] Analysing pending LO reports…");
+    const analyzeResults = await analyzePendingLoReports(profile.user_id);
 
-    console.log(JSON.stringify(results, null, 2));
+    if (analyzeResults.length === 0) {
+      console.log("  No pending reports to analyse.");
+    } else {
+      for (const r of analyzeResults) {
+        const icon = r.status === "analyzed" ? "✓" : r.status === "error" ? "✗" : "—";
+        const detail = r.status === "analyzed"
+          ? `${r.coveredCount} covered / ${r.missingCount} missing`
+          : (r.reason ?? "");
+        console.log(`  ${icon} ${r.lectureName}: ${detail}`);
+      }
+    }
   }
+
+  console.log("\nDone.");
 }
 
 main().catch((error) => {

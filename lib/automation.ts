@@ -261,6 +261,102 @@ export async function fetchAndAnalyzePendingSummaries(
   return results;
 }
 
+/**
+ * For a given user, finds all lo_reports with a transcript but no completed
+ * analysis (status = "pending" | "error") and runs LO analysis on them.
+ * Called automatically at midnight — companion to fetchAndAnalyzePendingSummaries.
+ */
+export interface AnalyzeReportResult {
+  lectureId: string;
+  lectureName: string;
+  status: "analyzed" | "skipped" | "error";
+  coveredCount?: number;
+  missingCount?: number;
+  reason?: string;
+}
+
+export async function analyzePendingLoReports(
+  userId: string
+): Promise<AnalyzeReportResult[]> {
+  const supabase = createServerSupabase();
+
+  const { data: reports } = await supabase
+    .from("lo_reports")
+    .select("lecture_id, transcript, status")
+    .eq("user_id", userId)
+    .in("status", ["pending", "error"])
+    .not("transcript", "is", null)
+    .neq("transcript", "");
+
+  if (!reports || reports.length === 0) return [];
+
+  const lectureIds = reports.map((r) => r.lecture_id);
+  const { data: lectures } = await supabase
+    .from("lectures")
+    .select("id, lecture_name, learning_objective")
+    .eq("user_id", userId)
+    .in("id", lectureIds);
+
+  const lectureMap = new Map((lectures ?? []).map((l) => [l.id, l]));
+  const results: AnalyzeReportResult[] = [];
+
+  for (const report of reports) {
+    const lecture = lectureMap.get(report.lecture_id);
+    const lectureName = lecture?.lecture_name ?? report.lecture_id;
+
+    if (!lecture) {
+      results.push({ lectureId: report.lecture_id, lectureName, status: "skipped", reason: "Lecture not found" });
+      continue;
+    }
+
+    const learningObjective = String(lecture.learning_objective ?? "").trim();
+    if (!learningObjective) {
+      results.push({ lectureId: report.lecture_id, lectureName, status: "skipped", reason: "No LOs set" });
+      continue;
+    }
+
+    try {
+      await supabase
+        .from("lo_reports")
+        .update({ status: "analyzing", updated_at: new Date().toISOString() })
+        .eq("lecture_id", report.lecture_id)
+        .eq("user_id", userId);
+
+      const analysis = await analyzeLosFromTranscript(learningObjective, report.transcript as string);
+
+      await supabase.from("lo_reports").upsert(
+        {
+          lecture_id: report.lecture_id,
+          user_id: userId,
+          transcript: report.transcript,
+          covered_los: analysis.covered_los,
+          missing_los: analysis.missing_los,
+          status: "completed",
+          fallback: analysis.fallback ?? false,
+          generated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: "lecture_id" }
+      );
+
+      const method = analysis.fallback ? "keyword fallback" : "AI";
+      console.log(`[lo-analyze] "${lectureName}" → ${analysis.covered_los.length} covered, ${analysis.missing_los.length} missing (${method})`);
+      results.push({ lectureId: report.lecture_id, lectureName, status: "analyzed", coveredCount: analysis.covered_los.length, missingCount: analysis.missing_los.length });
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "Unknown error";
+      console.error(`[lo-analyze] Failed for "${lectureName}": ${reason}`);
+      await supabase
+        .from("lo_reports")
+        .update({ status: "pending", updated_at: new Date().toISOString() })
+        .eq("lecture_id", report.lecture_id)
+        .eq("user_id", userId);
+      results.push({ lectureId: report.lecture_id, lectureName, status: "error", reason });
+    }
+  }
+
+  return results;
+}
+
 export async function runComplianceCheck(options?: {
   userId?: string;
 }): Promise<ComplianceRunSummary> {
