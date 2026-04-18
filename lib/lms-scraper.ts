@@ -20,6 +20,26 @@ function normalizeText(value: string) {
     .trim();
 }
 
+/**
+ * Lenient lecture name matcher.
+ *
+ * 1. Try exact normalized substring first  ("for loops" ⊆ row).
+ * 2. Fallback: split name into keywords (≥3 chars) and require ALL of them
+ *    to appear somewhere in the row — handles mismatches like
+ *    "For Loops" (import) vs "For-Loops" (LMS) or extra words in the title.
+ */
+function lectureNameMatchesRow(lectureName: string, normalizedRowText: string): boolean {
+  const normalizedName = normalizeText(lectureName);
+
+  // Pass 1 — exact substring
+  if (normalizedRowText.includes(normalizedName)) return true;
+
+  // Pass 2 — all keywords present (order-independent)
+  const keywords = normalizedName.split(" ").filter((w) => w.length >= 3);
+  if (keywords.length === 0) return false;
+  return keywords.every((kw) => normalizedRowText.includes(kw));
+}
+
 function logLmsDebug(...args: unknown[]) {
   if (process.env.LMS_DEBUG === "1") {
     console.log("[lms-debug]", ...args);
@@ -163,7 +183,7 @@ async function waitForResourceText(
     const normalized = normalizeText(text);
 
     if (
-      normalized.includes(normalizeText(lectureName)) &&
+      lectureNameMatchesRow(lectureName, normalized) &&
       (options?.batchScoped || normalized.includes(normalizeText(batchName))) &&
       resourceNeedles.some((needle) => normalized.includes(normalizeText(needle)))
     ) {
@@ -530,7 +550,7 @@ async function findLectureResourceRowTexts(
 
     for (const text of rows) {
       const normalizedText = normalizeText(text);
-      const matchesLecture = normalizedText.includes(normalizedLectureName);
+      const matchesLecture = lectureNameMatchesRow(lectureName, normalizedText);
       const matchesBatch = options?.batchScoped || normalizedText.includes(normalizedBatchName);
       const lowerText = text.toLowerCase();
       const matchesPreread = /pre[- ]?reads?/i.test(lowerText);
@@ -682,7 +702,7 @@ async function detectResourceFromPageText(
         .find((line) => {
           const normalizedLine = normalizeText(line);
           return (
-            normalizedLine.includes(normalizeText(lecture.lecture_name)) &&
+            lectureNameMatchesRow(lecture.lecture_name, normalizedLine) &&
             (options?.batchScoped ||
               normalizedLine.includes(normalizeText(lecture.batch_name))) &&
             resourceNeedles.some((needle) =>
@@ -991,40 +1011,69 @@ async function scrapeAssignments(
     await filterByBatch(page, lecture.batch_name);
   }
 
-  await searchByLectureName(page, lecture.lecture_name);
-  await waitForBodyText(page, lecture.lecture_name).catch(() => undefined);
-  await waitForTableRows(page);
-
   const normalizedLectureName = normalizeText(lecture.lecture_name);
   const normalizedBatchName = normalizeText(lecture.batch_name);
   const batchScoped = Boolean(scopedAssignmentUrl);
-  let match: { text: string; uploadedAt: string | null } | null = null;
-  const seenPages = new Set<string>();
 
-  for (let attempts = 0; attempts < 15; attempts += 1) {
-    const rows = await readTableRows(page);
+  async function scanPagesForAssignment(maxPages = 15) {
+    let match: { text: string; uploadedAt: string | null } | null = null;
+    const seenPages = new Set<string>();
 
-    for (const associatedText of rows) {
-      const normalizedText = normalizeText(associatedText);
+    for (let attempts = 0; attempts < maxPages; attempts += 1) {
+      const rows = attempts === 0 ? await waitForTableRows(page) : await readTableRows(page);
+      logLmsDebug("assignment-scan-page", {
+        lectureName: lecture.lecture_name,
+        attempts,
+        rowCount: rows.length,
+        firstRows: rows.slice(0, 3)
+      });
 
-      if (
-        !normalizedText.includes(normalizedLectureName) ||
-        (!batchScoped && !normalizedText.includes(normalizedBatchName))
-      ) {
-        continue;
+      for (const associatedText of rows) {
+        const normalizedText = normalizeText(associatedText);
+
+        if (
+          !lectureNameMatchesRow(lecture.lecture_name, normalizedText) ||
+          (!batchScoped && !normalizedText.includes(normalizedBatchName))
+        ) {
+          continue;
+        }
+
+        match = { text: associatedText, uploadedAt: extractTimestampFromText(associatedText) };
+        logLmsDebug("assignment-match", { lectureName: lecture.lecture_name, text: associatedText });
+        break;
       }
 
-      match = { text: associatedText, uploadedAt: extractTimestampFromText(associatedText) };
-      break;
+      if (match) break;
+      if (!(await paginateNext(page, attempts, seenPages))) break;
     }
 
-    if (match) {
-      break;
-    }
+    return match;
+  }
 
-    if (!(await paginateNext(page, attempts, seenPages))) {
-      break;
+  // Pass 1: search by title so results are filtered — wait for the AJAX
+  // search to complete before reading rows (not just body text which can
+  // resolve immediately from the filled input value).
+  await searchByLectureName(page, lecture.lecture_name);
+  await page.waitForTimeout(1500); // let React re-render search results
+  await waitForPageRefresh(page);
+
+  let match = await scanPagesForAssignment();
+
+  // Pass 2: if title search found nothing, clear the search and paginate
+  // through the full batch-filtered list (handles cases where the search
+  // AJAX races or the search field wasn't properly applied).
+  if (!match) {
+    logLmsDebug("assignment-search-miss — retrying without title filter", { lectureName: lecture.lecture_name });
+
+    // Re-navigate to the batch URL (or assignments nav) to reset the search
+    if (scopedAssignmentUrl) {
+      await page.goto(scopedAssignmentUrl, { waitUntil: "domcontentloaded" });
+    } else {
+      await clickNavigation(page, "Assignments");
+      await filterByBatch(page, lecture.batch_name);
     }
+    await waitForPageRefresh(page);
+    match = await scanPagesForAssignment(20);
   }
 
   return {
