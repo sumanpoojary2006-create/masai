@@ -1,0 +1,134 @@
+import { DateTime } from "luxon";
+
+import { computeDeadline } from "../lib/deadlines";
+import { getAppTimezone } from "../lib/env";
+import { syncCurrentWeekLectures } from "../lib/lms-scraper";
+import { getAutomationProfiles } from "../lib/queries";
+import { createServerSupabase } from "../lib/supabase";
+import { TASK_TYPES } from "../lib/constants";
+import { TaskRecord } from "../lib/types";
+
+async function main() {
+  const profiles = await getAutomationProfiles();
+
+  if (profiles.length === 0) {
+    console.log("No profiles found.");
+    return;
+  }
+
+  const supabase = createServerSupabase();
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+
+  for (const profile of profiles) {
+    console.log(`\n════════════════════════════════════`);
+    console.log(`Syncing lectures for: ${profile.email}`);
+    console.log(`════════════════════════════════════`);
+
+    if (profile.batch_configs.length === 0) {
+      console.log("  No batch configs — skipping.");
+      continue;
+    }
+
+    // Fetch live sessions for the current week from the LMS API
+    let synced;
+    try {
+      synced = await syncCurrentWeekLectures(
+        profile.batch_configs.map((c) => ({
+          batch_name: c.batch_name,
+          lecture_batch_url: c.lecture_batch_url
+        })),
+        { username: profile.lms_username, password: profile.lms_password }
+      );
+    } catch (err) {
+      console.error(`  [sync] Failed to fetch lectures:`, err instanceof Error ? err.message : err);
+      continue;
+    }
+
+    if (synced.length === 0) {
+      console.log("  No live sessions found for the current week.");
+      continue;
+    }
+
+    console.log(`  Found ${synced.length} live session(s) — upserting…`);
+
+    // Upsert lectures
+    const { data: upsertedLectures, error: lectureError } = await supabase
+      .from("lectures")
+      .upsert(
+        synced.map((lec) => ({
+          user_id: profile.user_id,
+          batch_name: lec.batch_name,
+          module_name: lec.module_name,
+          lecture_name: lec.lecture_name,
+          lecture_date: lec.lecture_date,
+          start_time: lec.start_time,
+          end_time: lec.end_time,
+          session_link: lec.session_link
+        })),
+        { onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time" }
+      )
+      .select("id, lecture_date, start_time, end_time");
+
+    if (lectureError || !upsertedLectures) {
+      console.error("  [sync] Lecture upsert failed:", lectureError?.message);
+      continue;
+    }
+
+    console.log(`  Upserted ${upsertedLectures.length} lecture(s).`);
+
+    // Fetch existing tasks to preserve completed status
+    const lectureIds = upsertedLectures.map((l) => l.id);
+    const { data: existingTasks } = await supabase
+      .from("tasks")
+      .select("id, lecture_id, type, deadline, status, completed_at")
+      .in("lecture_id", lectureIds);
+
+    const existingTaskMap = new Map<string, TaskRecord>();
+    for (const t of (existingTasks ?? []) as TaskRecord[]) {
+      existingTaskMap.set(`${t.lecture_id}:${t.type}`, t);
+    }
+
+    const nowIso = now.toUTC().toISO()!;
+    const taskPayload = upsertedLectures.flatMap((lecture) =>
+      TASK_TYPES.map((type) => {
+        const existing = existingTaskMap.get(`${lecture.id}:${type}`);
+        const deadline = computeDeadline(type, lecture.lecture_date, lecture.start_time, lecture.end_time);
+        return {
+          lecture_id: lecture.id,
+          type,
+          deadline,
+          status:
+            existing?.status === "completed"
+              ? "completed"
+              : deadline < nowIso
+                ? "missed"
+                : "pending",
+          completed_at: existing?.completed_at ?? null
+        };
+      })
+    );
+
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .upsert(taskPayload, { onConflict: "lecture_id,type" });
+
+    if (taskError) {
+      console.error("  [sync] Task upsert failed:", taskError.message);
+    } else {
+      console.log(`  Created/refreshed ${taskPayload.length} task(s).`);
+    }
+
+    // Print what was synced
+    for (const lec of synced) {
+      console.log(`  ✓ [${lec.batch_name}] ${lec.lecture_name} — ${lec.lecture_date} ${lec.start_time}`);
+    }
+  }
+
+  console.log("\nDone.");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

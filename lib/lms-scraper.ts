@@ -74,6 +74,27 @@ interface ApiLecture {
   updated_at?: string;
 }
 
+/** Extended lecture record that also includes schedule fields */
+interface ApiLectureSchedule extends ApiLecture {
+  /** Full ISO datetime of when the session starts, e.g. "2026-04-20T20:00:00+05:30" */
+  start_time?: string | null;
+  /** Full ISO datetime of when the session ends */
+  end_time?: string | null;
+  /** Block / module info */
+  block?: { id?: number | string; name?: string } | null;
+}
+
+/** A resolved live session ready to upsert into the lectures + tasks tables */
+export interface SyncedLecture {
+  batch_name: string;
+  module_name: string;
+  lecture_name: string;
+  lecture_date: string;   // YYYY-MM-DD in app timezone
+  start_time: string;     // HH:mm:ss in app timezone
+  end_time: string;       // HH:mm:ss in app timezone
+  session_link: string;   // constructed from lms id
+}
+
 /** Parse the numeric batch id embedded in an LMS admin URL's `batch` query param */
 function extractBatchIdFromUrl(batchUrl: string): number | null {
   try {
@@ -152,6 +173,26 @@ query adminLectures($input: LectureListFilters) {
 }
 `;
 
+// Extended query that also fetches schedule + block (module) fields
+const ADMIN_LECTURES_SCHEDULE_QUERY = `
+query adminLectures($input: LectureListFilters) {
+  adminLectures(input: $input) {
+    lectures {
+      id
+      title
+      notes
+      start_time
+      end_time
+      block { id name }
+      created_at
+      updated_at
+    }
+    page
+    pages
+  }
+}
+`;
+
 /**
  * Fetch all lectures for a batch (optionally filtered by title).
  * Automatically pages through all results.
@@ -207,6 +248,27 @@ async function fetchLecturesFromApi(
  */
 function isPreReadNotes(notes: string): boolean {
   return /pre[-\s]?read/i.test(notes.slice(0, 80));
+}
+
+/**
+ * True when the notes string looks like lecture notes (not a live session).
+ * e.g. "# Lecture Notes: ..." or "## Notes\n..."
+ */
+function isLectureNotesContent(notes: string): boolean {
+  return /lecture\s*notes?/i.test(notes.slice(0, 80));
+}
+
+/**
+ * True when this API record represents a live session (not a pre-read or notes resource).
+ * Live session records have no notes content (null / empty), or notes that don't start
+ * with the well-known pre-read / lecture-notes headers.
+ */
+function isLiveSessionRecord(apiLecture: ApiLecture): boolean {
+  const notes = apiLecture.notes;
+  if (!notes || notes.trim() === "") return true; // no notes blob → live session
+  if (isPreReadNotes(notes)) return false;         // pre-read resource
+  if (isLectureNotesContent(notes)) return false;  // lecture notes resource
+  return true; // unknown format — treat as live session
 }
 
 /**
@@ -300,6 +362,175 @@ async function checkLectureResourcesViaApi(
 }
 
 /**
+ * Like fetchLecturesFromApi but uses the schedule query (start_time, end_time, block).
+ */
+async function fetchScheduleLecturesFromApi(
+  batchId: number,
+  cookieHeader: string
+): Promise<ApiLectureSchedule[]> {
+  const all: ApiLectureSchedule[] = [];
+  let page = 0;
+
+  while (true) {
+    try {
+      const data = await callLmsGraphQL("adminLectures", ADMIN_LECTURES_SCHEDULE_QUERY, {
+        input: {
+          lecture_id: null,
+          title: null,
+          batch_id: batchId,
+          section_id: 0,
+          type: null,
+          user_id: null,
+          concludes: null,
+          schedule: null,
+          block_id: null,
+          host_id: null,
+          faculty_resources_uploaded: null,
+          page
+        }
+      }, cookieHeader);
+
+      const result = data.adminLectures as { lectures?: ApiLectureSchedule[]; pages?: number } | undefined;
+      const lectures = result?.lectures ?? [];
+      if (lectures.length === 0) break;
+
+      all.push(...lectures);
+
+      const totalPages = result?.pages ?? 1;
+      page += 1;
+      if (page >= totalPages) break;
+    } catch (err) {
+      logLmsDebug("fetchScheduleLecturesFromApi error page", page, err instanceof Error ? err.message : err);
+      break;
+    }
+  }
+
+  return all;
+}
+
+/**
+ * Parse an ISO datetime string and extract the local date (YYYY-MM-DD) and
+ * time (HH:mm:ss) in the app timezone.
+ */
+function parseScheduleDateTime(
+  isoString: string,
+  timezone: string
+): { date: string; time: string } | null {
+  const dt = DateTime.fromISO(isoString, { setZone: true }).setZone(timezone);
+  if (!dt.isValid) return null;
+  return {
+    date: dt.toFormat("yyyy-MM-dd"),
+    time: dt.toFormat("HH:mm:ss")
+  };
+}
+
+/**
+ * For each configured batch, fetch all live sessions from the LMS GraphQL API,
+ * filter to the current ISO week (Monday–Sunday) in the app timezone, and return
+ * them as SyncedLecture rows ready for upsert.
+ *
+ * Requires a logged-in Playwright browser context to capture auth cookies.
+ */
+export async function syncCurrentWeekLectures(
+  batchConfigs: Array<{ batch_name: string; lecture_batch_url: string }>,
+  credentials: { username: string; password: string }
+): Promise<SyncedLecture[]> {
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+  const weekStart = now.startOf("week"); // Monday 00:00
+  const weekEnd = weekStart.plus({ days: 7 }); // next Monday 00:00 (exclusive)
+
+  console.log(`[sync-lectures] Week: ${weekStart.toISODate()} → ${weekEnd.minus({ days: 1 }).toISODate()}`);
+
+  const results: SyncedLecture[] = [];
+
+  let browser = null;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await login(page, credentials.username, credentials.password);
+
+    let cookieHeader = "";
+    try {
+      cookieHeader = await getAuthCookieHeader(page);
+    } catch {
+      console.warn("[sync-lectures] Could not capture cookies — aborting");
+      return results;
+    }
+
+    for (const config of batchConfigs) {
+      const batchId = extractBatchIdFromUrl(config.lecture_batch_url);
+      if (!batchId) {
+        console.log(`[sync-lectures] No batch_id for "${config.batch_name}" — skipping`);
+        continue;
+      }
+
+      console.log(`[sync-lectures] Fetching "${config.batch_name}" (id=${batchId})…`);
+      const apiLectures = await fetchScheduleLecturesFromApi(batchId, cookieHeader);
+      console.log(`[sync-lectures]   ${apiLectures.length} total records from API`);
+
+      let weekCount = 0;
+      for (const lec of apiLectures) {
+        // Skip pre-read and lecture-notes resource records
+        if (!isLiveSessionRecord(lec)) continue;
+
+        // Parse schedule — prefer start_time, fall back to created_at
+        const rawTime = lec.start_time ?? lec.created_at ?? null;
+        if (!rawTime) {
+          logLmsDebug("sync-lectures: no time field for", lec.title);
+          continue;
+        }
+
+        const parsed = parseScheduleDateTime(rawTime, timezone);
+        if (!parsed) {
+          logLmsDebug("sync-lectures: unparseable time", rawTime, "for", lec.title);
+          continue;
+        }
+
+        // Filter to current week only
+        const lectureDate = DateTime.fromISO(parsed.date, { zone: timezone });
+        if (lectureDate < weekStart || lectureDate >= weekEnd) continue;
+
+        // Parse end time
+        let endTime = "21:30:00"; // sensible default
+        if (lec.end_time) {
+          const parsedEnd = parseScheduleDateTime(lec.end_time, timezone);
+          if (parsedEnd) endTime = parsedEnd.time;
+        } else {
+          // Default: 90 minutes after start
+          endTime = DateTime.fromISO(`${parsed.date}T${parsed.time}`, { zone: timezone })
+            .plus({ minutes: 90 })
+            .toFormat("HH:mm:ss");
+        }
+
+        const title = lec.title?.trim();
+        if (!title) continue;
+
+        const lmsId = lec.id;
+        if (!lmsId) continue;
+
+        results.push({
+          batch_name: config.batch_name,
+          module_name: lec.block?.name?.trim() ?? "",
+          lecture_name: title,
+          lecture_date: parsed.date,
+          start_time: parsed.time,
+          end_time: endTime,
+          session_link: `${LMS_URL}/lectures/detail/?id=${lmsId}`
+        });
+        weekCount++;
+      }
+
+      console.log(`[sync-lectures]   ${weekCount} live session(s) for current week in "${config.batch_name}"`);
+    }
+  } finally {
+    if (browser) await (browser as Browser).close();
+  }
+
+  return results;
+}
+
+/**
  * For each lecture that has no session_link, query the GraphQL API to find its
  * LMS lecture ID and construct the detail-page URL automatically.
  *
@@ -354,13 +585,27 @@ export async function resolveSessionLinks(
       console.log(`[session-link] Batch "${batchName}" (id=${batchId}): ${apiLectures.length} API lectures`);
 
       for (const lec of batchLectures) {
-        // Find the best title match; if multiple, prefer the one closest in date
+        // Find the best title match — only consider live session records,
+        // not pre-read or lecture-notes resource records that share the same title.
         const matches = apiLectures.filter((a) =>
-          a.title ? lectureNameMatchesRow(lec.lecture_name, normalizeText(a.title)) : false
+          a.title
+            ? lectureNameMatchesRow(lec.lecture_name, normalizeText(a.title)) &&
+              isLiveSessionRecord(a)
+            : false
         );
 
         if (matches.length === 0) {
-          console.log(`[session-link]   No API match for "${lec.lecture_name}"`);
+          // Check if the title matched but all results were filtered out as resource records
+          const titleOnly = apiLectures.filter((a) =>
+            a.title ? lectureNameMatchesRow(lec.lecture_name, normalizeText(a.title)) : false
+          );
+          if (titleOnly.length > 0) {
+            console.log(
+              `[session-link]   "${lec.lecture_name}" — ${titleOnly.length} title match(es) but all were pre-read/notes records, not a live session`
+            );
+          } else {
+            console.log(`[session-link]   No API match for "${lec.lecture_name}"`);
+          }
           continue;
         }
 

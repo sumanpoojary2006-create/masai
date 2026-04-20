@@ -44,13 +44,12 @@ async function main() {
       }
     }
 
-    // Step 3 — Send Slack notification to the LO channel
+    // Step 3 — Send Slack notification to the LO channel (only if analyses completed)
     console.log("\n[Step 3] Sending Slack notification…");
     try {
       await sendLoSyncSlackNotification({
-        fetchResults,
         analyzeResults,
-        email: profile.email
+        slackMemberId: profile.slack_member_id
       });
     } catch (err) {
       console.error("[Step 3] Slack notification failed:", err);

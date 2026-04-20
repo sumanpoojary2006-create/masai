@@ -210,10 +210,21 @@ async function postSlackMessage(slackWebhookUrl: string, message: string) {
   }
 }
 
+/**
+ * Sends a Slack notification to the LO channel once LO analysis is complete.
+ * Only fires when at least one lecture has been analysed (status = "analyzed").
+ * The message is focused: lecture name + covered/missed LOs only.
+ * Mentions the user's Slack ID just like the resource tracker does.
+ */
 export async function sendLoSyncSlackNotification(params: {
-  fetchResults: Array<{ lectureName: string; status: string; reason?: string }>;
-  analyzeResults: Array<{ lectureName: string; status: string; coveredCount?: number; missingCount?: number; reason?: string }>;
-  email: string;
+  analyzeResults: Array<{
+    lectureName: string;
+    status: string;
+    coveredCount?: number;
+    missingCount?: number;
+    reason?: string;
+  }>;
+  slackMemberId?: string | null;
 }) {
   const webhookUrl = process.env.LO_SLACK_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -221,57 +232,39 @@ export async function sendLoSyncSlackNotification(params: {
     return;
   }
 
-  const timezone = process.env.APP_TIMEZONE ?? getAppTimezone();
-  const now = DateTime.now().setZone(timezone).toFormat("dd LLL yyyy, hh:mm a");
-
-  const lines: string[] = [
-    `📚 *LO Sync Report* — ${now}`,
-    `👤 ${params.email}`,
-    ""
-  ];
-
-  // ── Transcript fetch results ──
-  const fetched = params.fetchResults.filter((r) => r.status === "fetched");
-  const fetchErrors = params.fetchResults.filter((r) => r.status === "error");
-  const fetchSkipped = params.fetchResults.filter((r) => r.status === "skipped");
-
-  lines.push("*📥 Transcripts Fetched*");
-  if (fetched.length === 0 && fetchErrors.length === 0) {
-    lines.push("  — No new transcripts");
-  } else {
-    fetched.forEach((r) => lines.push(`  ✅ ${r.lectureName}${r.reason ? ` _(${r.reason})_` : ""}`));
-    fetchErrors.forEach((r) => lines.push(`  ❌ ${r.lectureName} — ${r.reason ?? "failed"}`));
-  }
-  if (fetchSkipped.length > 0) {
-    lines.push(`  _${fetchSkipped.length} skipped (already done or no session link)_`);
+  // Only notify once analysis is actually done — skip if nothing was analysed
+  const analyzed = params.analyzeResults.filter((r) => r.status === "analyzed");
+  if (analyzed.length === 0) {
+    console.log("[lo-slack] No completed analyses — skipping notification");
+    return;
   }
 
+  const mention = params.slackMemberId ? `<@${params.slackMemberId}>` : null;
+  const lines: string[] = [];
+
+  if (mention) lines.push(mention);
+  lines.push("📚 *LO Analysis Complete*");
   lines.push("");
 
-  // ── LO analysis results ──
-  const analyzed = params.analyzeResults.filter((r) => r.status === "analyzed");
-  const analyzeErrors = params.analyzeResults.filter((r) => r.status === "error");
-  const analyzeSkipped = params.analyzeResults.filter((r) => r.status === "skipped");
+  for (const r of analyzed) {
+    const covered = r.coveredCount ?? 0;
+    const missing = r.missingCount ?? 0;
+    const total = covered + missing;
 
-  lines.push("*🧠 LO Analysis*");
-  if (analyzed.length === 0 && analyzeErrors.length === 0) {
-    lines.push("  — No pending reports to analyse");
-  } else {
-    analyzed.forEach((r) => {
-      const total = (r.coveredCount ?? 0) + (r.missingCount ?? 0);
-      const pct = total > 0 ? Math.round(((r.coveredCount ?? 0) / total) * 100) : 0;
-      const bar = pct === 100 ? "🟢" : pct >= 60 ? "🟡" : "🔴";
-      lines.push(`  ${bar} *${r.lectureName}* — ${r.coveredCount ?? 0}/${total} LOs covered (${pct}%)`);
-      if (r.reason) lines.push(`     _${r.reason}_`);
-    });
-    analyzeErrors.forEach((r) => lines.push(`  ❌ ${r.lectureName} — ${r.reason ?? "failed"}`));
-  }
-  if (analyzeSkipped.length > 0) {
-    lines.push(`  _${analyzeSkipped.length} skipped (no LOs set)_`);
+    if (total === 0) {
+      lines.push(`⚪ *${r.lectureName}* — No LOs tracked`);
+    } else if (missing === 0) {
+      lines.push(`🟢 *${r.lectureName}* — All LOs covered`);
+    } else {
+      const pct = Math.round((covered / total) * 100);
+      const bar = pct >= 60 ? "🟡" : "🔴";
+      lines.push(`${bar} *${r.lectureName}* — ${covered} LO${covered !== 1 ? "s" : ""} covered, ${missing} Missed`);
+    }
+
+    if (r.reason) lines.push(`   _${r.reason}_`);
   }
 
-  const message = lines.join("\n");
-  await postSlackMessage(webhookUrl, message);
+  await postSlackMessage(webhookUrl, lines.join("\n"));
   console.log("[lo-slack] Notification sent.");
 }
 
