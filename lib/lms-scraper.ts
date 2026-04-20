@@ -1887,16 +1887,18 @@ export async function scrapeLectureSummary(
     logLmsDebug("navigating to summary url", summaryUrl);
     await page.goto(summaryUrl, { waitUntil: "domcontentloaded" });
 
-    // Wait for React SPA to hydrate and render the tab content
+    // Wait for React SPA to hydrate
     await page.waitForLoadState("networkidle").catch(() => undefined);
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
 
-    // Explicitly click the Summary tab to ensure it is active
+    // Some pages might already load the summary if tab=summary is in URL.
+    // Explicitly click the Summary tab to ensure it is active if not.
     const tabCandidates = [
-      page.getByRole("tab", { name: /^summary$/i }),
-      page.locator("button").filter({ hasText: /^summary$/i }),
-      page.locator("a").filter({ hasText: /^summary$/i }),
-      page.locator("[class*='tab']").filter({ hasText: /^summary$/i })
+      page.getByRole("tab", { name: /summary/i }),
+      page.locator("button").filter({ hasText: /summary/i }),
+      page.locator("a").filter({ hasText: /summary/i }),
+      page.locator("[class*='tab']").filter({ hasText: /summary/i }),
+      page.locator("div").filter({ hasText: /^summary$/i })
     ];
 
     for (const candidate of tabCandidates) {
@@ -1912,13 +1914,16 @@ export async function scrapeLectureSummary(
       }
     }
 
-    // Wait for content to appear after tab click
-    await page.waitForTimeout(3000);
+    // Wait for content to appear after tab click (can be slow if it fetches from Zoom API)
+    await page.waitForTimeout(8000);
 
     // Wait until meaningful text is visible on the page
     await page.waitForFunction(
-      () => (document.body.innerText?.length ?? 0) > 300,
-      { timeout: 10000 }
+      () => {
+        const text = document.body.innerText || "";
+        return text.length > 300 && !text.includes("Loading");
+      },
+      { timeout: 15000 }
     ).catch(() => undefined);
 
     // Extract the summary text — try progressively broader selectors
@@ -1938,6 +1943,8 @@ export async function scrapeLectureSummary(
         "[class*='tab_panel']",
         "[role='tabpanel']",
         "[class*='TabPanel']",
+        "[class*='summary']",
+        "[class*='Summary']",
         "[class*='summary']",
         "[class*='Summary']",
         "article",

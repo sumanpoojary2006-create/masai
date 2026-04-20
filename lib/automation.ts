@@ -182,6 +182,8 @@ export interface SummaryFetchResult {
   lectureName: string;
   status: "fetched" | "skipped" | "error";
   reason?: string;
+  coveredCount?: number;
+  missingCount?: number;
 }
 
 export async function fetchAndAnalyzePendingSummaries(
@@ -303,7 +305,9 @@ export async function fetchAndAnalyzePendingSummaries(
             lectureId: lecture.id,
             lectureName: lecture.lecture_name,
             status: "fetched",
-            reason: result.fallback ? "⚠ Keyword matching used (Gemini quota exhausted)" : undefined
+            reason: result.fallback ? "⚠ Keyword matching used (Gemini quota exhausted)" : undefined,
+            coveredCount: result.covered_los.length,
+            missingCount: result.missing_los.length
           });
         } catch (analysisErr) {
           // Transcript was already saved above — log the analysis failure but don't fail the whole run

@@ -46,9 +46,23 @@ async function main() {
 
     // Step 3 — Send Slack notification to the LO channel (only if analyses completed)
     console.log("\n[Step 3] Sending Slack notification…");
+    const combinedResults = [
+      ...analyzeResults,
+      ...fetchResults
+        .filter((r) => r.status === "fetched" && r.coveredCount !== undefined)
+        .map((r) => ({
+          lectureId: r.lectureId,
+          lectureName: r.lectureName,
+          status: "analyzed" as const,
+          coveredCount: r.coveredCount,
+          missingCount: r.missingCount,
+          reason: r.reason
+        }))
+    ];
+
     try {
       await sendLoSyncSlackNotification({
-        analyzeResults,
+        analyzeResults: combinedResults,
         slackMemberId: profile.slack_member_id
       });
     } catch (err) {
