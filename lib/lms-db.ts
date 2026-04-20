@@ -225,10 +225,10 @@ export async function checkLmsTasksForLecture(
     [batchId, startStr, endStr]
   );
 
-  // ── zoom_link for this lecture ────────────────────────────────────────────
+  // ── LMS lecture id for this live session (to build detail page URL) ─────
   const [liveRows] = await conn.query<RowDataPacket[]>(
     `
-    SELECT zoom_link
+    SELECT id
     FROM lectures
     WHERE batch_id  = ?
       AND type      = 'live'
@@ -256,8 +256,10 @@ export async function checkLmsTasksForLecture(
     if (titleMatches(row.title, topic)) { assignment = true; break; }
   }
 
-  const rawLink = (liveRows[0] as { zoom_link?: string } | undefined)?.zoom_link ?? null;
-  const session_link = rawLink && rawLink !== "NA" ? rawLink : null;
+  const lmsId = (liveRows[0] as { id?: number } | undefined)?.id ?? null;
+  const session_link = lmsId
+    ? `https://experience-admin.masaischool.com/lectures/detail/?id=${lmsId}`
+    : null;
 
   return { preread, notes, assignment, session_link };
 }

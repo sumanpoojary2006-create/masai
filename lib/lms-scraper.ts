@@ -537,11 +537,8 @@ export async function syncCurrentWeekLectures(
           .toFormat("HH:mm:ss");
       }
 
-      // ── Session link: prefer zoom_link, fall back to LMS detail page ────
-      const sessionLink =
-        session.zoom_link && session.zoom_link !== "NA"
-          ? session.zoom_link
-          : `${LMS_URL}/lectures/detail/?id=${session.id}`;
+      // ── Session link: always use LMS detail page URL ────────────────────
+      const sessionLink = `${LMS_URL}/lectures/detail/?id=${session.id}`;
 
       results.push({
         batch_name: config.batch_name,
