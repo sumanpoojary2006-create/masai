@@ -277,8 +277,8 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
     <div className="space-y-6">
       {/* Filters */}
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col gap-6">
+          <div className="min-w-0">
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">LO Tracker</p>
             <h2 className="mt-2 font-[var(--font-heading)] text-2xl font-bold text-ink">
               Learning Objectives coverage per lecture
