@@ -172,6 +172,44 @@ export function parseLectureWorkbook(fileBuffer: Buffer) {
   return compactRows(parsed);
 }
 
+export function parseCurriculumWorkbook(fileBuffer: Buffer) {
+  const workbook = XLSX.read(fileBuffer, {
+    type: "buffer",
+    cellDates: true
+  });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+  if (!firstSheet) {
+    throw new Error("The uploaded curriculum file does not contain any sheets.");
+  }
+
+  const sourceRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, {
+    defval: ""
+  });
+
+  const parsed = sourceRows
+    .map((rawRow) => {
+      const normalised = Object.fromEntries(
+        Object.entries(rawRow).map(([key, value]) => [normaliseHeader(key), value])
+      );
+
+      const lectureName = String(normalised.lecture_name ?? "").trim();
+      const learningObjective = String(normalised.learning_objective ?? "").trim();
+
+      if (!lectureName) {
+        return null;
+      }
+
+      return {
+        lecture_name: lectureName,
+        learning_objective: learningObjective
+      };
+    })
+    .filter((row): row is { lecture_name: string; learning_objective: string } => Boolean(row));
+
+  return parsed;
+}
+
 export async function importLectureSheet(
   fileBuffer: Buffer,
   options: {
@@ -205,6 +243,22 @@ export async function importLectureSheet(
     }
   }
 
+  const batchNamesInFile = [...new Set(lectures.map((l) => l.batch_name))];
+
+  // Fetch curriculums for these batches to auto-fill Learning Objectives
+  const { data: curriculums } = await supabase
+    .from("batch_curriculums")
+    .select("batch_name, lecture_name, learning_objective")
+    .in("batch_name", batchNamesInFile)
+    .eq("user_id", options.userId);
+
+  const curriculumMap = new Map<string, string>();
+  if (curriculums) {
+    for (const c of curriculums) {
+      curriculumMap.set(`${c.batch_name}::${c.lecture_name.toLowerCase()}`, c.learning_objective);
+    }
+  }
+
   const { data: upsertedLectures, error: lectureError } = await supabase
     .from("lectures")
     .upsert(
@@ -213,7 +267,7 @@ export async function importLectureSheet(
         batch_name: lecture.batch_name,
         module_name: lecture.module_name,
         lecture_name: lecture.lecture_name,
-        learning_objective: lecture.learning_objective,
+        learning_objective: lecture.learning_objective || curriculumMap.get(`${lecture.batch_name}::${lecture.lecture_name.toLowerCase()}`) || "",
         lecture_date: lecture.lecture_date,
         start_time: lecture.lecture_start_time,
         end_time: lecture.lecture_end_time

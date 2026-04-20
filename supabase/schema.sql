@@ -163,3 +163,24 @@ create index if not exists user_batch_configs_user_idx on public.user_batch_conf
 create index if not exists tasks_status_idx on public.tasks(status);
 create index if not exists tasks_deadline_idx on public.tasks(deadline);
 create index if not exists lms_tracking_lecture_idx on public.lms_tracking(lecture_id);
+
+create table if not exists public.batch_curriculums (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  batch_name text not null,
+  lecture_name text not null,
+  learning_objective text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint batch_curriculums_unique_lecture unique (user_id, batch_name, lecture_name)
+);
+
+drop trigger if exists batch_curriculums_set_updated_at on public.batch_curriculums;
+create trigger batch_curriculums_set_updated_at
+before update on public.batch_curriculums
+for each row
+execute function public.set_updated_at();
+
+create index if not exists batch_curriculums_user_idx on public.batch_curriculums(user_id);
+create index if not exists batch_curriculums_lecture_idx on public.batch_curriculums(lecture_name);
+

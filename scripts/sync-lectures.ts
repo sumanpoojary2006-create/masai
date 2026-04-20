@@ -52,6 +52,20 @@ async function main() {
 
     console.log(`  Found ${synced.length} live session(s) — upserting…`);
 
+    const batchNamesInSync = [...new Set(synced.map((l) => l.batch_name))];
+    const { data: curriculums } = await supabase
+      .from("batch_curriculums")
+      .select("batch_name, lecture_name, learning_objective")
+      .in("batch_name", batchNamesInSync)
+      .eq("user_id", profile.user_id);
+
+    const curriculumMap = new Map<string, string>();
+    if (curriculums) {
+      for (const c of curriculums) {
+        curriculumMap.set(`${c.batch_name}::${c.lecture_name.toLowerCase()}`, c.learning_objective);
+      }
+    }
+
     // Upsert lectures
     const { data: upsertedLectures, error: lectureError } = await supabase
       .from("lectures")
@@ -61,6 +75,7 @@ async function main() {
           batch_name: lec.batch_name,
           module_name: lec.module_name,
           lecture_name: lec.lecture_name,
+          learning_objective: curriculumMap.get(`${lec.batch_name}::${lec.lecture_name.toLowerCase()}`) || "",
           lecture_date: lec.lecture_date,
           start_time: lec.start_time,
           end_time: lec.end_time,

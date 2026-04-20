@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { parseCurriculumWorkbook } from "@/lib/importer";
 import { deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -21,13 +22,25 @@ export async function PUT(request: Request) {
       );
     }
 
-    const payload = (await request.json()) as Record<string, unknown>;
-    const lmsUsername = String(payload.lms_username ?? "").trim();
-    const lmsPassword = String(payload.lms_password ?? "").trim();
-    const slackMemberId = String(payload.slack_member_id ?? "").trim() || null;
-    const batchConfigs = Array.isArray(payload.batch_configs)
-      ? payload.batch_configs
-          .map((entry) => {
+    const formData = await request.formData();
+    const email = String(formData.get("email") ?? "");
+    const lmsUsername = String(formData.get("lms_username") ?? "").trim();
+    const lmsPassword = String(formData.get("lms_password") ?? "").trim();
+    const slackMemberId = String(formData.get("slack_member_id") ?? "").trim() || null;
+    
+    let parsedConfigs: Record<string, unknown>[] = [];
+    try {
+      const batchConfigsStr = formData.get("batch_configs");
+      if (typeof batchConfigsStr === "string") {
+        parsedConfigs = JSON.parse(batchConfigsStr);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+
+    const batchConfigs = Array.isArray(parsedConfigs)
+      ? parsedConfigs
+          .map((entry, index) => {
             const config = (entry ?? {}) as Record<string, unknown>;
             const batchName = String(config.batch_name ?? "").trim();
             const lectureBatchUrl = String(config.lecture_batch_url ?? "").trim();
@@ -35,10 +48,13 @@ export async function PUT(request: Request) {
               config.assignment_batch_url || deriveAssignmentBatchUrl(lectureBatchUrl)
             ).trim();
 
+            const file = formData.get(`curriculum_file_${index}`);
+
             return {
               batch_name: batchName,
               lecture_batch_url: lectureBatchUrl,
-              assignment_batch_url: assignmentBatchUrl
+              assignment_batch_url: assignmentBatchUrl,
+              curriculum_file: file instanceof File ? file : null
             };
           })
           .filter(
@@ -131,6 +147,37 @@ export async function PUT(request: Request) {
 
     if (configError) {
       throw new Error(configError.message);
+    }
+
+    // Process curriculum files if uploaded
+    for (const config of batchConfigs) {
+      if (config.curriculum_file instanceof File) {
+        try {
+          const fileBuffer = Buffer.from(await config.curriculum_file.arrayBuffer());
+          const curriculums = parseCurriculumWorkbook(fileBuffer);
+
+          if (curriculums.length > 0) {
+            const curriculumPayload = curriculums.map((c) => ({
+              user_id: user.id,
+              batch_name: config.batch_name,
+              lecture_name: c.lecture_name,
+              learning_objective: c.learning_objective
+            }));
+
+            const { error: curriculumError } = await supabase
+              .from("batch_curriculums")
+              .upsert(curriculumPayload, {
+                onConflict: "user_id,batch_name,lecture_name"
+              });
+
+            if (curriculumError) {
+              console.error("Error upserting curriculum:", curriculumError);
+            }
+          }
+        } catch (e) {
+          console.error("Failed to parse curriculum file for batch:", config.batch_name, e);
+        }
+      }
     }
 
     return NextResponse.json({

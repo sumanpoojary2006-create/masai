@@ -16,6 +16,7 @@ type BatchConfigInput = {
   batch_name: string;
   lecture_batch_url: string;
   assignment_batch_url: string;
+  curriculum_file: File | null;
 };
 
 function deriveAssignmentUrl(url: string) {
@@ -32,7 +33,8 @@ function emptyBatchConfig(): BatchConfigInput {
   return {
     batch_name: "",
     lecture_batch_url: "",
-    assignment_batch_url: ""
+    assignment_batch_url: "",
+    curriculum_file: null
   };
 }
 
@@ -56,7 +58,8 @@ export function SetupProfileForm({
       ? initialBatchConfigs.map((config) => ({
           batch_name: config.batch_name ?? "",
           lecture_batch_url: config.lecture_batch_url ?? "",
-          assignment_batch_url: config.assignment_batch_url ?? ""
+          assignment_batch_url: config.assignment_batch_url ?? "",
+          curriculum_file: null
         }))
       : [emptyBatchConfig()]
   );
@@ -70,7 +73,7 @@ export function SetupProfileForm({
     }));
   }
 
-  function updateBatchField(index: number, field: keyof BatchConfigInput, value: string) {
+  function updateBatchField(index: number, field: keyof BatchConfigInput, value: string | File | null) {
     setBatchConfigs((current) =>
       current.map((config, configIndex) =>
         configIndex === index
@@ -103,19 +106,33 @@ export function SetupProfileForm({
         batch_name: config.batch_name.trim(),
         lecture_batch_url: config.lecture_batch_url.trim(),
         assignment_batch_url:
-          config.assignment_batch_url.trim() || deriveAssignmentUrl(config.lecture_batch_url.trim())
+          config.assignment_batch_url.trim() || deriveAssignmentUrl(config.lecture_batch_url.trim()),
+        curriculum_file: config.curriculum_file
       }))
       .filter((config) => config.batch_name || config.lecture_batch_url || config.assignment_batch_url);
 
+    const formData = new FormData();
+    formData.append("email", form.email);
+    formData.append("lms_username", form.lms_username);
+    formData.append("lms_password", form.lms_password);
+    formData.append("slack_member_id", form.slack_member_id);
+
+    const configsWithoutFiles = normalizedBatchConfigs.map((c) => ({
+      batch_name: c.batch_name,
+      lecture_batch_url: c.lecture_batch_url,
+      assignment_batch_url: c.assignment_batch_url
+    }));
+    formData.append("batch_configs", JSON.stringify(configsWithoutFiles));
+
+    normalizedBatchConfigs.forEach((config, i) => {
+      if (config.curriculum_file) {
+        formData.append(`curriculum_file_${i}`, config.curriculum_file);
+      }
+    });
+
     const response = await fetch("/api/profile", {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        ...form,
-        batch_configs: normalizedBatchConfigs
-      })
+      body: formData
     });
 
     const payload = (await response.json()) as { message?: string };
@@ -257,6 +274,21 @@ export function SetupProfileForm({
                       placeholder={suggestedAssignmentUrl ?? "Derived automatically if left blank"}
                       className="theme-input rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
                     />
+                  </label>
+
+                  <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+                    Curriculum File (Optional)
+                    <input
+                      type="file"
+                      accept=".csv,.xlsx,.xls"
+                      onChange={(event) =>
+                        updateBatchField(index, "curriculum_file", event.target.files?.[0] ?? null)
+                      }
+                      className="file:mr-4 file:rounded-full file:border-0 file:bg-brand/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand hover:file:bg-brand/20 text-sm text-ink theme-input rounded-2xl px-4 py-2"
+                    />
+                    <span className="theme-muted text-xs font-normal">
+                      Upload a CSV/Excel file with "lecture_name" and "learning_objective" to automatically map LOs for this batch.
+                    </span>
                   </label>
                 </div>
               </section>
