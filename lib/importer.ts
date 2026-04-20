@@ -193,8 +193,23 @@ export function parseCurriculumWorkbook(fileBuffer: Buffer) {
         Object.entries(rawRow).map(([key, value]) => [normaliseHeader(key), value])
       );
 
-      const lectureName = String(normalised.lecture_name ?? "").trim();
-      const learningObjective = String(normalised.learning_objective ?? "").trim();
+      const lectureName = String(
+        normalised.lecture_name ??
+        normalised.lecture ??
+        normalised.session_name ??
+        normalised.topic ??
+        normalised.title ??
+        ""
+      ).trim();
+
+      const learningObjective = String(
+        normalised.learning_objective ??
+        normalised.learning_objectives ??
+        normalised.objective ??
+        normalised.objectives ??
+        normalised.lo ??
+        ""
+      ).trim();
 
       if (!lectureName) {
         return null;

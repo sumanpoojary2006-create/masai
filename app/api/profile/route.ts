@@ -151,9 +151,10 @@ export async function PUT(request: Request) {
 
     // Process curriculum files if uploaded
     for (const config of batchConfigs) {
-      if (config.curriculum_file instanceof File) {
+      const file = config.curriculum_file;
+      if (file && typeof file === "object" && "arrayBuffer" in file && (file as File).size > 0) {
         try {
-          const fileBuffer = Buffer.from(await config.curriculum_file.arrayBuffer());
+          const fileBuffer = Buffer.from(await (file as File).arrayBuffer());
           const curriculums = parseCurriculumWorkbook(fileBuffer);
 
           if (curriculums.length > 0) {
@@ -172,10 +173,17 @@ export async function PUT(request: Request) {
 
             if (curriculumError) {
               console.error("Error upserting curriculum:", curriculumError);
+              throw new Error("Database error while saving curriculum: " + curriculumError.message);
             }
+          } else {
+             throw new Error(`The uploaded curriculum file for batch '${config.batch_name}' does not contain recognized columns. Ensure it has "lecture_name" and "learning_objective".`);
           }
         } catch (e) {
           console.error("Failed to parse curriculum file for batch:", config.batch_name, e);
+          return NextResponse.json(
+            { message: e instanceof Error ? e.message : "Failed to process curriculum file." },
+            { status: 400 }
+          );
         }
       }
     }
