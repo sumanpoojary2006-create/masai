@@ -2,14 +2,16 @@ import { DateTime } from "luxon";
 
 import { TASK_LABELS } from "@/lib/constants";
 import { getAppTimezone, getAutomationEnv } from "@/lib/env";
-import { deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
+import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
+import { checkLmsTasksForLecture } from "@/lib/lms-db";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { resolveSessionLinks, scrapeLectureSummary, scrapeLmsResources } from "@/lib/lms-scraper";
+import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles } from "@/lib/queries";
 import { sendSlackAlerts } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   AlertType,
+  AutomationLecture,
   AutomationProfile,
   ComplianceAlertEvent,
   ComplianceRunSummary,
@@ -21,6 +23,67 @@ import {
 
 function trackingKey(lectureId: string, type: TaskType) {
   return `${lectureId}:${type}`;
+}
+
+/** Extract the LMS numeric batch id from a stored lecture_batch_url */
+function extractBatchIdFromUrl(url: string): number | null {
+  try {
+    const u = new URL(url);
+    const raw = u.searchParams.get("batch");
+    if (!raw) return null;
+    const obj = JSON.parse(decodeURIComponent(raw)) as { id?: unknown };
+    return typeof obj.id === "number" ? obj.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Replace Playwright-based scrapeLmsResources with direct LMS DB checks.
+ * Instant, no browser launch, no login needed.
+ */
+async function checkResourcesFromDb(
+  lectures: AutomationLecture[],
+  batchUrlOverrides: BatchUrlOverrides,
+  now: DateTime
+): Promise<LmsTrackingRecord[]> {
+  const nowIso = now.toUTC().toISO()!;
+  const records: LmsTrackingRecord[] = [];
+
+  for (const lecture of lectures) {
+    const lectureUrl = batchUrlOverrides[lecture.batch_name]?.lectures;
+    const batchId = lectureUrl ? extractBatchIdFromUrl(lectureUrl) : null;
+
+    if (!batchId) {
+      console.log(`[db-check] No batch_id for "${lecture.batch_name}" — skipping`);
+      // Push "not found" placeholders so tracking rows still exist
+      for (const type of ["preread", "notes", "assignment"] as TaskType[]) {
+        records.push({ lectureId: lecture.id, resourceType: type, found: false, uploadedAt: null, rawPayload: { source: "lms-db", skipped: true } });
+      }
+      continue;
+    }
+
+    let check;
+    try {
+      check = await checkLmsTasksForLecture(batchId, lecture.lecture_name, lecture.lecture_date);
+    } catch (err) {
+      console.error(`[db-check] Failed for "${lecture.lecture_name}":`, err instanceof Error ? err.message : err);
+      for (const type of ["preread", "notes", "assignment"] as TaskType[]) {
+        records.push({ lectureId: lecture.id, resourceType: type, found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } });
+      }
+      continue;
+    }
+
+    console.log(
+      `[db-check] "${lecture.lecture_name}" — preread=${check.preread}, notes=${check.notes}, assignment=${check.assignment}`
+    );
+
+    records.push({ lectureId: lecture.id, resourceType: "preread",    found: check.preread,     uploadedAt: check.preread     ? nowIso : null, rawPayload: { source: "lms-db" } });
+    records.push({ lectureId: lecture.id, resourceType: "notes",      found: check.notes,       uploadedAt: check.notes       ? nowIso : null, rawPayload: { source: "lms-db" } });
+    records.push({ lectureId: lecture.id, resourceType: "assignment", found: check.assignment,  uploadedAt: check.assignment  ? nowIso : null, rawPayload: { source: "lms-db" } });
+  }
+
+  return records;
 }
 
 function latestTimestamp(values: Array<string | null | undefined>) {
@@ -430,16 +493,7 @@ export async function runComplianceCheck(options?: {
       ])
     );
 
-    const trackingRecords = await scrapeLmsResources(
-      lectures,
-      {
-        username: profile.lms_username,
-        password: profile.lms_password
-      },
-      {
-        batchUrls: batchUrlOverrides
-      }
-    );
+    const trackingRecords = await checkResourcesFromDb(lectures, batchUrlOverrides, now);
 
     const lectureIds = lectures.map((lecture) => lecture.id);
     const taskIds = lectures.flatMap((lecture) => lecture.tasks.map((task) => task.id));
