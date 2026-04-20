@@ -8,10 +8,12 @@ export interface LmsDbLecture {
   id: number;
   title: string;
   category: string;
-  /** UTC datetime stored by MySQL */
-  schedule: Date;
-  concludes: Date | null;
-  /** Integer HHMM, e.g. 2000 = 20:00, 2130 = 21:30 */
+  /**
+   * ISO date string "YYYY-MM-DD" — the IST date of the lecture.
+   * Comes from the `start_date` DATE column which stores the correct local date.
+   */
+  start_date: string;
+  /** Integer HHMM in IST, e.g. 2000 = 20:00, 2130 = 21:30 */
   start_time: number;
   end_time: number;
   zoom_link: string | null;
@@ -53,23 +55,29 @@ async function getConn(): Promise<mysql.Connection> {
     password: process.env.LMS_DB_PASSWORD,
     database: process.env.LMS_DB_NAME ?? "prod_course",
     ssl: { rejectUnauthorized: false },
-    timezone: "+00:00",
+    // NOTE: datetime columns in this DB store local (IST) times, not UTC.
+    // We use `start_date` (a plain DATE column) for the IST date, and the
+    // `start_time` HHMM integer for the IST time — no timezone conversion needed.
+    dateStrings: true,  // return date/datetime as raw strings, not JS Date objects
   });
 
   return _conn;
 }
 
 /**
- * Fetch live lectures from the LMS DB for a given batch within a UTC date range.
+ * Fetch live lectures from the LMS DB for a given batch within an IST week.
  *
- * @param batchId     - LMS numeric batch id
- * @param weekStartUtc - ISO string for the start of the week in UTC (e.g. "2026-04-13T18:30:00")
- * @param weekEndUtc   - ISO string for the exclusive end of the week in UTC
+ * Uses `start_date` (plain DATE column, IST) for filtering — avoids the
+ * timezone ambiguity of the `schedule` datetime column which stores local times.
+ *
+ * @param batchId       - LMS numeric batch id
+ * @param weekStartDate - "YYYY-MM-DD" — Monday of the week in IST
+ * @param weekEndDate   - "YYYY-MM-DD" — Sunday of the week in IST (inclusive)
  */
 export async function fetchWeekLecturesFromDb(
   batchId: number,
-  weekStartUtc: string,
-  weekEndUtc: string
+  weekStartDate: string,
+  weekEndDate: string
 ): Promise<LmsDbLecture[]> {
   const conn = await getConn();
 
@@ -81,8 +89,7 @@ export async function fetchWeekLecturesFromDb(
       l.id,
       l.title,
       l.category,
-      l.schedule,
-      l.concludes,
+      l.start_date,
       l.start_time,
       l.end_time,
       l.zoom_link,
@@ -94,11 +101,11 @@ export async function fetchWeekLecturesFromDb(
       AND l.type         = 'live'
       AND l.deleted_at IS NULL
       AND l.category    IN (${placeholders})
-      AND l.schedule    >= ?
-      AND l.schedule    <  ?
-    ORDER BY l.schedule ASC
+      AND l.start_date  >= ?
+      AND l.start_date  <= ?
+    ORDER BY l.start_date ASC, l.start_time ASC
     `,
-    [batchId, ...TRACKED_LMS_CATEGORIES, weekStartUtc, weekEndUtc]
+    [batchId, ...TRACKED_LMS_CATEGORIES, weekStartDate, weekEndDate]
   );
 
   return rows as LmsDbLecture[];

@@ -479,17 +479,14 @@ export async function syncCurrentWeekLectures(
 
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
-  const weekStart = now.startOf("week");       // Monday 00:00 IST
-  const weekEnd = weekStart.plus({ days: 7 }); // next Monday 00:00 IST (exclusive)
+  const weekStart = now.startOf("week");             // Monday 00:00 IST
+  const weekEnd = weekStart.plus({ days: 6 });       // Sunday IST (inclusive)
 
-  // Convert IST week boundaries to UTC strings for the SQL query
-  const weekStartUtc = weekStart.toUTC().toISO()!;
-  const weekEndUtc = weekEnd.toUTC().toISO()!;
+  // Pass plain IST date strings — the DB start_date column stores IST dates
+  const weekStartDate = weekStart.toISODate()!;      // "2026-04-20"
+  const weekEndDate = weekEnd.toISODate()!;          // "2026-04-26"
 
-  console.log(
-    `[sync-lectures] Week (IST): ${weekStart.toISODate()} → ${weekEnd.minus({ days: 1 }).toISODate()}`
-  );
-  console.log(`[sync-lectures] UTC range: ${weekStartUtc} → ${weekEndUtc}`);
+  console.log(`[sync-lectures] Week (IST): ${weekStartDate} → ${weekEndDate}`);
 
   const results: SyncedLecture[] = [];
   const DEFAULT_START = "20:00:00";
@@ -506,7 +503,7 @@ export async function syncCurrentWeekLectures(
 
     let sessions;
     try {
-      sessions = await fetchWeekLecturesFromDb(batchId, weekStartUtc, weekEndUtc);
+      sessions = await fetchWeekLecturesFromDb(batchId, weekStartDate, weekEndDate);
     } catch (err) {
       console.error(`[sync-lectures] DB query failed for batch ${batchId}:`, err);
       continue;
@@ -519,11 +516,13 @@ export async function syncCurrentWeekLectures(
       const title = session.title?.trim();
       if (!title) continue;
 
-      // ── Date: convert UTC schedule to IST date ──────────────────────────
-      const scheduleDt = DateTime.fromJSDate(session.schedule, { zone: "UTC" }).setZone(timezone);
-      const lectureDate = scheduleDt.toFormat("yyyy-MM-dd");
+      // ── Date: use start_date directly — it's the IST date, no conversion needed
+      // start_date is a plain DATE column e.g. "2026-04-20"
+      const lectureDate = typeof session.start_date === "string"
+        ? session.start_date.slice(0, 10)   // trim any time part if present
+        : session.start_date;
 
-      // ── Times from HHMM integer field ───────────────────────────────────
+      // ── Times from HHMM integer field (IST) ─────────────────────────────
       const startTime = session.start_time > 0
         ? hhmmToTimeStr(session.start_time)
         : DEFAULT_START;
@@ -533,7 +532,7 @@ export async function syncCurrentWeekLectures(
         : "";
 
       if (!endTime || endTime === startTime || endTime === "00:00:00") {
-        endTime = scheduleDt
+        endTime = DateTime.fromISO(`${lectureDate}T${startTime}`, { zone: timezone })
           .plus({ minutes: DEFAULT_DURATION_MIN })
           .toFormat("HH:mm:ss");
       }
