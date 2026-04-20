@@ -14,7 +14,7 @@
 
 import { DateTime } from "luxon";
 
-import { checkLmsTasksForLecture } from "../lib/lms-db";
+import { checkLmsTasksForLecture, closeLmsDb } from "../lib/lms-db";
 import { getAutomationProfiles } from "../lib/queries";
 import { createServerSupabase } from "../lib/supabase";
 import { getAppTimezone } from "../lib/env";
@@ -184,9 +184,11 @@ async function main() {
   }
 
   console.log("\nDone.");
+  await closeLmsDb();
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(err);
+  await closeLmsDb();
   process.exit(1);
 });

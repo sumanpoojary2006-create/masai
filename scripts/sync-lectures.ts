@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { computeDeadline } from "../lib/deadlines";
 import { getAppTimezone } from "../lib/env";
 import { syncCurrentWeekLectures } from "../lib/lms-scraper";
+import { closeLmsDb } from "../lib/lms-db";
 import { getAutomationProfiles } from "../lib/queries";
 import { createServerSupabase } from "../lib/supabase";
 import { TASK_TYPES } from "../lib/constants";
@@ -125,9 +126,11 @@ async function main() {
   }
 
   console.log("\nDone.");
+  await closeLmsDb();
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error);
+  await closeLmsDb();
   process.exit(1);
 });
