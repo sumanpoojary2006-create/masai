@@ -21,14 +21,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
       - name: Run compliance automation
         run: npm run compliance
         env:
-          LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
-          LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -36,4 +31,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LO_SLACK_WEBHOOK_URL: ${{ secrets.LO_SLACK_WEBHOOK_URL }}
           APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
+          LMS_DB_HOST: ${{ secrets.LMS_DB_HOST }}
+          LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
+          LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
+          LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
 
