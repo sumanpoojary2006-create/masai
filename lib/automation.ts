@@ -194,52 +194,18 @@ export async function fetchAndAnalyzePendingSummaries(
   let lectures = await getAutomationLectures(profile.user_id);
   console.log(`[lo-sync] ${profile.email}: ${lectures.length} total lectures`);
 
-  // ── Auto-resolve missing session links via GraphQL API ───────────────────
-  const missingLink = lectures.filter((l) => !String(l.session_link ?? "").trim());
-  if (missingLink.length > 0) {
-    console.log(`[lo-sync] Auto-resolving session links for ${missingLink.length} lecture(s)…`);
-    try {
-      const resolved = await resolveSessionLinks(
-        missingLink.map((l) => ({
-          id: l.id,
-          lecture_name: l.lecture_name,
-          batch_name: l.batch_name,
-          lecture_date: l.lecture_date
-        })),
-        { username: profile.lms_username, password: profile.lms_password }
-      );
-
-      if (resolved.size > 0) {
-        // Save all resolved links to the database
-        await Promise.all(
-          Array.from(resolved.entries()).map(([lectureId, sessionLink]) =>
-            supabase
-              .from("lectures")
-              .update({ session_link: sessionLink })
-              .eq("id", lectureId)
-          )
-        );
-        console.log(`[lo-sync] Saved ${resolved.size} session link(s) to database`);
-
-        // Patch the in-memory lecture objects so eligible filter sees the new links
-        lectures = lectures.map((l) =>
-          resolved.has(l.id) ? { ...l, session_link: resolved.get(l.id)! } : l
-        );
-      }
-    } catch (err) {
-      console.warn(
-        "[lo-sync] Session link auto-resolve failed:",
-        err instanceof Error ? err.message : err
-      );
-    }
-  }
-
-  // Lectures that ended > 1.5 hours ago and have a session link
+  // Lectures that ended > 1.5 hours ago and have a valid LMS detail-page link
   const eligible = lectures.filter((lecture) => {
     // Normalize: Supabase may return null even if TS type says string
     const sessionLink = String(lecture.session_link ?? "").trim();
     if (!sessionLink) {
       console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — no session link`);
+      return false;
+    }
+
+    // Only LMS detail page URLs can be scraped for summaries; skip Zoom/other links
+    if (!sessionLink.includes("experience-admin.masaischool.com/lectures/detail")) {
+      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — not an LMS detail URL (${sessionLink.slice(0, 50)})`);
       return false;
     }
 
