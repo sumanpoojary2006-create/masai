@@ -25,16 +25,15 @@ export function computeDeadline(
   startTime: string,
   endTime: string
 ) {
-  const lectureStart = parseLocalDateTime(lectureDate, startTime);
-
   if (type === "preread") {
-    // Pre-read must be released 24 hours before the lecture
-    return toIsoOrThrow(lectureStart.minus({ hours: 24 }));
+    // Pre-read must be released by 3:00 PM the day before the lecture
+    const prevDay3pm = parseLocalDateTime(lectureDate, "15:00:00").minus({ days: 1 });
+    return toIsoOrThrow(prevDay3pm);
   }
 
-  // Notes & Assignment must be released by 11:00 AM the day after the lecture
-  const nextDay11am = parseLocalDateTime(lectureDate, "11:00:00").plus({ days: 1 });
-  return toIsoOrThrow(nextDay11am);
+  // Notes & Assignment must be released by 3:00 PM the day after the lecture
+  const nextDay3pm = parseLocalDateTime(lectureDate, "15:00:00").plus({ days: 1 });
+  return toIsoOrThrow(nextDay3pm);
 }
 
 export function formatLectureDate(date: string) {

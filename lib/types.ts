@@ -115,3 +115,24 @@ export interface ComplianceRunSummary {
   updatedTasks: number;
   alertsSent: number;
 }
+
+export interface WeeklyReportLecture {
+  id: string;
+  user_id: string;
+  batch_name: string;
+  lecture_name: string;
+  lecture_date: string;
+  start_time: string;
+  end_time: string;
+  week_label: string;
+  archived_at: string;
+  tasks: Record<TaskType, TaskRecord | null>;
+  lo_report: LoReport | null;
+}
+
+export interface WeeklyReportWeek {
+  week_label: string;
+  /** ISO date of the Monday that starts this week — used for sorting */
+  week_start: string;
+  lectures: WeeklyReportLecture[];
+}

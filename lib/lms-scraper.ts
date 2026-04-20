@@ -1,11 +1,12 @@
 import { DateTime } from "luxon";
 import { Browser, chromium, Frame, Locator, Page } from "playwright";
 
-import { BatchUrlOverrides, getScopedLmsUrl } from "@/lib/lms-batch-urls";
+import { BatchUrlOverrides, getScopedLmsUrl, LECTURE_BATCH_URLS } from "@/lib/lms-batch-urls";
 import { getAppTimezone } from "@/lib/env";
 import { AutomationLecture, LmsTrackingRecord, TaskType } from "@/lib/types";
 
 const LMS_URL = "https://experience-admin.masaischool.com";
+const LMS_API_URL = "https://experience-api.masaischool.com/";
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -44,6 +45,272 @@ function logLmsDebug(...args: unknown[]) {
   if (process.env.LMS_DEBUG === "1") {
     console.log("[lms-debug]", ...args);
   }
+}
+
+// ─────────────────────────────────────────────
+// LMS GraphQL API — direct HTTP (no Playwright UI)
+// ─────────────────────────────────────────────
+
+/**
+ * A lecture record from adminLectures.
+ * - `notes`            : string | null  — markdown blob; starts with "# Pre-Read:" for pre-reads,
+ *                        "# Lecture Notes:" (or similar) for notes.
+ * - `faculty_resources`: array | null   — uploaded PDFs / links (also indicates preread uploaded).
+ * Each lecture record is for ONE resource type; the same lecture title has separate records
+ * for pre-read and lecture notes.
+ */
+interface ApiLecture {
+  id?: number | string;
+  title?: string;
+  notes?: string | null;
+  faculty_resources?: Array<{
+    id?: number | string;
+    link?: string;
+    type?: string;
+    title?: string;
+    description?: string;
+  }> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Parse the numeric batch id embedded in an LMS admin URL's `batch` query param */
+function extractBatchIdFromUrl(batchUrl: string): number | null {
+  try {
+    const url = new URL(batchUrl);
+    const raw = url.searchParams.get("batch");
+    if (!raw) return null;
+    const obj = JSON.parse(decodeURIComponent(raw)) as { id?: unknown };
+    return typeof obj.id === "number" ? obj.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Look up the numeric batch id for a given batch name */
+function getBatchId(batchName: string, batchUrls?: BatchUrlOverrides): number | null {
+  const overrideUrl = batchUrls?.[batchName]?.lectures;
+  if (overrideUrl) {
+    const id = extractBatchIdFromUrl(overrideUrl);
+    if (id != null) return id;
+  }
+  const url = LECTURE_BATCH_URLS[batchName];
+  return url ? extractBatchIdFromUrl(url) : null;
+}
+
+/** Capture masaischool.com cookies from a logged-in Playwright page */
+async function getAuthCookieHeader(page: Page): Promise<string> {
+  const cookies = await page.context().cookies();
+  const relevant = cookies.filter((c) => c.domain.includes("masaischool.com"));
+  logLmsDebug("auth-cookies", relevant.map((c) => c.name));
+  return relevant.map((c) => `${c.name}=${c.value}`).join("; ");
+}
+
+/** Generic GraphQL POST to the experience-api */
+async function callLmsGraphQL(
+  operationName: string,
+  query: string,
+  variables: Record<string, unknown>,
+  cookieHeader: string
+): Promise<Record<string, unknown>> {
+  const res = await fetch(LMS_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Cookie": cookieHeader,
+      "Origin": "https://experience-admin.masaischool.com",
+      "Referer": "https://experience-admin.masaischool.com/",
+      "x-apollo-operation-name": operationName
+    },
+    body: JSON.stringify({ operationName, query, variables })
+  });
+
+  if (!res.ok) throw new Error(`LMS API HTTP ${res.status}`);
+  const json = (await res.json()) as { data?: Record<string, unknown>; errors?: unknown[] };
+  if (json.errors?.length) {
+    logLmsDebug("graphql-errors", json.errors);
+    throw new Error(`GraphQL errors: ${JSON.stringify(json.errors)}`);
+  }
+  return json.data ?? {};
+}
+
+// The exact query shape from the confirmed Python script
+const ADMIN_LECTURES_QUERY = `
+query adminLectures($input: LectureListFilters) {
+  adminLectures(input: $input) {
+    lectures {
+      id
+      title
+      notes
+      faculty_resources
+      created_at
+      updated_at
+    }
+    page
+    pages
+  }
+}
+`;
+
+/**
+ * Fetch all lectures for a batch (optionally filtered by title).
+ * Automatically pages through all results.
+ */
+async function fetchLecturesFromApi(
+  batchId: number,
+  title: string | null,
+  cookieHeader: string
+): Promise<ApiLecture[]> {
+  const all: ApiLecture[] = [];
+  let page = 0;
+
+  while (true) {
+    try {
+      const data = await callLmsGraphQL("adminLectures", ADMIN_LECTURES_QUERY, {
+        input: {
+          lecture_id: null,
+          title: title,
+          batch_id: batchId,
+          section_id: 0,
+          type: null,
+          user_id: null,
+          concludes: null,
+          schedule: null,
+          block_id: null,
+          host_id: null,
+          faculty_resources_uploaded: null,
+          page
+        }
+      }, cookieHeader);
+
+      const result = data.adminLectures as { lectures?: ApiLecture[]; pages?: number } | undefined;
+      const lectures = result?.lectures ?? [];
+      if (lectures.length === 0) break;
+
+      all.push(...lectures);
+
+      const totalPages = result?.pages ?? 1;
+      page += 1;
+      if (page >= totalPages) break;
+    } catch (err) {
+      logLmsDebug("fetchLecturesFromApi error page", page, err instanceof Error ? err.message : err);
+      break;
+    }
+  }
+
+  return all;
+}
+
+/**
+ * True when the notes string looks like a pre-read (not lecture notes).
+ * e.g. "# Pre-Read: ..." or "# Pre-Read\n..."
+ */
+function isPreReadNotes(notes: string): boolean {
+  return /pre[-\s]?read/i.test(notes.slice(0, 80));
+}
+
+/**
+ * Try to resolve preread + notes via the GraphQL API.
+ * Returns `null` when the API cannot be used (no batch id, API error).
+ */
+async function checkLectureResourcesViaApi(
+  lecture: AutomationLecture,
+  cookieHeader: string,
+  batchUrls?: BatchUrlOverrides
+): Promise<[LmsTrackingRecord, LmsTrackingRecord] | null> {
+  const batchId = getBatchId(lecture.batch_name, batchUrls);
+  if (!batchId) {
+    logLmsDebug("checkLectureResourcesViaApi: no batchId for", lecture.batch_name);
+    return null;
+  }
+
+  // Fetch with title filter — each resource type is its own lecture record
+  const lectures = await fetchLecturesFromApi(batchId, lecture.lecture_name, cookieHeader);
+  logLmsDebug("adminLectures result", { batchId, title: lecture.lecture_name, count: lectures.length });
+
+  // Filter to records whose title matches the lecture name (lenient)
+  const matching = lectures.filter((l) =>
+    l.title ? lectureNameMatchesRow(lecture.lecture_name, normalizeText(l.title)) : false
+  );
+
+  // If no matching lectures found at all, the title filter may not have worked —
+  // return null so Playwright takes over rather than falsely reporting "not uploaded".
+  if (matching.length === 0) {
+    logLmsDebug("checkLectureResourcesViaApi: no matching lectures for", lecture.lecture_name, "— Playwright fallback");
+    return null;
+  }
+
+  // ── Preread ──
+  // A record is a pre-read when: notes starts with "Pre-Read" OR faculty_resources non-empty
+  const prereadRecord = matching.find(
+    (l) =>
+      (l.notes && isPreReadNotes(l.notes)) ||
+      (Array.isArray(l.faculty_resources) && l.faculty_resources.length > 0)
+  ) ?? null;
+
+  const prereadFound = Boolean(prereadRecord);
+  const prereadTimestamp = prereadRecord?.created_at
+    ? toIsoTimestamp(prereadRecord.created_at)
+    : null;
+
+  const preread: LmsTrackingRecord = {
+    lectureId: lecture.id,
+    resourceType: "preread",
+    found: prereadFound,
+    uploadedAt: prereadTimestamp,
+    rawPayload: {
+      source: "api",
+      matchedTitle: prereadRecord?.title,
+      notes: prereadRecord?.notes?.slice(0, 120),
+      faculty_resources: prereadRecord?.faculty_resources
+    }
+  };
+
+  // ── Notes ──
+  // A record is lecture notes when: notes is non-null and NOT a pre-read
+  const notesRecord = matching.find(
+    (l) => l.notes && !isPreReadNotes(l.notes)
+  ) ?? null;
+
+  const notesFound = Boolean(notesRecord);
+  const notesTimestamp = notesRecord?.created_at
+    ? toIsoTimestamp(notesRecord.created_at)
+    : null;
+
+  const notes: LmsTrackingRecord = {
+    lectureId: lecture.id,
+    resourceType: "notes",
+    found: notesFound,
+    uploadedAt: notesTimestamp,
+    rawPayload: {
+      source: "api",
+      matchedTitle: notesRecord?.title,
+      notes: notesRecord?.notes?.slice(0, 120)
+    }
+  };
+
+  logLmsDebug("api-lecture-resources", {
+    lectureName: lecture.lecture_name,
+    prereadFound,
+    notesFound,
+    matchingCount: matching.length
+  });
+
+  return [preread, notes];
+}
+
+/**
+ * Assignment check via API — falls back to Playwright (no confirmed query schema yet).
+ * Returns `null` to trigger Playwright fallback.
+ */
+async function checkAssignmentViaApi(
+  _lecture: AutomationLecture,
+  _cookieHeader: string,
+  _batchUrls?: BatchUrlOverrides
+): Promise<LmsTrackingRecord | null> {
+  // The assignment GraphQL query schema has not been confirmed.
+  // Always fall back to Playwright scraping for assignments.
+  return null;
 }
 
 function timestampPatterns() {
@@ -816,6 +1083,7 @@ async function login(page: Page, username: string, password: string) {
     'input[autocomplete="email"]',
     'input[placeholder*="gmail.com"]',
     'input[placeholder*="email" i]',
+    'input[placeholder*="username" i]',
     'input[type="text"]'
   ];
   const passwordSelectors = [
@@ -826,73 +1094,96 @@ async function login(page: Page, username: string, password: string) {
     'input[placeholder*="password" i]'
   ];
 
-  await page.goto(LMS_URL, {
-    waitUntil: "domcontentloaded"
-  });
-  await page.waitForTimeout(1500);
+  /** Wait up to `ms` for either field set to appear, checking every 500 ms */
+  async function waitForLoginForm(ms = 8000) {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      if (
+        (await hasVisibleMatching(page, usernameSelectors)) &&
+        (await hasVisibleMatching(page, passwordSelectors))
+      ) {
+        return true;
+      }
+      await page.waitForTimeout(500);
+    }
+    return false;
+  }
 
-  const loginTriggers = [
-    page.getByRole("link", { name: /log in|login|sign in|signin/i }),
-    page.getByRole("button", { name: /log in|login|sign in|signin/i }),
-    page.locator("a").filter({ hasText: /log in|login|sign in|signin/i }),
-    page.locator("button").filter({ hasText: /log in|login|sign in|signin/i })
-  ];
+  // ── Step 1: navigate to base URL and wait for SPA to hydrate ──────────────
+  await page.goto(LMS_URL, { waitUntil: "networkidle" }).catch(() =>
+    page.goto(LMS_URL, { waitUntil: "domcontentloaded" })
+  );
+  await page.waitForTimeout(2000);
 
-  if (
-    !(await hasVisibleMatching(page, usernameSelectors)) ||
-    !(await hasVisibleMatching(page, passwordSelectors))
-  ) {
+  // ── Step 2: if login form already visible, proceed ────────────────────────
+  if (await waitForLoginForm(3000)) {
+    logLmsDebug("login form found on base URL");
+  } else {
+    // ── Step 3: look for a login trigger button / link ────────────────────
+    const loginTriggers = [
+      page.getByRole("link", { name: /log in|login|sign in|signin/i }),
+      page.getByRole("button", { name: /log in|login|sign in|signin/i }),
+      page.locator("a").filter({ hasText: /log in|login|sign in|signin/i }),
+      page.locator("button").filter({ hasText: /log in|login|sign in|signin/i })
+    ];
+
     for (const candidate of loginTriggers) {
       const trigger = await firstVisible(candidate);
-      if (!trigger) {
-        continue;
-      }
+      if (!trigger) continue;
 
       await trigger.click().catch(() => undefined);
-      await page.waitForLoadState("domcontentloaded").catch(() => undefined);
-      await page.waitForTimeout(1500);
+      await page.waitForLoadState("networkidle").catch(() => undefined);
 
-      if (
-        (await hasVisibleMatching(page, usernameSelectors)) &&
-        (await hasVisibleMatching(page, passwordSelectors))
-      ) {
+      if (await waitForLoginForm(3000)) {
+        logLmsDebug("login form found after clicking trigger");
         break;
       }
     }
   }
 
+  // ── Step 4: try known login paths if form still not visible ───────────────
   if (
     !(await hasVisibleMatching(page, usernameSelectors)) ||
     !(await hasVisibleMatching(page, passwordSelectors))
   ) {
-    for (const candidateUrl of [`${LMS_URL}/login`, `${LMS_URL}/signin`]) {
-      await page.goto(candidateUrl, {
-        waitUntil: "domcontentloaded"
-      });
-      await page.waitForTimeout(1500);
+    for (const candidateUrl of [
+      `${LMS_URL}/login`,
+      `${LMS_URL}/signin`,
+      `${LMS_URL}/auth/login`,
+      `${LMS_URL}/auth/signin`
+    ]) {
+      await page.goto(candidateUrl, { waitUntil: "networkidle" }).catch(() =>
+        page.goto(candidateUrl, { waitUntil: "domcontentloaded" })
+      );
 
-      if (
-        (await hasVisibleMatching(page, usernameSelectors)) &&
-        (await hasVisibleMatching(page, passwordSelectors))
-      ) {
+      if (await waitForLoginForm(4000)) {
+        logLmsDebug("login form found at", candidateUrl);
         break;
       }
     }
   }
 
-  const usernameFilled = await fillFirstMatching(
-    page,
-    usernameSelectors,
-    username
-  );
-  const passwordFilled = await fillFirstMatching(
-    page,
-    passwordSelectors,
-    password
-  );
+  // ── Step 5: log page state for debugging if still not found ───────────────
+  if (
+    !(await hasVisibleMatching(page, usernameSelectors)) ||
+    !(await hasVisibleMatching(page, passwordSelectors))
+  ) {
+    const currentUrl = page.url();
+    const bodySnippet = await page
+      .evaluate(() => document.body?.innerText?.slice(0, 400) ?? "")
+      .catch(() => "");
+    console.error("[lms-login] Could not find login form. URL:", currentUrl);
+    console.error("[lms-login] Page text snippet:", bodySnippet);
+    throw new Error(
+      `Unable to find the LMS username/password fields. Current URL: ${currentUrl}`
+    );
+  }
+
+  const usernameFilled = await fillFirstMatching(page, usernameSelectors, username);
+  const passwordFilled = await fillFirstMatching(page, passwordSelectors, password);
 
   if (!usernameFilled || !passwordFilled) {
-    throw new Error("Unable to find the LMS username/password fields");
+    throw new Error("Unable to fill the LMS username/password fields");
   }
 
   const submitCandidates = [
@@ -957,6 +1248,11 @@ async function login(page: Page, username: string, password: string) {
       bodySnippet: bodyText.slice(0, 500)
     });
   }
+
+  // Visit the experience-api origin so its session cookie is set in the browser context.
+  // This mirrors what the Python script does and is required for GraphQL API calls to authenticate.
+  await page.goto(LMS_API_URL, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+  await page.waitForTimeout(1000);
 }
 
 async function scrapeLectures(
@@ -1106,15 +1402,73 @@ export async function scrapeLmsResources(
     const page = await browser.newPage();
     await login(page, credentials.username, credentials.password);
 
+    // Capture auth cookies once after login — used for direct API calls
+    let cookieHeader = "";
+    try {
+      cookieHeader = await getAuthCookieHeader(page);
+      console.log("[lms-scraper] Auth cookies captured for GraphQL API");
+    } catch (err) {
+      console.warn("[lms-scraper] Could not capture auth cookies:", err instanceof Error ? err.message : err);
+    }
+
     const records: LmsTrackingRecord[] = [];
 
     for (const lecture of lectures) {
-      const lectureResources = await scrapeLectures(page, lecture, {
-        batchUrls: options?.batchUrls
-      });
-      const assignmentResource = await scrapeAssignments(page, lecture, {
-        batchUrls: options?.batchUrls
-      });
+      // ── Lecture resources (preread + notes) ─────────────────────────────
+      let lectureResources: LmsTrackingRecord[] | null = null;
+
+      if (cookieHeader) {
+        try {
+          const apiResult = await checkLectureResourcesViaApi(lecture, cookieHeader, options?.batchUrls);
+          if (apiResult) {
+            console.log(
+              `[lms-scraper] API ✓ lecture resources for "${lecture.lecture_name}" —`,
+              `preread=${apiResult[0].found}, notes=${apiResult[1].found}`
+            );
+            lectureResources = apiResult;
+          }
+        } catch (err) {
+          console.warn(
+            `[lms-scraper] API lecture resources failed for "${lecture.lecture_name}":`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+
+      if (!lectureResources) {
+        console.log(`[lms-scraper] Playwright fallback for lecture resources: "${lecture.lecture_name}"`);
+        lectureResources = await scrapeLectures(page, lecture, {
+          batchUrls: options?.batchUrls
+        });
+      }
+
+      // ── Assignment ───────────────────────────────────────────────────────
+      let assignmentResource: LmsTrackingRecord | null = null;
+
+      if (cookieHeader) {
+        try {
+          const apiResult = await checkAssignmentViaApi(lecture, cookieHeader, options?.batchUrls);
+          if (apiResult) {
+            console.log(
+              `[lms-scraper] API ✓ assignment for "${lecture.lecture_name}" — found=${apiResult.found}`
+            );
+            assignmentResource = apiResult;
+          }
+        } catch (err) {
+          console.warn(
+            `[lms-scraper] API assignment failed for "${lecture.lecture_name}":`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      }
+
+      if (!assignmentResource) {
+        console.log(`[lms-scraper] Playwright fallback for assignment: "${lecture.lecture_name}"`);
+        assignmentResource = await scrapeAssignments(page, lecture, {
+          batchUrls: options?.batchUrls
+        });
+      }
+
       records.push(...lectureResources, assignmentResource);
     }
 

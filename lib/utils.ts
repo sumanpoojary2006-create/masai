@@ -25,8 +25,8 @@ export function isLateCompletion(completedAt: string | null, deadline: string) {
 export function statusClasses(status: TaskStatus, isLate = false) {
   if (status === "completed") {
     if (isLate) {
-      // Uploaded after deadline — yellow
-      return "bg-yellow-100 text-yellow-700 ring-yellow-200 dark:bg-yellow-950/60 dark:text-yellow-300 dark:ring-yellow-800";
+      // Uploaded after deadline — green background, yellow text
+      return "bg-emerald-100 text-yellow-600 ring-emerald-200 dark:bg-emerald-950/60 dark:text-yellow-400 dark:ring-emerald-800";
     }
     // Uploaded on time — green
     return "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:ring-emerald-800";

@@ -96,6 +96,12 @@ export default async function HomePage() {
             LO Tracker
           </Link>
           <Link
+            href="/weekly-report"
+            className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
+          >
+            Weekly Report
+          </Link>
+          <Link
             href="/profile"
             className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
           >

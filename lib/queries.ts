@@ -1,4 +1,7 @@
+import { DateTime } from "luxon";
+
 import { TASK_TYPES } from "@/lib/constants";
+import { getAppTimezone } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   DashboardLecture,
@@ -7,7 +10,9 @@ import {
   TaskRecord,
   TaskStatus,
   UserBatchConfigRecord,
-  UserProfileRecord
+  UserProfileRecord,
+  WeeklyReportLecture,
+  WeeklyReportWeek
 } from "@/lib/types";
 
 function buildTaskMap(tasks: TaskRecord[]) {
@@ -32,6 +37,7 @@ export async function getDashboardData(filters: {
       "id, user_id, batch_name, module_name, lecture_name, learning_objective, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
     )
     .eq("user_id", filters.userId)
+    .is("archived_at", null)
     .order("lecture_date", { ascending: false })
     .order("start_time", { ascending: false });
 
@@ -73,6 +79,7 @@ export async function getAutomationLectures(userId: string) {
       "id, user_id, batch_name, module_name, lecture_name, learning_objective, session_link, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
     )
     .eq("user_id", userId)
+    .is("archived_at", null)
     .order("lecture_date", { ascending: false });
 
   if (error) {
@@ -103,6 +110,7 @@ export async function getLoTrackerData(userId: string): Promise<LoTrackerRow[]> 
       "id, user_id, batch_name, module_name, lecture_name, learning_objective, session_link, lecture_date, start_time, end_time"
     )
     .eq("user_id", userId)
+    .is("archived_at", null)
     .order("lecture_date", { ascending: false })
     .order("start_time", { ascending: false });
 
@@ -134,6 +142,87 @@ export async function getLoTrackerData(userId: string): Promise<LoTrackerRow[]> 
     end_time: lecture.end_time,
     lo_report: reportMap.get(lecture.id) ?? null
   }));
+}
+
+export async function getWeeklyReportData(userId: string): Promise<WeeklyReportWeek[]> {
+  const supabase = createServerSupabase();
+  const timezone = getAppTimezone();
+
+  const { data, error } = await supabase
+    .from("lectures")
+    .select(
+      "id, user_id, batch_name, lecture_name, lecture_date, start_time, end_time, week_label, archived_at, tasks(id, lecture_id, type, deadline, status, completed_at, last_checked_at)"
+    )
+    .eq("user_id", userId)
+    .not("archived_at", "is", null)
+    .order("lecture_date", { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  type RawRow = {
+    id: string;
+    user_id: string;
+    batch_name: string;
+    lecture_name: string;
+    lecture_date: string;
+    start_time: string;
+    end_time: string;
+    week_label: string | null;
+    archived_at: string | null;
+    tasks: TaskRecord[];
+  };
+
+  const rows = (data ?? []) as unknown as RawRow[];
+
+  // Fetch lo_reports for all archived lectures in one query
+  const lectureIds = rows.map((r) => r.id);
+  const reportMap = new Map<string, LoReport>();
+
+  if (lectureIds.length > 0) {
+    const { data: reports } = await supabase
+      .from("lo_reports")
+      .select("*")
+      .in("lecture_id", lectureIds);
+
+    ((reports ?? []) as LoReport[]).forEach((r) => reportMap.set(r.lecture_id, r));
+  }
+
+  // Group by week_label
+  const weekMap = new Map<string, WeeklyReportWeek>();
+
+  for (const row of rows) {
+    const label = row.week_label ?? "Unknown week";
+
+    if (!weekMap.has(label)) {
+      const monday =
+        DateTime.fromISO(row.lecture_date, { zone: timezone })
+          .startOf("week")
+          .toISODate() ?? row.lecture_date;
+
+      weekMap.set(label, { week_label: label, week_start: monday, lectures: [] });
+    }
+
+    const lecture: WeeklyReportLecture = {
+      id: row.id,
+      user_id: row.user_id,
+      batch_name: row.batch_name,
+      lecture_name: row.lecture_name,
+      lecture_date: row.lecture_date,
+      start_time: row.start_time,
+      end_time: row.end_time,
+      week_label: label,
+      archived_at: row.archived_at ?? "",
+      tasks: buildTaskMap(row.tasks ?? []),
+      lo_report: reportMap.get(row.id) ?? null
+    };
+
+    weekMap.get(label)!.lectures.push(lecture);
+  }
+
+  // Sort weeks newest first
+  return Array.from(weekMap.values()).sort((a, b) =>
+    b.week_start.localeCompare(a.week_start)
+  );
 }
 
 export async function getAutomationProfiles(userId?: string) {
