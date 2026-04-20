@@ -113,8 +113,7 @@ async function main() {
       if (!batchId) continue;
 
       const lectureTasks = tasksByLecture.get(lecture.id);
-      const needsLinkCheck = !lecture.session_link;
-      if (!lectureTasks?.length && !needsLinkCheck) continue;
+      if (!lectureTasks?.length) continue;
 
       // Query LMS DB for this lecture's task completion + session link
       let check;
@@ -125,8 +124,8 @@ async function main() {
         continue;
       }
 
-      // ── Update session_link if missing ───────────────────────────────────
-      if (needsLinkCheck && check.session_link) {
+      // ── Always overwrite session_link with the LMS detail page URL ────────
+      if (check.session_link && check.session_link !== lecture.session_link) {
         const { error } = await supabase
           .from("lectures")
           .update({ session_link: check.session_link })
