@@ -199,10 +199,11 @@ export async function checkLmsTasksForLecture(
   const endStr = windowEnd.toISOString().slice(0, 10);
 
   // ── reading records (pre-reads + notes) ──────────────────────────────────
+  // Existence of the record is sufficient — pre-reads uploaded as files have
+  // notes=NULL but content in faculty_resources, so we don't filter by has_content.
   const [readingRows] = await conn.query<RowDataPacket[]>(
     `
-    SELECT title, category,
-           (notes IS NOT NULL AND notes != '') AS has_content
+    SELECT title, category
     FROM lectures
     WHERE batch_id    = ?
       AND type        = 'reading'
@@ -244,8 +245,7 @@ export async function checkLmsTasksForLecture(
   let notes = false;
   let assignment = false;
 
-  for (const row of readingRows as Array<{ title: string; category: string; has_content: number }>) {
-    if (!row.has_content) continue;
+  for (const row of readingRows as Array<{ title: string; category: string }>) {
     if (!titleMatches(row.title, topic)) continue;
     const cat = row.category.toLowerCase();
     if (cat.includes("pre")) preread = true;
