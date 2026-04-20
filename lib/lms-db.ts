@@ -119,3 +119,145 @@ export function hhmmToTimeStr(val: number): string {
   const m = (val % 100).toString().padStart(2, "0");
   return `${h}:${m}:00`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task-completion checking
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LmsTaskCheck {
+  preread: boolean;
+  notes: boolean;
+  assignment: boolean;
+  /** Zoom / session link for the live lecture (null if not found) */
+  session_link: string | null;
+}
+
+/**
+ * Strip common prefixes so "Faculty Session 25 - Fine-Tuning LLMs" →
+ * "Fine-Tuning LLMs" for fuzzy matching against pre-read/notes titles.
+ */
+function extractTopic(name: string): string {
+  return name
+    .replace(
+      /^(faculty\s+session\s*[-–]?\s*\d+\s*[-–]\s*|im\s+session\s+\d+\s*[-–]\s*|academic\s+session\s*\d*\s*[-–]\s*|tutorial\s+session\s*[-–]?\s*\d*\s*[-–]\s*)/i,
+      ""
+    )
+    .trim();
+}
+
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * Returns true if `readingTitle` is semantically close to the live
+ * session `topic`.  Uses substring + 60 % keyword-overlap fallback.
+ */
+function titleMatches(readingTitle: string, topic: string): boolean {
+  if (!topic) return false;
+  const r = normalize(readingTitle);
+  const t = normalize(topic);
+  if (r.includes(t) || t.includes(r)) return true;
+  const words = t.split(" ").filter((w) => w.length >= 3);
+  if (words.length === 0) return false;
+  const hit = words.filter((w) => r.includes(w)).length;
+  return hit / words.length >= 0.6;
+}
+
+/**
+ * Check whether the LMS DB already has pre-read, lecture notes, and/or an
+ * assignment for the given live lecture, and return the zoom/session link.
+ *
+ * Matching is done by:
+ *  • same batch_id
+ *  • start_date within a ±14-day window
+ *  • fuzzy title match (suffix after "Faculty Session N –" prefix stripped)
+ *
+ * @param batchId      LMS numeric batch id
+ * @param lectureName  Name as stored in our Supabase lectures table
+ * @param lectureDate  "YYYY-MM-DD" (IST)
+ */
+export async function checkLmsTasksForLecture(
+  batchId: number,
+  lectureName: string,
+  lectureDate: string
+): Promise<LmsTaskCheck> {
+  const conn = await getConn();
+  const topic = extractTopic(lectureName);
+
+  // Wide window: pre-reads up to 14 days before, notes/assignments up to 7 days after
+  const base = new Date(lectureDate);
+  const windowStart = new Date(base);
+  windowStart.setDate(windowStart.getDate() - 14);
+  const windowEnd = new Date(base);
+  windowEnd.setDate(windowEnd.getDate() + 7);
+  const startStr = windowStart.toISOString().slice(0, 10);
+  const endStr = windowEnd.toISOString().slice(0, 10);
+
+  // ── reading records (pre-reads + notes) ──────────────────────────────────
+  const [readingRows] = await conn.query<RowDataPacket[]>(
+    `
+    SELECT title, category,
+           (notes IS NOT NULL AND notes != '') AS has_content
+    FROM lectures
+    WHERE batch_id    = ?
+      AND type        = 'reading'
+      AND category    IN ('pre-reads', 'Pre Reads', 'notes')
+      AND start_date  BETWEEN ? AND ?
+      AND deleted_at IS NULL
+    `,
+    [batchId, startStr, endStr]
+  );
+
+  // ── assignments ───────────────────────────────────────────────────────────
+  const [assignRows] = await conn.query<RowDataPacket[]>(
+    `
+    SELECT title
+    FROM assignments
+    WHERE batch_id    = ?
+      AND start_date  BETWEEN ? AND ?
+      AND deleted_at IS NULL
+    `,
+    [batchId, startStr, endStr]
+  );
+
+  // ── zoom_link for this lecture ────────────────────────────────────────────
+  const [liveRows] = await conn.query<RowDataPacket[]>(
+    `
+    SELECT zoom_link
+    FROM lectures
+    WHERE batch_id  = ?
+      AND type      = 'live'
+      AND start_date = ?
+      AND deleted_at IS NULL
+    ORDER BY ABS(start_time - 2000) ASC
+    LIMIT 1
+    `,
+    [batchId, lectureDate]
+  );
+
+  let preread = false;
+  let notes = false;
+  let assignment = false;
+
+  for (const row of readingRows as Array<{ title: string; category: string; has_content: number }>) {
+    if (!row.has_content) continue;
+    if (!titleMatches(row.title, topic)) continue;
+    const cat = row.category.toLowerCase();
+    if (cat.includes("pre")) preread = true;
+    else if (cat === "notes") notes = true;
+  }
+
+  for (const row of assignRows as Array<{ title: string }>) {
+    if (titleMatches(row.title, topic)) { assignment = true; break; }
+  }
+
+  const rawLink = (liveRows[0] as { zoom_link?: string } | undefined)?.zoom_link ?? null;
+  const session_link = rawLink && rawLink !== "NA" ? rawLink : null;
+
+  return { preread, notes, assignment, session_link };
+}

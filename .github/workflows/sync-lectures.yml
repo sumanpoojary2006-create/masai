@@ -29,3 +29,14 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+
+      - name: Check task completion & backfill session links from LMS DB
+        run: npx tsx scripts/check-tasks.ts
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
+          LMS_DB_HOST: ${{ secrets.LMS_DB_HOST }}
+          LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
+          LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
+          LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
