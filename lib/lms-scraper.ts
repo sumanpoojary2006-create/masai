@@ -333,160 +333,142 @@ async function checkLectureResourcesViaApi(
   return [preread, notes];
 }
 
-/** A row parsed from the LMS admin lecture list page */
-interface ScrapedScheduleRow {
-  title: string;
-  lectureId: string;       // numeric LMS id extracted from the detail link
-  dateText: string;        // raw date string found in the row
-  startTimeText: string;   // raw start-time string
-  endTimeText: string;     // raw end-time string (may equal startTimeText if only one found)
-  rowText: string;         // full row text (for debugging / type detection)
-}
-
-/**
- * Navigate to the LMS admin lecture list page for a batch and scrape
- * every row's title, date, times and detail-page URL.
- * Returns raw rows — caller is responsible for filtering and date parsing.
- */
-async function scrapeScheduleRowsFromPage(
-  page: Page,
-  batchUrl: string
-): Promise<ScrapedScheduleRow[]> {
-  await page.goto(batchUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("networkidle").catch(() => undefined);
-  await page.waitForTimeout(2000);
-
-  // Try to wait for at least one table row to appear
-  await page.waitForSelector("tr, [role='row']", { timeout: 8000 }).catch(() => undefined);
-
-  const rows: ScrapedScheduleRow[] = [];
-
-  // Paginate through all pages so we capture the whole batch schedule
-  const seenPages = new Set<string>();
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const pageRows = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll("tr, [role='row']")).map((row) => {
-        const cells = Array.from(row.querySelectorAll("td, [role='cell']")).map(
-          (c) => (c as HTMLElement).innerText?.trim() ?? ""
-        );
-        const links = Array.from(row.querySelectorAll("a")).map((a) => a.getAttribute("href") ?? "");
-        return {
-          fullText: (row as HTMLElement).innerText?.trim().replace(/\s+/g, " ") ?? "",
-          cells,
-          links
-        };
-      });
-    });
-
-    for (const r of pageRows) {
-      if (!r.fullText || r.fullText.length < 5) continue;
-
-      // Find the detail link to extract the lecture ID
-      const detailHref = r.links.find(
-        (h) => h.includes("lectures/detail") || /\/lectures\/\d+/.test(h)
-      );
-      if (!detailHref) continue;
-
-      const idFromQuery = detailHref.match(/[?&]id=(\d+)/);
-      const idFromPath = detailHref.match(/\/lectures\/(\d+)/);
-      const lectureId = (idFromQuery ?? idFromPath)?.[1] ?? "";
-      if (!lectureId) continue;
-
-      // Extract title: first meaningful cell that isn't purely a date/time/number
-      const titleCell = r.cells.find(
-        (c) => c.length > 3 && !/^\d/.test(c) && !/^(am|pm)$/i.test(c)
-      ) ?? "";
-
-      // Extract all date-like strings from the row
-      const dateMatch =
-        r.fullText.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,\s]+(\d{4})\b/i) ??
-        r.fullText.match(/\b(\d{4})[\/\-](\d{2})[\/\-](\d{2})\b/) ??
-        r.fullText.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\b/);
-
-      // Extract all time-like strings — look for two occurrences (start + end)
-      const timeMatches = [...r.fullText.matchAll(/\b(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\b/g)];
-
-      rows.push({
-        title: titleCell,
-        lectureId,
-        dateText: dateMatch?.[0] ?? "",
-        startTimeText: timeMatches[0]?.[0] ?? "",
-        endTimeText: timeMatches[1]?.[0] ?? timeMatches[0]?.[0] ?? "",
-        rowText: r.fullText
-      });
+// Query that requests schedule fields — start_time / end_time may or may not
+// exist in the schema; if the query fails the caller falls back to created_at.
+const ADMIN_LIVE_SESSIONS_QUERY = `
+query adminLectures($input: LectureListFilters) {
+  adminLectures(input: $input) {
+    lectures {
+      id
+      title
+      start_time
+      end_time
+      created_at
     }
-
-    // Try to go to the next page
-    if (!(await paginateNext(page, attempt, seenPages))) break;
-    await page.waitForTimeout(800);
+    page
+    pages
   }
+}
+`;
 
-  return rows;
+// Fallback query using only confirmed-working fields
+const ADMIN_LIVE_SESSIONS_BASIC_QUERY = `
+query adminLectures($input: LectureListFilters) {
+  adminLectures(input: $input) {
+    lectures {
+      id
+      title
+      created_at
+    }
+    page
+    pages
+  }
+}
+`;
+
+interface ApiLiveSession {
+  id?: number | string;
+  title?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  created_at?: string;
+}
+
+/** Category keywords that identify sessions we want to track */
+const TRACKED_CATEGORIES = [
+  /industry\s*mentor/i,
+  /\bim\s*session\b/i,
+  /academic[-\s]lecture/i,
+  /academic[-\s]session/i,
+];
+
+function isTrackedCategory(title: string): boolean {
+  return TRACKED_CATEGORIES.some((re) => re.test(title));
 }
 
 /**
- * Parse a raw date string from a scraped row into a YYYY-MM-DD string.
- * Handles formats like "21 Apr 2026", "2026-04-21", "21/04/2026".
+ * Fetch all "live" type sessions for a batch, paginating all pages.
+ * First attempts the schedule query (with start_time/end_time), then falls
+ * back to the basic query if those fields don't exist in the schema.
  */
-function parseDateText(dateText: string, timezone: string): string | null {
-  if (!dateText.trim()) return null;
+async function fetchLiveSessionsFromApi(
+  batchId: number,
+  cookieHeader: string
+): Promise<ApiLiveSession[]> {
+  const baseInput = {
+    lecture_id: null,
+    title: null,
+    batch_id: batchId,
+    section_id: 0,
+    type: "live",          // ← only live sessions
+    user_id: null,
+    concludes: null,
+    schedule: null,
+    block_id: null,
+    host_id: null,
+    faculty_resources_uploaded: null,
+  };
 
-  // "21 Apr 2026" or "21 April 2026"
-  const mdy = dateText.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,\s]+(\d{4})/i);
-  if (mdy) {
-    const parsed = DateTime.fromFormat(`${mdy[1]} ${mdy[2]} ${mdy[3]}`, "d MMM yyyy", { zone: timezone });
-    if (parsed.isValid) return parsed.toFormat("yyyy-MM-dd");
+  async function fetchAllPages(query: string): Promise<ApiLiveSession[]> {
+    const all: ApiLiveSession[] = [];
+    let page = 0;
+    while (true) {
+      const data = await callLmsGraphQL("adminLectures", query, {
+        input: { ...baseInput, page }
+      }, cookieHeader);
+      const result = data.adminLectures as { lectures?: ApiLiveSession[]; pages?: number } | undefined;
+      const lectures = result?.lectures ?? [];
+      if (lectures.length === 0) break;
+      all.push(...lectures);
+      const totalPages = result?.pages ?? 1;
+      page += 1;
+      if (page >= totalPages) break;
+    }
+    return all;
   }
 
-  // "2026-04-21"
-  const iso = dateText.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    const parsed = DateTime.fromISO(`${iso[1]}-${iso[2]}-${iso[3]}`, { zone: timezone });
-    if (parsed.isValid) return parsed.toFormat("yyyy-MM-dd");
+  // Pass 1: try with start_time / end_time
+  try {
+    const results = await fetchAllPages(ADMIN_LIVE_SESSIONS_QUERY);
+    console.log(`[sync-lectures]   schedule query ok — ${results.length} live sessions`);
+    return results;
+  } catch {
+    console.log("[sync-lectures]   schedule query failed (start_time may not exist) — retrying with basic query");
   }
 
-  // "21/04/2026" or "21-04-2026"
-  const dmy = dateText.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (dmy) {
-    const parsed = DateTime.fromFormat(`${dmy[1]}/${dmy[2]}/${dmy[3]}`, "d/M/yyyy", { zone: timezone });
-    if (parsed.isValid) return parsed.toFormat("yyyy-MM-dd");
+  // Pass 2: basic query (only confirmed fields)
+  try {
+    const results = await fetchAllPages(ADMIN_LIVE_SESSIONS_BASIC_QUERY);
+    console.log(`[sync-lectures]   basic query ok — ${results.length} live sessions`);
+    return results;
+  } catch (err) {
+    console.error("[sync-lectures]   basic query also failed:", err instanceof Error ? err.message : err);
+    return [];
   }
+}
+
+/**
+ * Parse an ISO-like datetime string into a local date and time.
+ * Returns null if the string cannot be parsed.
+ */
+function parseIsoToLocal(
+  raw: string,
+  timezone: string
+): { date: string; time: string } | null {
+  const dt = DateTime.fromISO(raw, { setZone: true }).setZone(timezone);
+  if (dt.isValid) return { date: dt.toFormat("yyyy-MM-dd"), time: dt.toFormat("HH:mm:ss") };
+
+  // Some LMS servers return "YYYY-MM-DD HH:mm:ss" without a T
+  const spaced = DateTime.fromFormat(raw.trim(), "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+  if (spaced.isValid) return { date: spaced.toFormat("yyyy-MM-dd"), time: spaced.toFormat("HH:mm:ss") };
 
   return null;
 }
 
 /**
- * Parse a raw time string ("08:00 PM", "20:00") into "HH:mm:ss".
- */
-function parseTimeText(timeText: string, timezone: string): string | null {
-  if (!timeText.trim()) return null;
-
-  // "8:00 PM" / "08:00 AM"
-  const ampm = timeText.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)/i);
-  if (ampm) {
-    const parsed = DateTime.fromFormat(
-      `${ampm[1]}:${ampm[2]} ${ampm[3].toUpperCase()}`,
-      "h:mm a",
-      { zone: timezone }
-    );
-    if (parsed.isValid) return parsed.toFormat("HH:mm:ss");
-  }
-
-  // "20:00" / "20:00:00"
-  const hm = timeText.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-  if (hm) {
-    const h = hm[1].padStart(2, "0");
-    const m = hm[2];
-    const s = hm[3] ?? "00";
-    return `${h}:${m}:${s}`;
-  }
-
-  return null;
-}
-
-/**
- * For each configured batch, scrape the LMS admin lecture list page and return
- * all live sessions scheduled for the current ISO week (Monday–Sunday).
+ * For each configured batch, call the LMS GraphQL API with type=live,
+ * filter to sessions matching the tracked categories, filter to the current
+ * ISO week, and return them as SyncedLecture rows ready for upsert.
  */
 export async function syncCurrentWeekLectures(
   batchConfigs: Array<{ batch_name: string; lecture_batch_url: string }>,
@@ -494,14 +476,16 @@ export async function syncCurrentWeekLectures(
 ): Promise<SyncedLecture[]> {
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
-  const weekStart = now.startOf("week"); // Monday 00:00
-  const weekEnd = weekStart.plus({ days: 7 }); // next Monday (exclusive)
+  const weekStart = now.startOf("week");           // Monday 00:00
+  const weekEnd = weekStart.plus({ days: 7 });     // next Monday 00:00 (exclusive)
 
   console.log(
-    `[sync-lectures] Syncing week ${weekStart.toISODate()} → ${weekEnd.minus({ days: 1 }).toISODate()}`
+    `[sync-lectures] Week: ${weekStart.toISODate()} → ${weekEnd.minus({ days: 1 }).toISODate()}`
   );
 
   const results: SyncedLecture[] = [];
+  const DEFAULT_START = "20:00:00";
+  const DEFAULT_DURATION_MIN = 90;
 
   let browser = null;
   try {
@@ -509,67 +493,89 @@ export async function syncCurrentWeekLectures(
     const page = await browser.newPage();
     await login(page, credentials.username, credentials.password);
 
+    let cookieHeader = "";
+    try {
+      cookieHeader = await getAuthCookieHeader(page);
+    } catch {
+      console.warn("[sync-lectures] Could not capture auth cookies — aborting");
+      return results;
+    }
+
     for (const config of batchConfigs) {
-      if (!config.lecture_batch_url) {
-        console.log(`[sync-lectures] No lecture_batch_url for "${config.batch_name}" — skipping`);
+      const batchId = extractBatchIdFromUrl(config.lecture_batch_url);
+      if (!batchId) {
+        console.log(`[sync-lectures] No batch_id for "${config.batch_name}" — skipping`);
         continue;
       }
 
-      console.log(`[sync-lectures] Scraping schedule for "${config.batch_name}"…`);
-      const scrapedRows = await scrapeScheduleRowsFromPage(page, config.lecture_batch_url);
-      console.log(`[sync-lectures]   ${scrapedRows.length} rows with detail links found`);
+      console.log(`[sync-lectures] Fetching live sessions for "${config.batch_name}" (id=${batchId})…`);
+      const liveSessions = await fetchLiveSessionsFromApi(batchId, cookieHeader);
 
       let weekCount = 0;
-      for (const row of scrapedRows) {
-        // Only process rows that are IM sessions or Faculty sessions
-        const isImSession = /im\s*session/i.test(row.rowText);
-        const isFacultySession = /faculty\s*session/i.test(row.rowText);
-        if (!isImSession && !isFacultySession) continue;
+      for (const session of liveSessions) {
+        const title = session.title?.trim();
+        if (!title) continue;
 
-        if (!row.dateText) {
-          logLmsDebug("sync-lectures: no date in row", row.title, row.rowText.slice(0, 80));
+        // ── Category filter ──────────────────────────────────────────────────
+        // Keep only: industry mentor lecture, academic-lecture, academic-session
+        if (!isTrackedCategory(title)) {
+          logLmsDebug("sync-lectures: skipping non-tracked category", title);
           continue;
         }
 
-        const lectureDate = parseDateText(row.dateText, timezone);
-        if (!lectureDate) {
-          logLmsDebug("sync-lectures: unparseable date", row.dateText, "row:", row.rowText.slice(0, 80));
+        // ── Date resolution ──────────────────────────────────────────────────
+        // Prefer start_time (actual schedule); fall back to created_at
+        const rawDate = session.start_time ?? session.created_at ?? null;
+        if (!rawDate) {
+          console.log(`[sync-lectures]   SKIP "${title}" — no date field available`);
           continue;
         }
 
-        // Filter to current week
-        const dt = DateTime.fromISO(lectureDate, { zone: timezone });
-        if (dt < weekStart || dt >= weekEnd) continue;
+        const parsed = parseIsoToLocal(rawDate, timezone);
+        if (!parsed) {
+          console.log(`[sync-lectures]   SKIP "${title}" — unparseable date: ${rawDate}`);
+          continue;
+        }
 
-        const startTime = parseTimeText(row.startTimeText, timezone) ?? "20:00:00";
-        const endTimeRaw = parseTimeText(row.endTimeText, timezone);
-        const endTime =
-          endTimeRaw && endTimeRaw !== startTime
-            ? endTimeRaw
-            : DateTime.fromISO(`${lectureDate}T${startTime}`, { zone: timezone })
-                .plus({ minutes: 90 })
-                .toFormat("HH:mm:ss");
+        // ── Week filter ──────────────────────────────────────────────────────
+        const lectureDt = DateTime.fromISO(parsed.date, { zone: timezone });
+        if (lectureDt < weekStart || lectureDt >= weekEnd) continue;
 
-        const title = row.title.trim() || row.rowText.split(" ").slice(0, 6).join(" ");
+        // ── Times ────────────────────────────────────────────────────────────
+        const startTime = parsed.time !== "00:00:00" ? parsed.time : DEFAULT_START;
+
+        let endTime = DEFAULT_START;
+        if (session.end_time) {
+          const endParsed = parseIsoToLocal(session.end_time, timezone);
+          endTime = endParsed?.time ?? DEFAULT_START;
+        }
+        if (!endTime || endTime === startTime || endTime === "00:00:00") {
+          endTime = DateTime.fromISO(`${parsed.date}T${startTime}`, { zone: timezone })
+            .plus({ minutes: DEFAULT_DURATION_MIN })
+            .toFormat("HH:mm:ss");
+        }
+
+        const lmsId = session.id;
+        if (!lmsId) continue;
 
         results.push({
           batch_name: config.batch_name,
           module_name: "",
           lecture_name: title,
-          lecture_date: lectureDate,
+          lecture_date: parsed.date,
           start_time: startTime,
           end_time: endTime,
-          session_link: `${LMS_URL}/lectures/detail/?id=${row.lectureId}`
+          session_link: `${LMS_URL}/lectures/detail/?id=${lmsId}`
         });
         weekCount++;
 
         console.log(
-          `[sync-lectures]   ✓ "${title}" — ${lectureDate} ${startTime} (id=${row.lectureId})`
+          `[sync-lectures]   ✓ [${config.batch_name}] "${title}" — ${parsed.date} ${startTime}`
         );
       }
 
       console.log(
-        `[sync-lectures]   ${weekCount} live session(s) for current week in "${config.batch_name}"`
+        `[sync-lectures]   ${weekCount} tracked live session(s) for current week in "${config.batch_name}"`
       );
     }
   } finally {
