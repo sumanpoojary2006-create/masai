@@ -4,7 +4,7 @@ import { TASK_LABELS } from "@/lib/constants";
 import { getAppTimezone, getAutomationEnv } from "@/lib/env";
 import { deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { scrapeLectureSummary, scrapeLmsResources } from "@/lib/lms-scraper";
+import { resolveSessionLinks, scrapeLectureSummary, scrapeLmsResources } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles } from "@/lib/queries";
 import { sendSlackAlerts } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
@@ -128,8 +128,48 @@ export async function fetchAndAnalyzePendingSummaries(
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
 
-  const lectures = await getAutomationLectures(profile.user_id);
+  let lectures = await getAutomationLectures(profile.user_id);
   console.log(`[lo-sync] ${profile.email}: ${lectures.length} total lectures`);
+
+  // ── Auto-resolve missing session links via GraphQL API ───────────────────
+  const missingLink = lectures.filter((l) => !String(l.session_link ?? "").trim());
+  if (missingLink.length > 0) {
+    console.log(`[lo-sync] Auto-resolving session links for ${missingLink.length} lecture(s)…`);
+    try {
+      const resolved = await resolveSessionLinks(
+        missingLink.map((l) => ({
+          id: l.id,
+          lecture_name: l.lecture_name,
+          batch_name: l.batch_name,
+          lecture_date: l.lecture_date
+        })),
+        { username: profile.lms_username, password: profile.lms_password }
+      );
+
+      if (resolved.size > 0) {
+        // Save all resolved links to the database
+        await Promise.all(
+          Array.from(resolved.entries()).map(([lectureId, sessionLink]) =>
+            supabase
+              .from("lectures")
+              .update({ session_link: sessionLink })
+              .eq("id", lectureId)
+          )
+        );
+        console.log(`[lo-sync] Saved ${resolved.size} session link(s) to database`);
+
+        // Patch the in-memory lecture objects so eligible filter sees the new links
+        lectures = lectures.map((l) =>
+          resolved.has(l.id) ? { ...l, session_link: resolved.get(l.id)! } : l
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[lo-sync] Session link auto-resolve failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   // Lectures that ended > 1.5 hours ago and have a session link
   const eligible = lectures.filter((lecture) => {

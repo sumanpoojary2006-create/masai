@@ -300,6 +300,102 @@ async function checkLectureResourcesViaApi(
 }
 
 /**
+ * For each lecture that has no session_link, query the GraphQL API to find its
+ * LMS lecture ID and construct the detail-page URL automatically.
+ *
+ * Returns a Map<dbLectureId, sessionLink> for every lecture that was resolved.
+ * Lectures whose batch has no known batch_id, or whose title can't be matched,
+ * are silently skipped (they remain without a session link).
+ */
+export async function resolveSessionLinks(
+  lectures: Array<{
+    id: string;
+    lecture_name: string;
+    batch_name: string;
+    lecture_date: string;
+  }>,
+  credentials: { username: string; password: string },
+  batchUrls?: BatchUrlOverrides
+): Promise<Map<string, string>> {
+  const resolved = new Map<string, string>();
+  if (lectures.length === 0) return resolved;
+
+  let browser = null;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await login(page, credentials.username, credentials.password);
+
+    let cookieHeader = "";
+    try {
+      cookieHeader = await getAuthCookieHeader(page);
+    } catch {
+      console.warn("[session-link] Could not capture cookies — skipping auto-resolve");
+      return resolved;
+    }
+
+    // Group lectures by batch so we make one API call per batch
+    const byBatch = new Map<string, typeof lectures>();
+    for (const lec of lectures) {
+      const arr = byBatch.get(lec.batch_name) ?? [];
+      arr.push(lec);
+      byBatch.set(lec.batch_name, arr);
+    }
+
+    for (const [batchName, batchLectures] of byBatch) {
+      const batchId = getBatchId(batchName, batchUrls);
+      if (!batchId) {
+        console.log(`[session-link] No batch_id for "${batchName}" — skipping`);
+        continue;
+      }
+
+      // Fetch all lectures for the batch (no title filter so we get everything)
+      const apiLectures = await fetchLecturesFromApi(batchId, null, cookieHeader);
+      console.log(`[session-link] Batch "${batchName}" (id=${batchId}): ${apiLectures.length} API lectures`);
+
+      for (const lec of batchLectures) {
+        // Find the best title match; if multiple, prefer the one closest in date
+        const matches = apiLectures.filter((a) =>
+          a.title ? lectureNameMatchesRow(lec.lecture_name, normalizeText(a.title)) : false
+        );
+
+        if (matches.length === 0) {
+          console.log(`[session-link]   No API match for "${lec.lecture_name}"`);
+          continue;
+        }
+
+        // Pick closest by date if multiple matches
+        const best =
+          matches.length === 1
+            ? matches[0]
+            : matches.reduce((prev, curr) => {
+                const prevDiff = Math.abs(
+                  new Date(prev.created_at ?? "").getTime() -
+                    new Date(lec.lecture_date).getTime()
+                );
+                const currDiff = Math.abs(
+                  new Date(curr.created_at ?? "").getTime() -
+                    new Date(lec.lecture_date).getTime()
+                );
+                return currDiff < prevDiff ? curr : prev;
+              });
+
+        const lmsId = best.id;
+        if (!lmsId) continue;
+
+        const sessionLink = `${LMS_URL}/lectures/detail/?id=${lmsId}`;
+        resolved.set(lec.id, sessionLink);
+        console.log(`[session-link]   ✓ "${lec.lecture_name}" → ${sessionLink}`);
+      }
+    }
+  } finally {
+    if (browser) await (browser as import("playwright").Browser).close();
+  }
+
+  return resolved;
+}
+
+/**
  * Assignment check via API — falls back to Playwright (no confirmed query schema yet).
  * Returns `null` to trigger Playwright fallback.
  */
@@ -1490,11 +1586,16 @@ export async function scrapeLectureSummary(
 ): Promise<string> {
   // Strip any existing tab param and force ?tab=summary
   const baseUrl = sessionLink.split("?")[0];
-  const idMatch = sessionLink.match(/[?&]id=(\d+)/);
+  // Support both formats:
+  //   lectures/detail/?id=145613   (query param — preferred)
+  //   lectures/145613              (path segment)
+  const queryIdMatch = sessionLink.match(/[?&]id=(\d+)/);
+  const pathIdMatch = sessionLink.match(/\/lectures\/(\d+)/);
+  const idMatch = queryIdMatch ?? pathIdMatch;
   if (!idMatch) {
     throw new Error("Could not parse lecture ID from session link. Expected URL like …/lectures/detail/?id=145613");
   }
-  const summaryUrl = `${baseUrl}?id=${idMatch[1]}&tab=summary`;
+  const summaryUrl = `${LMS_URL}/lectures/detail/?id=${idMatch[1]}&tab=summary`;
 
   let browser: Browser | null = null;
 
