@@ -521,9 +521,10 @@ export async function syncCurrentWeekLectures(
 
       let weekCount = 0;
       for (const row of scrapedRows) {
-        // Skip pre-read and lecture-notes rows
-        const lower = row.rowText.toLowerCase();
-        if (/pre[-\s]?read/i.test(lower) || /lecture\s*notes?/i.test(lower)) continue;
+        // Only process rows that are IM sessions or Faculty sessions
+        const isImSession = /im\s*session/i.test(row.rowText);
+        const isFacultySession = /faculty\s*session/i.test(row.rowText);
+        if (!isImSession && !isFacultySession) continue;
 
         if (!row.dateText) {
           logLmsDebug("sync-lectures: no date in row", row.title, row.rowText.slice(0, 80));
