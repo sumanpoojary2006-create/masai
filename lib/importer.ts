@@ -222,7 +222,22 @@ export function parseCurriculumWorkbook(fileBuffer: Buffer) {
     })
     .filter((row): row is { lecture_name: string; learning_objective: string } => Boolean(row));
 
-  return parsed;
+  const deduped = new Map<string, { lecture_name: string; learning_objective: string }>();
+  for (const row of parsed) {
+    const key = row.lecture_name.toLowerCase();
+    const existing = deduped.get(key);
+    if (existing) {
+      if (row.learning_objective) {
+        existing.learning_objective = existing.learning_objective
+          ? `${existing.learning_objective}\n${row.learning_objective}`
+          : row.learning_objective;
+      }
+    } else {
+      deduped.set(key, { ...row });
+    }
+  }
+
+  return Array.from(deduped.values());
 }
 
 export async function importLectureSheet(
