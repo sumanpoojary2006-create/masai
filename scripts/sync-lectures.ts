@@ -126,11 +126,11 @@ async function main() {
   }
 
   console.log("\nDone.");
-  await closeLmsDb();
+  closeLmsDb();
 }
 
-main().catch(async (error) => {
+main().catch((error) => {
   console.error(error);
-  await closeLmsDb();
+  closeLmsDb();
   process.exit(1);
 });

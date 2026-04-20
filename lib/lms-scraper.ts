@@ -3,6 +3,7 @@ import { Browser, chromium, Frame, Locator, Page } from "playwright";
 
 import { BatchUrlOverrides, getScopedLmsUrl, LECTURE_BATCH_URLS } from "@/lib/lms-batch-urls";
 import { getAppTimezone } from "@/lib/env";
+import { fetchWeekLecturesFromDb, hhmmToTimeStr } from "@/lib/lms-db";
 import { AutomationLecture, LmsTrackingRecord, TaskType } from "@/lib/types";
 
 const LMS_URL = "https://experience-admin.masaischool.com";
@@ -475,8 +476,6 @@ function parseIsoToLocal(
 export async function syncCurrentWeekLectures(
   batchConfigs: Array<{ batch_name: string; lecture_batch_url: string }>
 ): Promise<SyncedLecture[]> {
-  const { fetchWeekLecturesFromDb, hhmmToTimeStr } = await import("@/lib/lms-db");
-
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const weekStart = now.startOf("week");             // Monday 00:00 IST

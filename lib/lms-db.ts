@@ -40,9 +40,9 @@ export const TRACKED_LMS_CATEGORIES = [
 let _conn: mysql.Connection | null = null;
 
 /** Close the shared MySQL connection. Call this at the end of every script. */
-export async function closeLmsDb(): Promise<void> {
+export function closeLmsDb(): void {
   if (_conn) {
-    await _conn.end().catch(() => undefined);
+    _conn.destroy();   // immediate — never hangs, unlike end()
     _conn = null;
   }
 }
