@@ -30,15 +30,14 @@ async function main() {
       continue;
     }
 
-    // Fetch live sessions for the current week from the LMS API
+    // Fetch live sessions for the current week directly from the LMS MySQL DB
     let synced;
     try {
       synced = await syncCurrentWeekLectures(
         profile.batch_configs.map((c) => ({
           batch_name: c.batch_name,
           lecture_batch_url: c.lecture_batch_url
-        })),
-        { username: profile.lms_username, password: profile.lms_password }
+        }))
       );
     } catch (err) {
       console.error(`  [sync] Failed to fetch lectures:`, err instanceof Error ? err.message : err);

@@ -466,120 +466,103 @@ function parseIsoToLocal(
 }
 
 /**
- * For each configured batch, call the LMS GraphQL API with type=live,
- * filter to sessions matching the tracked categories, filter to the current
- * ISO week, and return them as SyncedLecture rows ready for upsert.
+ * For each configured batch, query the LMS MySQL read-only replica for this
+ * week's live sessions (IM / Faculty categories), and return them as
+ * SyncedLecture rows ready for upsert.
+ *
+ * No Playwright / browser automation needed — direct SQL is fast and reliable.
  */
 export async function syncCurrentWeekLectures(
-  batchConfigs: Array<{ batch_name: string; lecture_batch_url: string }>,
-  credentials: { username: string; password: string }
+  batchConfigs: Array<{ batch_name: string; lecture_batch_url: string }>
 ): Promise<SyncedLecture[]> {
+  const { fetchWeekLecturesFromDb, hhmmToTimeStr } = await import("@/lib/lms-db");
+
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
-  const weekStart = now.startOf("week");           // Monday 00:00
-  const weekEnd = weekStart.plus({ days: 7 });     // next Monday 00:00 (exclusive)
+  const weekStart = now.startOf("week");       // Monday 00:00 IST
+  const weekEnd = weekStart.plus({ days: 7 }); // next Monday 00:00 IST (exclusive)
+
+  // Convert IST week boundaries to UTC strings for the SQL query
+  const weekStartUtc = weekStart.toUTC().toISO()!;
+  const weekEndUtc = weekEnd.toUTC().toISO()!;
 
   console.log(
-    `[sync-lectures] Week: ${weekStart.toISODate()} → ${weekEnd.minus({ days: 1 }).toISODate()}`
+    `[sync-lectures] Week (IST): ${weekStart.toISODate()} → ${weekEnd.minus({ days: 1 }).toISODate()}`
   );
+  console.log(`[sync-lectures] UTC range: ${weekStartUtc} → ${weekEndUtc}`);
 
   const results: SyncedLecture[] = [];
   const DEFAULT_START = "20:00:00";
   const DEFAULT_DURATION_MIN = 90;
 
-  let browser = null;
-  try {
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await login(page, credentials.username, credentials.password);
-
-    let cookieHeader = "";
-    try {
-      cookieHeader = await getAuthCookieHeader(page);
-    } catch {
-      console.warn("[sync-lectures] Could not capture auth cookies — aborting");
-      return results;
+  for (const config of batchConfigs) {
+    const batchId = extractBatchIdFromUrl(config.lecture_batch_url);
+    if (!batchId) {
+      console.log(`[sync-lectures] No batch_id for "${config.batch_name}" — skipping`);
+      continue;
     }
 
-    for (const config of batchConfigs) {
-      const batchId = extractBatchIdFromUrl(config.lecture_batch_url);
-      if (!batchId) {
-        console.log(`[sync-lectures] No batch_id for "${config.batch_name}" — skipping`);
-        continue;
+    console.log(`[sync-lectures] Querying DB for "${config.batch_name}" (id=${batchId})…`);
+
+    let sessions;
+    try {
+      sessions = await fetchWeekLecturesFromDb(batchId, weekStartUtc, weekEndUtc);
+    } catch (err) {
+      console.error(`[sync-lectures] DB query failed for batch ${batchId}:`, err);
+      continue;
+    }
+
+    console.log(`[sync-lectures]   Found ${sessions.length} session(s) in DB`);
+
+    let weekCount = 0;
+    for (const session of sessions) {
+      const title = session.title?.trim();
+      if (!title) continue;
+
+      // ── Date: convert UTC schedule to IST date ──────────────────────────
+      const scheduleDt = DateTime.fromJSDate(session.schedule, { zone: "UTC" }).setZone(timezone);
+      const lectureDate = scheduleDt.toFormat("yyyy-MM-dd");
+
+      // ── Times from HHMM integer field ───────────────────────────────────
+      const startTime = session.start_time > 0
+        ? hhmmToTimeStr(session.start_time)
+        : DEFAULT_START;
+
+      let endTime = session.end_time > 0
+        ? hhmmToTimeStr(session.end_time)
+        : "";
+
+      if (!endTime || endTime === startTime || endTime === "00:00:00") {
+        endTime = scheduleDt
+          .plus({ minutes: DEFAULT_DURATION_MIN })
+          .toFormat("HH:mm:ss");
       }
 
-      console.log(`[sync-lectures] Fetching live sessions for "${config.batch_name}" (id=${batchId})…`);
-      const liveSessions = await fetchLiveSessionsFromApi(batchId, cookieHeader);
+      // ── Session link: prefer zoom_link, fall back to LMS detail page ────
+      const sessionLink =
+        session.zoom_link && session.zoom_link !== "NA"
+          ? session.zoom_link
+          : `${LMS_URL}/lectures/detail/?id=${session.id}`;
 
-      let weekCount = 0;
-      for (const session of liveSessions) {
-        const title = session.title?.trim();
-        if (!title) continue;
-
-        // ── Category filter ──────────────────────────────────────────────────
-        // Keep only: industry mentor lecture, academic-lecture, academic-session
-        if (!isTrackedCategory(title)) {
-          logLmsDebug("sync-lectures: skipping non-tracked category", title);
-          continue;
-        }
-
-        // ── Date resolution ──────────────────────────────────────────────────
-        // Prefer start_time (actual schedule); fall back to created_at
-        const rawDate = session.start_time ?? session.created_at ?? null;
-        if (!rawDate) {
-          console.log(`[sync-lectures]   SKIP "${title}" — no date field available`);
-          continue;
-        }
-
-        const parsed = parseIsoToLocal(rawDate, timezone);
-        if (!parsed) {
-          console.log(`[sync-lectures]   SKIP "${title}" — unparseable date: ${rawDate}`);
-          continue;
-        }
-
-        // ── Week filter ──────────────────────────────────────────────────────
-        const lectureDt = DateTime.fromISO(parsed.date, { zone: timezone });
-        if (lectureDt < weekStart || lectureDt >= weekEnd) continue;
-
-        // ── Times ────────────────────────────────────────────────────────────
-        const startTime = parsed.time !== "00:00:00" ? parsed.time : DEFAULT_START;
-
-        let endTime = DEFAULT_START;
-        if (session.end_time) {
-          const endParsed = parseIsoToLocal(session.end_time, timezone);
-          endTime = endParsed?.time ?? DEFAULT_START;
-        }
-        if (!endTime || endTime === startTime || endTime === "00:00:00") {
-          endTime = DateTime.fromISO(`${parsed.date}T${startTime}`, { zone: timezone })
-            .plus({ minutes: DEFAULT_DURATION_MIN })
-            .toFormat("HH:mm:ss");
-        }
-
-        const lmsId = session.id;
-        if (!lmsId) continue;
-
-        results.push({
-          batch_name: config.batch_name,
-          module_name: "",
-          lecture_name: title,
-          lecture_date: parsed.date,
-          start_time: startTime,
-          end_time: endTime,
-          session_link: `${LMS_URL}/lectures/detail/?id=${lmsId}`
-        });
-        weekCount++;
-
-        console.log(
-          `[sync-lectures]   ✓ [${config.batch_name}] "${title}" — ${parsed.date} ${startTime}`
-        );
-      }
+      results.push({
+        batch_name: config.batch_name,
+        module_name: session.module ?? "",
+        lecture_name: title,
+        lecture_date: lectureDate,
+        start_time: startTime,
+        end_time: endTime,
+        session_link: sessionLink
+      });
+      weekCount++;
 
       console.log(
-        `[sync-lectures]   ${weekCount} tracked live session(s) for current week in "${config.batch_name}"`
+        `[sync-lectures]   ✓ [${config.batch_name}] "${title}" — ${lectureDate} ${startTime}`
       );
     }
-  } finally {
-    if (browser) await (browser as Browser).close();
+
+    console.log(
+      `[sync-lectures]   ${weekCount} session(s) added for "${config.batch_name}"`
+    );
   }
 
   return results;
