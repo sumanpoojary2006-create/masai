@@ -209,14 +209,14 @@ export async function fetchAndAnalyzePendingSummaries(
       return false;
     }
 
-    const lectureEnd = DateTime.fromISO(
-      `${lecture.lecture_date}T${lecture.end_time}`,
+    const lectureStart = DateTime.fromISO(
+      `${lecture.lecture_date}T${lecture.start_time}`,
       { zone: timezone }
-    ).plus({ hours: 1, minutes: 30 });
+    );
 
-    const ended = now >= lectureEnd;
-    if (!ended) {
-      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — ends ${lectureEnd.toISO()} (now: ${now.toISO()})`);
+    const started = now >= lectureStart;
+    if (!started) {
+      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — starts ${lectureStart.toISO()} (now: ${now.toISO()})`);
       return false;
     }
 

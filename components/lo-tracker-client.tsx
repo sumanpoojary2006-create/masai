@@ -13,11 +13,11 @@ function canAddSessionLink(lectureDate: string): boolean {
   return true;
 }
 
-function lectureEnded(lectureDate: string, endTime: string): boolean {
-  const end = DateTime.fromISO(`${lectureDate}T${endTime}`, {
+function lectureStarted(lectureDate: string, startTime: string): boolean {
+  const start = DateTime.fromISO(`${lectureDate}T${startTime}`, {
     zone: "Asia/Kolkata"
-  }).plus({ hours: 1 });
-  return DateTime.now().setZone("Asia/Kolkata") >= end;
+  });
+  return DateTime.now().setZone("Asia/Kolkata") >= start;
 }
 
 function LoStatusBadge({ covered, missing }: { covered: number; missing: number }) {
@@ -49,7 +49,7 @@ function TranscriptPanel({
   const [isPending, startTransition] = useTransition();
   const [isFetching, setIsFetching] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const canAnalyze = lectureEnded(row.lecture_date, row.end_time);
+  const canAnalyze = lectureStarted(row.lecture_date, row.start_time);
   const hasSessionLink = Boolean(row.session_link);
 
   function handleFetchFromLms() {
@@ -116,7 +116,7 @@ function TranscriptPanel({
 
       {!canAnalyze && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          ⏳ Analysis unlocks 1 hour after the lecture ends.
+          ⏳ Available after the lecture starts.
         </p>
       )}
       {message && (
@@ -452,7 +452,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                   const report = row.lo_report;
                   const isTranscriptOpen = transcriptOpenId === row.id;
                   const isEditingLink = editLinkId === row.id;
-                  const ended = lectureEnded(row.lecture_date, row.end_time);
+                  const started = lectureStarted(row.lecture_date, row.start_time);
 
                   return (
                     <tr key={row.id} className="align-top">
@@ -549,9 +549,9 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                         ) : (
                           <div className="flex flex-col gap-2">
                             {/* Status badge */}
-                            {!ended ? (
+                            {!started ? (
                               <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                ⏳ After lecture ends
+                                ⏳ Before lecture starts
                               </span>
                             ) : report?.status === "completed" && report?.transcript ? (
                               <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
@@ -584,14 +584,14 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                               </p>
                             )}
 
-                            {ended && (
-                              <button
-                                type="button"
-                                onClick={() => setTranscriptOpenId(row.id)}
-                                className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
-                              >
-                                {report?.transcript ? "Edit / Re-analyze" : "Add Manually"}
-                              </button>
+                            {started && (
+                                <button
+                                  type="button"
+                                  onClick={() => setTranscriptOpenId(row.id)}
+                                  className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
+                                >
+                                  {report?.transcript ? "Edit / Re-analyze" : "Add Manually"}
+                                </button>
                             )}
                           </div>
                         )}
