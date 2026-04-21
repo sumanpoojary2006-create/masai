@@ -223,18 +223,44 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
       setIsMatching(true);
       setActionResults(null);
       setActionLabel("Match Missing LOs");
-      const res = await fetch("/api/lo-tracker/match-lo", { method: "POST" });
-      const json = (await res.json()) as { message?: string; count?: number };
-      
-      setActionResults([{
-        lectureId: "match",
-        lectureName: "AI Matching",
-        status: json.count && json.count > 0 ? "fetched" : "skipped",
-        reason: json.message
-      }]);
-      
-      setIsMatching(false);
-      if (res.ok) router.refresh();
+
+      try {
+        const res = await fetch("/api/lo-tracker/match-lo", { method: "POST" });
+        const json = (await res.json()) as { message?: string; count?: number };
+
+        if (!res.ok) {
+          setActionResults([{
+            lectureId: "match",
+            lectureName: "AI Matching",
+            status: "error",
+            reason: json.message ?? "Matching failed."
+          }]);
+        } else if ((json.count ?? 0) > 0) {
+          setActionResults([{
+            lectureId: "match",
+            lectureName: "AI Matching",
+            status: "fetched",
+            reason: json.message
+          }]);
+          router.refresh();
+        } else {
+          setActionResults([{
+            lectureId: "match",
+            lectureName: "AI Matching",
+            status: "skipped",
+            reason: json.message ?? "No learning objectives were matched."
+          }]);
+        }
+      } catch {
+        setActionResults([{
+          lectureId: "match",
+          lectureName: "AI Matching",
+          status: "error",
+          reason: "Network error — could not reach the server."
+        }]);
+      } finally {
+        setIsMatching(false);
+      }
     });
   }
 
