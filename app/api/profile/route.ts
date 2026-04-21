@@ -127,26 +127,45 @@ export async function PUT(request: Request) {
       throw new Error(error.message);
     }
 
-    const { error: deleteError } = await supabase
-      .from("user_batch_configs")
-      .delete()
-      .eq("user_id", user.id);
-
-    if (deleteError) {
-      throw new Error(deleteError.message);
-    }
-
-    const { error: configError } = await supabase.from("user_batch_configs").insert(
+    const { error: configError } = await supabase.from("user_batch_configs").upsert(
       batchConfigs.map((config) => ({
         user_id: user.id,
         batch_name: config.batch_name,
         lecture_batch_url: config.lecture_batch_url,
         assignment_batch_url: config.assignment_batch_url
-      }))
+      })),
+      {
+        onConflict: "user_id,batch_name"
+      }
     );
 
     if (configError) {
       throw new Error(configError.message);
+    }
+
+    const submittedBatchNames = new Set(batchConfigs.map((config) => config.batch_name));
+    const { data: existingConfigs, error: existingConfigsError } = await supabase
+      .from("user_batch_configs")
+      .select("id, batch_name")
+      .eq("user_id", user.id);
+
+    if (existingConfigsError) {
+      throw new Error(existingConfigsError.message);
+    }
+
+    const configIdsToDelete = (existingConfigs ?? [])
+      .filter((config) => !submittedBatchNames.has(config.batch_name))
+      .map((config) => config.id);
+
+    if (configIdsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("user_batch_configs")
+        .delete()
+        .in("id", configIdsToDelete);
+
+      if (deleteError) {
+        throw new Error(deleteError.message);
+      }
     }
 
     // Process curriculum files if uploaded
