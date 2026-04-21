@@ -35,6 +35,6 @@ export function statusClasses(status: TaskStatus, isLate = false) {
     return "bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-800";
   }
 
-  // Not released yet — red
-  return "bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-800";
+  // Not released yet — subtle neutral
+  return "bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700";
 }
