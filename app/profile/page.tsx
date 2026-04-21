@@ -6,6 +6,7 @@ import { AuthShell } from "@/components/auth-shell";
 import { LogoutButton } from "@/components/logout-button";
 import { SetupProfileForm } from "@/components/setup-profile-form";
 import { getUserBatchConfigs, getUserProfile, requireAuthenticatedUser } from "@/lib/auth";
+import { createServerSupabase } from "@/lib/supabase";
 
 export default async function ProfilePage() {
   const user = await requireAuthenticatedUser();
@@ -13,6 +14,17 @@ export default async function ProfilePage() {
     getUserProfile(user.id),
     getUserBatchConfigs(user.id)
   ]);
+
+  const supabase = createServerSupabase();
+  const { data: curriculums } = await supabase
+    .from("batch_curriculums")
+    .select("batch_name")
+    .eq("user_id", user.id);
+
+  const curriculumCounts = (curriculums ?? []).reduce<Record<string, number>>((acc, curr) => {
+    acc[curr.batch_name] = (acc[curr.batch_name] || 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <AuthShell
@@ -38,6 +50,7 @@ export default async function ProfilePage() {
           slack_member_id: profile?.slack_member_id ?? ""
         }}
         initialBatchConfigs={batchConfigs}
+        curriculumCounts={curriculumCounts}
       />
     </AuthShell>
   );

@@ -40,10 +40,12 @@ function emptyBatchConfig(): BatchConfigInput {
 
 export function SetupProfileForm({
   initialProfile,
-  initialBatchConfigs
+  initialBatchConfigs,
+  curriculumCounts = {}
 }: {
   initialProfile: Partial<SetupProfile>;
   initialBatchConfigs: UserBatchConfigRecord[];
+  curriculumCounts?: Record<string, number>;
 }) {
   const isEditingExistingProfile = initialBatchConfigs.length > 0;
   const router = useRouter();
@@ -278,6 +280,17 @@ export function SetupProfileForm({
 
                   <label className="flex flex-col gap-2 text-sm font-medium text-ink">
                     Curriculum File (Optional)
+                    {curriculumCounts[config.batch_name] ? (
+                      <div className="flex flex-col gap-2 rounded-xl bg-emerald-50 border border-emerald-200 p-3 dark:bg-emerald-950/30 dark:border-emerald-900/50">
+                        <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                          <span className="text-lg">✓</span>
+                          <span className="font-semibold text-sm">Curriculum saved ({curriculumCounts[config.batch_name]} lectures)</span>
+                        </div>
+                        <p className="text-xs text-emerald-600 dark:text-emerald-500">
+                          To update or replace the existing curriculum, upload a new file below.
+                        </p>
+                      </div>
+                    ) : null}
                     <input
                       type="file"
                       accept=".csv,.xlsx,.xls"
@@ -287,7 +300,8 @@ export function SetupProfileForm({
                       className="file:mr-4 file:rounded-full file:border-0 file:bg-brand/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand hover:file:bg-brand/20 text-sm text-ink theme-input rounded-2xl px-4 py-2"
                     />
                     <span className="theme-muted text-xs font-normal">
-                      Upload a CSV/Excel file with "lecture_name" and "learning_objective" to automatically map LOs for this batch.
+                      Upload a CSV or Excel file containing the curriculum for this batch. 
+                      The file <b>must</b> include a <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-pink-600 dark:text-pink-400 font-mono text-[10px]">lecture_name</code> column and a <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-pink-600 dark:text-pink-400 font-mono text-[10px]">learning_objective</code> column. (Alternative column names like <i>Topic Name</i>, <i>Title</i>, or <i>Objectives</i> are also supported).
                     </span>
                   </label>
                 </div>
