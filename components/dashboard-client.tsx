@@ -185,7 +185,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     return (
       <div className="flex min-h-[88px] flex-col justify-start gap-2">
         <StatusPill task={task} />
-        <p className="theme-muted text-[11px] leading-relaxed">
+        <p className="theme-muted text-[11px] leading-tight whitespace-nowrap">
           <span className="font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
             Deadline
           </span>
@@ -353,28 +353,36 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 </div>
 
                 <div className="overflow-x-auto px-5 py-2">
-                  <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
+                  <table className="min-w-[1120px] w-full table-fixed divide-y divide-slate-200/70 dark:divide-slate-700/70">
+                    <colgroup>
+                      <col className="w-[32%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[14%]" />
+                    </colgroup>
                     <thead>
                       <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                        <th className="pb-3 pr-4 pt-3">Lecture</th>
-                        <th className="pb-3 pr-4 pt-3">Schedule</th>
-                        <th className="pb-3 pr-4 pt-3">Pre-read</th>
-                        <th className="pb-3 pr-4 pt-3">Notes</th>
-                        <th className="pb-3 pr-4 pt-3">Assignment</th>
-                        <th className="pb-3 pt-3">Action</th>
+                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-6 pt-3">Lecture</th>
+                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Schedule</th>
+                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Pre-read</th>
+                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Notes</th>
+                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Assignment</th>
+                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pt-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
                       {batchLectures.map((lecture) => (
                         <Fragment key={lecture.id}>
                           <tr className="align-top">
-                            <td className="py-4 pr-4">
-                              <p className="font-semibold text-ink">{lecture.lecture_name}</p>
+                            <td className="py-4 pr-6">
+                              <p className="font-semibold break-words text-ink">{lecture.lecture_name}</p>
                               <p className="theme-muted mt-1 text-xs font-medium uppercase tracking-wider">
                                 Lecture ID: <span className="text-brand">{getDisplayLectureId(lecture)}</span>
                               </p>
                             </td>
-                            <td className="theme-muted py-4 pr-4 text-sm">
+                            <td className="theme-muted py-4 pr-4 text-sm whitespace-nowrap">
                               <p>{formatLectureDate(lecture.lecture_date)}</p>
                               <p className="mt-1">{formatLectureTime(lecture.start_time)}</p>
                             </td>
@@ -382,7 +390,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "notes")}</td>
                             <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "assignment")}</td>
                             <td className="py-4">
-                              <div className="flex flex-col gap-2 sm:flex-row">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                                 <button
                                   type="button"
                                   disabled={isPending}
