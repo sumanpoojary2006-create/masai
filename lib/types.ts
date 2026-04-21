@@ -57,7 +57,6 @@ export interface UserBatchConfigRecord {
   batch_name: string;
   lecture_batch_url: string;
   assignment_batch_url: string;
-  spreadsheet_id?: string | null;
 }
 
 export interface TaskRecord {
