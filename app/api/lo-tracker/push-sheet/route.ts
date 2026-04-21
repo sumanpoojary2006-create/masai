@@ -18,6 +18,7 @@ interface LectureRow {
   batch_name: string;
   lecture_name: string;
   lecture_date: string;
+  session_link: string | null;
   learning_objective: string | null;
   lo_reports: LoReportRow | LoReportRow[] | null;
 }
@@ -30,6 +31,7 @@ function resolveReport(raw: LoReportRow | LoReportRow[] | null): LoReportRow | n
 const HEADER = [
   "Lecture Name",
   "Date",
+  "Session Link",
   "Learning Objective",
   "Coverage %",
   "Covered LOs",
@@ -49,7 +51,7 @@ export async function POST() {
     const { data: lectures, error } = await supabase
       .from("lectures")
       .select(
-        "id, batch_name, lecture_name, lecture_date, learning_objective, lo_reports ( covered_los, missing_los, status )"
+        "id, batch_name, lecture_name, lecture_date, session_link, learning_objective, lo_reports ( covered_los, missing_los, status )"
       )
       .eq("user_id", user.id)
       .is("archived_at", null)
@@ -80,6 +82,7 @@ export async function POST() {
           return [
             l.lecture_name,
             formatLectureDate(l.lecture_date),
+            l.session_link ?? "",
             l.learning_objective ?? "",
             pct,
             covered.join("\n"),
