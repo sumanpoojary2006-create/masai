@@ -1,53 +1,48 @@
-import { google } from "googleapis";
+/**
+ * Google Sheets integration via Apps Script web-app webhook.
+ *
+ * No service account or OAuth credentials needed.
+ * The Apps Script runs as the sheet owner's Google account.
+ *
+ * Required env var:
+ *   GOOGLE_APPS_SCRIPT_URL — the /exec URL from your deployed Apps Script web app
+ */
+
+export interface SheetBatch {
+  name: string;   // tab title (batch name)
+  rows: string[][]; // first element is the header row
+}
+
+export interface PushSheetPayload {
+  batches: SheetBatch[];
+}
 
 /**
- * Returns an authenticated Google Sheets API client.
- *
- * Requires two env vars:
- *   GOOGLE_SERVICE_ACCOUNT_EMAIL  — service account email
- *   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY — private key (PEM, with literal \n for newlines)
+ * POST the coverage data to the Google Apps Script webhook.
+ * Returns the parsed JSON response from the script.
  */
-export function getSheetsClient() {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim();
-  const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ?? "";
-  // Support both real newlines and escaped \n (common when pasting into env files)
-  const key = rawKey.replace(/\\n/g, "\n");
-
-  if (!email || !key) {
+export async function pushToGoogleSheet(payload: PushSheetPayload): Promise<{ success?: boolean; error?: string }> {
+  const url = process.env.GOOGLE_APPS_SCRIPT_URL?.trim();
+  if (!url) {
     throw new Error(
-      "Google Sheets credentials not configured. " +
-        "Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY in your environment."
+      "GOOGLE_APPS_SCRIPT_URL is not configured. " +
+        "Deploy the Apps Script web app in your spreadsheet and paste the /exec URL here."
     );
   }
 
-  const auth = new google.auth.JWT({
-    email,
-    key,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" }, // Apps Script ignores Content-Type but needs a body
+    body: JSON.stringify(payload),
+    redirect: "follow"
   });
 
-  return google.sheets({ version: "v4", auth });
-}
-
-/** The spreadsheet ID from GOOGLE_SHEETS_ID env var. */
-export function getSpreadsheetId(): string {
-  const id = process.env.GOOGLE_SHEETS_ID?.trim();
-  if (!id) {
-    throw new Error(
-      "GOOGLE_SHEETS_ID is not configured. " +
-        "Set it to the ID from your Google Sheets URL (the long alphanumeric string)."
-    );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Apps Script responded with ${res.status}: ${text.slice(0, 200)}`);
   }
-  return id;
-}
 
-/**
- * Sanitise a batch name so it can be used as a Google Sheet tab title.
- * Rules: max 100 chars, no [ ] * ? : / \ characters.
- */
-export function sanitiseSheetTitle(name: string): string {
-  return name
-    .replace(/[\[\]*?:/\\]/g, "-")
-    .slice(0, 100)
-    .trim();
+  const json = await res.json() as { success?: boolean; error?: string };
+  if (json.error) throw new Error(`Apps Script error: ${json.error}`);
+  return json;
 }

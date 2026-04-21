@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { formatLectureDate } from "@/lib/deadlines";
-import { getSheetsClient, getSpreadsheetId, sanitiseSheetTitle } from "@/lib/google-sheets";
+import { pushToGoogleSheet, type SheetBatch } from "@/lib/google-sheets";
 import { createServerSupabase } from "@/lib/supabase";
 
 interface LoReportRow {
@@ -26,6 +26,15 @@ function resolveReport(raw: LoReportRow | LoReportRow[] | null): LoReportRow | n
   if (!raw) return null;
   return Array.isArray(raw) ? (raw[0] ?? null) : raw;
 }
+
+const HEADER = [
+  "Lecture Name",
+  "Date",
+  "Learning Objective",
+  "Coverage %",
+  "Covered LOs",
+  "Missing LOs"
+];
 
 export async function POST() {
   try {
@@ -58,132 +67,34 @@ export async function POST() {
       byBatch[l.batch_name].push(l);
     }
 
-    const sheets = getSheetsClient();
-    const spreadsheetId = getSpreadsheetId();
+    const batches: SheetBatch[] = Object.keys(byBatch)
+      .sort()
+      .map((batchName) => {
+        const rows = byBatch[batchName].map((l) => {
+          const report = resolveReport(l.lo_reports);
+          const covered = report?.status === "completed" ? (report.covered_los ?? []) : [];
+          const missing = report?.status === "completed" ? (report.missing_los ?? []) : [];
+          const total = covered.length + missing.length;
+          const pct = total > 0 ? `${Math.round((covered.length / total) * 100)}%` : "—";
 
-    // Fetch existing tab titles
-    const meta = await sheets.spreadsheets.get({ spreadsheetId });
-    const existingTabs = new Map(
-      (meta.data.sheets ?? []).map((s) => [
-        s.properties?.title ?? "",
-        s.properties?.sheetId ?? 0
-      ])
-    );
-
-    const batchNames = Object.keys(byBatch).sort();
-    let batchesPushed = 0;
-
-    for (const batchName of batchNames) {
-      const tabTitle = sanitiseSheetTitle(batchName);
-      const batchLectures = byBatch[batchName];
-
-      // Create tab if it doesn't exist
-      if (!existingTabs.has(tabTitle)) {
-        const addRes = await sheets.spreadsheets.batchUpdate({
-          spreadsheetId,
-          requestBody: {
-            requests: [{ addSheet: { properties: { title: tabTitle } } }]
-          }
+          return [
+            l.lecture_name,
+            formatLectureDate(l.lecture_date),
+            l.learning_objective ?? "",
+            pct,
+            covered.join("\n"),
+            missing.join("\n")
+          ];
         });
-        const newProps = addRes.data.replies?.[0]?.addSheet?.properties;
-        if (newProps) {
-          existingTabs.set(newProps.title ?? tabTitle, newProps.sheetId ?? 0);
-        }
-      }
 
-      const sheetId = existingTabs.get(tabTitle) ?? 0;
-
-      // Build header + data rows
-      const HEADER = [
-        "Lecture Name",
-        "Date",
-        "Learning Objective",
-        "Coverage %",
-        "Covered LOs",
-        "Missing LOs"
-      ];
-
-      const dataRows = batchLectures.map((l) => {
-        const report = resolveReport(l.lo_reports);
-        const covered = report?.status === "completed" ? (report.covered_los ?? []) : [];
-        const missing = report?.status === "completed" ? (report.missing_los ?? []) : [];
-        const total = covered.length + missing.length;
-        const pct = total > 0 ? `${Math.round((covered.length / total) * 100)}%` : "—";
-
-        return [
-          l.lecture_name,
-          formatLectureDate(l.lecture_date),
-          l.learning_objective ?? "",
-          pct,
-          covered.join("\n"),
-          missing.join("\n")
-        ];
+        return { name: batchName, rows: [HEADER, ...rows] };
       });
 
-      // Clear existing data then write fresh
-      await sheets.spreadsheets.values.clear({
-        spreadsheetId,
-        range: `'${tabTitle}'!A:Z`
-      });
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: `'${tabTitle}'!A1`,
-        valueInputOption: "RAW",
-        requestBody: { values: [HEADER, ...dataRows] }
-      });
-
-      // Style: bold header with teal background, freeze row 1, auto-resize columns
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [
-            // Bold + teal header background
-            {
-              repeatCell: {
-                range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
-                cell: {
-                  userEnteredFormat: {
-                    textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                    backgroundColor: { red: 0.06, green: 0.46, blue: 0.43 } // #0f7470
-                  }
-                },
-                fields: "userEnteredFormat(textFormat,backgroundColor)"
-              }
-            },
-            // Freeze first row
-            {
-              updateSheetProperties: {
-                properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
-                fields: "gridProperties.frozenRowCount"
-              }
-            },
-            // Wrap text for covered/missing columns (cols E, F = index 4, 5)
-            {
-              repeatCell: {
-                range: { sheetId, startRowIndex: 1, startColumnIndex: 4, endColumnIndex: 6 },
-                cell: {
-                  userEnteredFormat: { wrapStrategy: "WRAP" }
-                },
-                fields: "userEnteredFormat.wrapStrategy"
-              }
-            },
-            // Auto-resize all columns
-            {
-              autoResizeDimensions: {
-                dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 6 }
-              }
-            }
-          ]
-        }
-      });
-
-      batchesPushed++;
-    }
+    await pushToGoogleSheet({ batches });
 
     return NextResponse.json({
-      message: `Pushed ${batchesPushed} batch${batchesPushed === 1 ? "" : "es"} to Google Sheets successfully.`,
-      batches: batchesPushed
+      message: `Pushed ${batches.length} batch${batches.length === 1 ? "" : "es"} to Google Sheets successfully.`,
+      batches: batches.length
     });
   } catch (error) {
     return NextResponse.json(
