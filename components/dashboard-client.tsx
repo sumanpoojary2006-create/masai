@@ -192,6 +192,21 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     );
   }
 
+  function getDisplayLectureId(lecture: DashboardLecture) {
+    try {
+      if (lecture.session_link) {
+        const sessionLectureId = new URL(lecture.session_link).searchParams.get("id");
+        if (sessionLectureId) {
+          return sessionLectureId;
+        }
+      }
+    } catch {
+      // Ignore malformed URLs and fall back to DB lecture id.
+    }
+
+    return lecture.id;
+  }
+
   if (lectures.length === 0) {
     return (
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel dark:border-slate-700 dark:bg-slate-800/40">
@@ -353,13 +368,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             <td className="py-4 pr-4">
                               <p className="font-semibold text-ink">{lecture.lecture_name}</p>
                               <p className="theme-muted mt-1 text-xs font-medium uppercase tracking-wider">
-                                {lecture.session_link?.includes("id=") ? (
-                                  <>
-                                    Lecture ID: <span className="text-brand">{new URL(lecture.session_link).searchParams.get("id")}</span>
-                                  </>
-                                ) : (
-                                  lecture.module_name
-                                )}
+                                Lecture ID: <span className="text-brand">{getDisplayLectureId(lecture)}</span>
                               </p>
                             </td>
                             <td className="theme-muted py-4 pr-4 text-sm">

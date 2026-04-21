@@ -47,7 +47,6 @@ async function checkResourcesFromDb(
   batchUrlOverrides: BatchUrlOverrides,
   now: DateTime
 ): Promise<LmsTrackingRecord[]> {
-  const nowIso = now.toUTC().toISO()!;
   const records: LmsTrackingRecord[] = [];
 
   for (const lecture of lectures) {
@@ -83,28 +82,28 @@ async function checkResourcesFromDb(
       if (!dtStr) return null;
       // LMS DB timestamps (created_at) are stored in IST (Asia/Kolkata)
       const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
-      return dt.isValid ? dt.toUTC().toISO() : nowIso;
+      return dt.isValid ? dt.toUTC().toISO() : null;
     };
 
     records.push({
       lectureId: lecture.id,
       resourceType: "preread",
       found: check.preread,
-      uploadedAt: check.preread ? (toIso(check.preread_at) || nowIso) : null,
+      uploadedAt: check.preread ? toIso(check.preread_at) : null,
       rawPayload: { source: "lms-db" }
     });
     records.push({
       lectureId: lecture.id,
       resourceType: "notes",
       found: check.notes,
-      uploadedAt: check.notes ? (toIso(check.notes_at) || nowIso) : null,
+      uploadedAt: check.notes ? toIso(check.notes_at) : null,
       rawPayload: { source: "lms-db" }
     });
     records.push({
       lectureId: lecture.id,
       resourceType: "assignment",
       found: check.assignment,
-      uploadedAt: check.assignment ? (toIso(check.assignment_at) || nowIso) : null,
+      uploadedAt: check.assignment ? toIso(check.assignment_at) : null,
       rawPayload: { source: "lms-db" }
     });
   }
@@ -133,7 +132,9 @@ function nextStatus(
   if (resourceFound) {
     return {
       status: "completed" as TaskStatus,
-      completedAt: tracking?.uploadedAt ?? task.completed_at ?? now.toUTC().toISO()
+      // Keep timestamp unknown when LMS only confirms presence but not upload time.
+      // This avoids falsely marking items as late based on check runtime.
+      completedAt: tracking?.uploadedAt ?? task.completed_at ?? null
     };
   }
 
