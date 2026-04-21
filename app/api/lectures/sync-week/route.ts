@@ -33,7 +33,10 @@ export async function POST() {
           "Content-Type": "application/json",
           "X-GitHub-Api-Version": "2022-11-28"
         },
-        body: JSON.stringify({ ref: githubRef })
+        body: JSON.stringify({
+          ref: githubRef,
+          inputs: { target_user_id: user.id }
+        })
       }
     );
 

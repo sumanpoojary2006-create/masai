@@ -35,7 +35,8 @@ function extractBatchId(url: string): number | null {
 
 async function main() {
   const supabase = createServerSupabase();
-  const profiles = await getAutomationProfiles();
+  const targetUserId = process.env.TARGET_USER_ID?.trim() || undefined;
+  const profiles = await getAutomationProfiles(targetUserId);
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
 

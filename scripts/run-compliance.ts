@@ -1,7 +1,8 @@
 import { runComplianceCheck } from "../lib/automation";
 
 async function main() {
-  const summary = await runComplianceCheck();
+  const targetUserId = process.env.TARGET_USER_ID?.trim() || undefined;
+  const summary = await runComplianceCheck(targetUserId ? { userId: targetUserId } : undefined);
   console.log(JSON.stringify(summary, null, 2));
 }
 
