@@ -183,10 +183,13 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     }
 
     return (
-      <div className="space-y-2">
+      <div className="flex min-h-[88px] flex-col justify-start gap-2">
         <StatusPill task={task} />
-        <p className="theme-muted text-xs font-medium">
-          Release by {formatDeadline(task.deadline)}
+        <p className="theme-muted text-[11px] leading-relaxed">
+          <span className="font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+            Deadline
+          </span>
+          <span className="ml-1 font-medium">{formatDeadline(task.deadline)}</span>
         </p>
       </div>
     );
@@ -373,14 +376,11 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             </td>
                             <td className="theme-muted py-4 pr-4 text-sm">
                               <p>{formatLectureDate(lecture.lecture_date)}</p>
-                              <p className="mt-1">
-                                {formatLectureTime(lecture.start_time)} -{" "}
-                                {formatLectureTime(lecture.end_time)}
-                              </p>
+                              <p className="mt-1">{formatLectureTime(lecture.start_time)}</p>
                             </td>
-                            <td className="py-4 pr-4">{renderTaskCell(lecture, "preread")}</td>
-                            <td className="py-4 pr-4">{renderTaskCell(lecture, "notes")}</td>
-                            <td className="py-4 pr-4">{renderTaskCell(lecture, "assignment")}</td>
+                            <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "preread")}</td>
+                            <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "notes")}</td>
+                            <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "assignment")}</td>
                             <td className="py-4">
                               <div className="flex flex-col gap-2 sm:flex-row">
                                 <button
