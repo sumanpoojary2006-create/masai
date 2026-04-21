@@ -182,15 +182,19 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       return <span className="theme-muted text-sm">Not created</span>;
     }
 
+    const deadlineLabel = formatDeadline(task.deadline)
+      .replace(" AM", "\u00A0AM")
+      .replace(" PM", "\u00A0PM");
+
     return (
-      <div className="flex min-h-[88px] flex-col justify-start gap-2">
+      <div className="flex min-h-[88px] min-w-0 flex-col justify-start gap-2">
         <StatusPill task={task} />
-        <p className="theme-muted text-[11px] leading-tight whitespace-nowrap">
+        <div className="theme-muted min-w-0 text-[11px] leading-tight">
           <span className="font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
             Deadline
           </span>
-          <span className="ml-1 font-medium">{formatDeadline(task.deadline)}</span>
-        </p>
+          <p className="mt-1 font-medium whitespace-nowrap">{deadlineLabel}</p>
+        </div>
       </div>
     );
   }
