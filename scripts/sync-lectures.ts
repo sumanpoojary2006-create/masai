@@ -4,6 +4,7 @@ import { computeDeadline } from "../lib/deadlines";
 import { getAppTimezone } from "../lib/env";
 import { syncCurrentWeekLectures } from "../lib/lms-scraper";
 import { closeLmsDb } from "../lib/lms-db";
+import { matchLearningObjectiveAI } from "../lib/lo-matcher";
 import { getAutomationProfiles } from "../lib/queries";
 import { createServerSupabase } from "../lib/supabase";
 import { TASK_TYPES } from "../lib/constants";
@@ -137,6 +138,50 @@ async function main() {
     // Print what was synced
     for (const lec of synced) {
       console.log(`  ✓ [${lec.batch_name}] ${lec.lecture_name} — ${lec.lecture_date} ${lec.start_time}`);
+    }
+
+    // ── AI fallback: match LOs for lectures that didn't get an exact match ──
+    if (curriculumMap.size > 0) {
+      const { data: unmatched } = await supabase
+        .from("lectures")
+        .select("id, batch_name, lecture_name")
+        .eq("user_id", profile.user_id)
+        .in("id", upsertedLectures.map((l) => l.id))
+        .or("learning_objective.is.null,learning_objective.eq.");
+
+      if (unmatched && unmatched.length > 0) {
+        console.log(`  Attempting AI LO matching for ${unmatched.length} lecture(s)…`);
+
+        // Build per-batch curriculum lists
+        const curriculumByBatch = new Map<string, { lecture_name: string; learning_objective: string }[]>();
+        for (const cfg of profile.batch_configs) {
+          const entries: { lecture_name: string; learning_objective: string }[] = [];
+          for (const [key, lo] of curriculumMap.entries()) {
+            if (key.startsWith(`${cfg.batch_name}::`)) {
+              entries.push({ lecture_name: key.slice(cfg.batch_name.length + 2), learning_objective: lo });
+            }
+          }
+          if (entries.length > 0) curriculumByBatch.set(cfg.batch_name, entries);
+        }
+
+        for (const lecture of unmatched) {
+          const batchCurriculum = curriculumByBatch.get(lecture.batch_name) ?? [];
+          if (batchCurriculum.length === 0) continue;
+
+          try {
+            const lo = await matchLearningObjectiveAI(lecture.lecture_name, batchCurriculum);
+            if (lo) {
+              await supabase
+                .from("lectures")
+                .update({ learning_objective: lo })
+                .eq("id", lecture.id);
+              console.log(`  🎯 [${lecture.batch_name}] "${lecture.lecture_name}" → LO matched`);
+            }
+          } catch (err) {
+            console.warn(`  AI match failed for "${lecture.lecture_name}":`, err instanceof Error ? err.message : err);
+          }
+        }
+      }
     }
   }
 

@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/30 * * * *"
   workflow_dispatch:
+    inputs:
+      target_user_id:
+        description: "Only check this user (leave blank for all users — scheduled runs always check all)"
+        required: false
+        default: ""
 
 jobs:
   compliance:
@@ -24,6 +29,7 @@ jobs:
       - name: Run compliance automation
         run: npm run compliance
         env:
+          TARGET_USER_ID: ${{ inputs.target_user_id }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

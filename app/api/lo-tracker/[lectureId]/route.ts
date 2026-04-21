@@ -6,6 +6,7 @@ import { DateTime } from "luxon";
 import { getCurrentUser } from "@/lib/auth";
 import { getAppTimezone } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
+import { sendLoSyncSlackNotification } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LoReport } from "@/lib/types";
 
@@ -69,7 +70,7 @@ export async function POST(
     // Fetch the lecture to get learning_objective and check timing
     const { data: lecture, error: lectureError } = await supabase
       .from("lectures")
-      .select("id, lecture_name, learning_objective, lecture_date, end_time")
+      .select("id, lecture_name, learning_objective, lecture_date, start_time, end_time")
       .eq("id", lectureId)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -85,17 +86,16 @@ export async function POST(
       );
     }
 
-    // Check: lecture must have ended before analysis is allowed (end_time + 1 hour)
-    const lectureEnd = DateTime.fromISO(
-      `${lecture.lecture_date}T${lecture.end_time}`,
+    // Check: lecture must have started before analysis is allowed
+    const lectureStart = DateTime.fromISO(
+      `${lecture.lecture_date}T${lecture.start_time}`,
       { zone: getAppTimezone() }
-    ).plus({ hours: 1 });
+    );
 
     const now = DateTime.now().setZone(getAppTimezone());
-    if (now < lectureEnd) {
-      const minutesLeft = Math.ceil(lectureEnd.diff(now, "minutes").minutes);
+    if (now < lectureStart) {
       return NextResponse.json(
-        { message: `Analysis available ${minutesLeft} min after lecture ends.` },
+        { message: `Analysis available after lecture starts.` },
         { status: 400 }
       );
     }
@@ -137,6 +137,31 @@ export async function POST(
       .maybeSingle();
 
     if (saveError) throw new Error(saveError.message);
+
+    // Look up Slack member ID for the user (best-effort)
+    let slackMemberId: string | null = null;
+    try {
+      const { data: profileRow } = await supabase
+        .from("user_profiles")
+        .select("slack_member_id")
+        .eq("user_id", user.id)
+        .single();
+      slackMemberId = profileRow?.slack_member_id ?? null;
+    } catch {
+      // non-fatal
+    }
+
+    // Send Slack notification (best-effort)
+    sendLoSyncSlackNotification({
+      analyzeResults: [{
+        lectureName: lecture.lecture_name,
+        status: "analyzed",
+        coveredCount: result.covered_los.length,
+        missingCount: result.missing_los.length,
+        reason: result.fallback ? "⚠ Gemini quota exhausted — keyword matching used" : undefined
+      }],
+      slackMemberId
+    }).catch((err) => console.error("[manual-analyze] Slack notification failed:", err));
 
     return NextResponse.json({
       message: "LO analysis complete.",

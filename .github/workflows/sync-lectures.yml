@@ -2,6 +2,11 @@ name: Sync Lectures
 
 on:
   workflow_dispatch:
+    inputs:
+      target_user_id:
+        description: "Only sync this user (leave blank to sync all users)"
+        required: false
+        default: ""
 
 jobs:
   sync-lectures:
@@ -29,6 +34,9 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TARGET_USER_ID: ${{ inputs.target_user_id }}
 
       - name: Check task completion & backfill session links from LMS DB
         run: npx tsx scripts/check-tasks.ts
@@ -40,3 +48,4 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+          TARGET_USER_ID: ${{ inputs.target_user_id }}
