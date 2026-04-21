@@ -23,11 +23,11 @@ export function isLateCompletion(completedAt: string | null, deadline: string) {
 export function statusClasses(status: TaskStatus, isLate = false) {
   if (status === "completed") {
     if (isLate) {
-      // Uploaded after deadline — light amber bg, amber text
-      return "bg-amber-50 text-amber-600 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:ring-amber-800";
+      // Uploaded after deadline — yellow text on green background
+      return "bg-emerald-100 text-amber-600 ring-emerald-200 dark:bg-emerald-900/30 dark:text-amber-300 dark:ring-emerald-800";
     }
-    // Uploaded on time — vibrant emerald
-    return "bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:ring-emerald-800";
+    // Uploaded on time — green
+    return "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-emerald-800";
   }
 
   if (status === "missed") {
@@ -35,5 +35,6 @@ export function statusClasses(status: TaskStatus, isLate = false) {
     return "bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-800";
   }
 
-  return "bg-amber-100 text-amber-700 ring-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:ring-amber-800";
+  // Not released yet — red
+  return "bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:ring-rose-800";
 }
