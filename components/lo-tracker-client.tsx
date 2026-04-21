@@ -159,6 +159,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
+  const [isPushingSheet, setIsPushingSheet] = useState(false);
   const [actionResults, setActionResults] = useState<ActionResult[] | null>(null);
   const [actionLabel, setActionLabel] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -260,6 +261,42 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
         }]);
       } finally {
         setIsMatching(false);
+      }
+    });
+  }
+
+  function handlePushToSheet() {
+    startTransition(async () => {
+      setIsPushingSheet(true);
+      setActionResults(null);
+      setActionLabel("Push to Sheet");
+      try {
+        const res = await fetch("/api/lo-tracker/push-sheet", { method: "POST" });
+        const json = (await res.json()) as { message?: string; batches?: number };
+        if (!res.ok) {
+          setActionResults([{
+            lectureId: "sheet",
+            lectureName: "Google Sheets",
+            status: "error",
+            reason: json.message ?? "Failed to push to sheet."
+          }]);
+        } else {
+          setActionResults([{
+            lectureId: "sheet",
+            lectureName: "Google Sheets",
+            status: "fetched",
+            reason: json.message
+          }]);
+        }
+      } catch {
+        setActionResults([{
+          lectureId: "sheet",
+          lectureName: "Google Sheets",
+          status: "error",
+          reason: "Network error — could not reach the server."
+        }]);
+      } finally {
+        setIsPushingSheet(false);
       }
     });
   }
@@ -399,6 +436,19 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
               )}
             </button>
 
+            <button
+              type="button"
+              disabled={isPending || isPushingSheet}
+              onClick={handlePushToSheet}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full border-2 border-emerald-600 px-6 text-sm font-semibold text-emerald-600 transition hover:bg-emerald-600 hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 dark:border-emerald-500 dark:text-emerald-500 dark:hover:bg-emerald-600 dark:hover:text-white dark:disabled:border-slate-700 dark:disabled:text-slate-600"
+            >
+              {isPushingSheet ? (
+                <><span className="animate-spin inline-block">⟳</span> Pushing…</>
+              ) : (
+                <><span>📊</span> Push to Sheet</>
+              )}
+            </button>
+
             <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
               Batch
               <select
@@ -475,204 +525,204 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                     </thead>
                     <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
                       {batchRows.map((row) => {
-                  const report = row.lo_report;
-                  const isTranscriptOpen = transcriptOpenId === row.id;
-                  const isEditingLink = editLinkId === row.id;
-                  const started = lectureStarted(row.lecture_date, row.start_time);
+                        const report = row.lo_report;
+                        const isTranscriptOpen = transcriptOpenId === row.id;
+                        const isEditingLink = editLinkId === row.id;
+                        const started = lectureStarted(row.lecture_date, row.start_time);
 
-                  return (
-                    <tr key={row.id} className="align-top">
-                      {/* Lecture */}
-                      <td className="py-4 pl-4 pr-4 min-w-[160px]">
-                        <p className="font-semibold text-ink">{row.lecture_name}</p>
-                        <p className="theme-muted mt-0.5 text-xs">
-                          {formatLectureDate(row.lecture_date)} · {formatLectureTime(row.start_time)} – {formatLectureTime(row.end_time)}
-                        </p>
-                        {report && (
-                          <div className="mt-2">
-                            <LoStatusBadge
-                              covered={report.covered_los?.length ?? 0}
-                              missing={report.missing_los?.length ?? 0}
-                            />
-                          </div>
-                        )}
-                      </td>
-
-                      {/* LOs */}
-                      <td className="py-4 pr-4 max-w-[240px]">
-                        {row.learning_objective ? (
-                          <p className="theme-muted text-sm leading-relaxed whitespace-pre-line">
-                            {row.learning_objective}
-                          </p>
-                        ) : (
-                          <span className="theme-muted text-sm italic">Not set</span>
-                        )}
-                      </td>
-
-                      {/* Session Link */}
-                      <td className="py-4 pr-4 min-w-[180px]">
-                        {isEditingLink ? (
-                          <div className="flex flex-col gap-2">
-                            <input
-                              value={linkValue}
-                              onChange={(e) => setLinkValue(e.target.value)}
-                              placeholder="https://..."
-                              className="theme-input rounded-2xl px-3 py-1.5 text-xs text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100 w-full"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                disabled={isPending}
-                                onClick={() => saveLink(row.id)}
-                                className="inline-flex h-7 items-center justify-center rounded-full bg-brand px-3 text-xs font-semibold text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:bg-slate-400"
-                              >
-                                {savingLinkId === row.id ? "Saving…" : "Save"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditLinkId(null)}
-                                className="theme-button-secondary inline-flex h-7 items-center justify-center rounded-full px-3 text-xs font-semibold"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col gap-1.5">
-                            {row.session_link ? (
-                              <a
-                                href={row.session_link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-medium text-brand hover:underline break-all"
-                              >
-                                View Session ↗
-                              </a>
-                            ) : (
-                              <span className="theme-muted text-xs italic">No link yet</span>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => startEditLink(row)}
-                              className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
-                            >
-                              Edit
-                            </button>
-                            {linkMessage[row.id] && (
-                              <p className="text-xs theme-muted">{linkMessage[row.id]}</p>
-                            )}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Transcript */}
-                      <td className="py-4 pr-4 min-w-[200px]">
-                        {isTranscriptOpen ? (
-                          <TranscriptPanel
-                            row={row}
-                            onDone={() => { setTranscriptOpenId(null); router.refresh(); }}
-                          />
-                        ) : (
-                          <div className="flex flex-col gap-2">
-                            {/* Status badge */}
-                            {!started ? (
-                              <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                ⏳ Before lecture starts
-                              </span>
-                            ) : report?.status === "completed" && report?.transcript ? (
-                              <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                ✓ Transcript ready
-                              </span>
-                            ) : report?.status === "analyzing" ? (
-                              <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 animate-pulse dark:bg-amber-950/60 dark:text-amber-300">
-                                ⟳ Analyzing…
-                              </span>
-                            ) : report?.transcript ? (
-                              /* transcript exists but analysis pending/failed — show stored badge */
-                              <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
-                                ○ Transcript stored
-                              </span>
-                            ) : report?.status === "error" ? (
-                              /* no transcript at all and errored */
-                              <span className="inline-flex w-fit items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
-                                ✗ Fetch failed
-                              </span>
-                            ) : (
-                              <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                                — Not fetched
-                              </span>
-                            )}
-
-                            {/* Transcript snippet */}
-                            {report?.transcript && (
-                              <p className="theme-muted text-xs line-clamp-2 leading-relaxed">
-                                {report.transcript.slice(0, 140)}…
+                        return (
+                          <tr key={row.id} className="align-top">
+                            {/* Lecture */}
+                            <td className="py-4 pl-4 pr-4 min-w-[160px]">
+                              <p className="font-semibold text-ink">{row.lecture_name}</p>
+                              <p className="theme-muted mt-0.5 text-xs">
+                                {formatLectureDate(row.lecture_date)} · {formatLectureTime(row.start_time)} – {formatLectureTime(row.end_time)}
                               </p>
-                            )}
+                              {report && (
+                                <div className="mt-2">
+                                  <LoStatusBadge
+                                    covered={report.covered_los?.length ?? 0}
+                                    missing={report.missing_los?.length ?? 0}
+                                  />
+                                </div>
+                              )}
+                            </td>
 
-                            {started && (
-                                <button
-                                  type="button"
-                                  onClick={() => setTranscriptOpenId(row.id)}
-                                  className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
-                                >
-                                  {report?.transcript ? "Edit / Re-analyze" : "Add Manually"}
-                                </button>
-                            )}
-                          </div>
-                        )}
-                      </td>
+                            {/* LOs */}
+                            <td className="py-4 pr-4 max-w-[240px]">
+                              {row.learning_objective ? (
+                                <p className="theme-muted text-sm leading-relaxed whitespace-pre-line">
+                                  {row.learning_objective}
+                                </p>
+                              ) : (
+                                <span className="theme-muted text-sm italic">Not set</span>
+                              )}
+                            </td>
 
-                      {/* Covered LOs */}
-                      <td className="py-4 pr-4 min-w-[200px]">
-                        {report?.status === "completed" ? (
-                          <div className="space-y-1.5">
-                            {report.fallback && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300" title="Gemini quota was exhausted — results are based on keyword matching, not AI analysis. Re-analyze when quota resets.">
-                                ⚠ Keyword match
-                              </span>
-                            )}
-                            {report.covered_los && report.covered_los.length > 0 ? (
-                              <ul className="space-y-1">
-                                {report.covered_los.map((lo, i) => (
-                                  <li key={i} className="flex items-start gap-1.5">
-                                    <span className="mt-0.5 text-emerald-500 dark:text-emerald-400 flex-shrink-0">✓</span>
-                                    <span className="text-xs text-ink leading-relaxed">{lo}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <span className="theme-muted text-xs italic">None covered</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="theme-muted text-xs italic">—</span>
-                        )}
-                      </td>
+                            {/* Session Link */}
+                            <td className="py-4 pr-4 min-w-[180px]">
+                              {isEditingLink ? (
+                                <div className="flex flex-col gap-2">
+                                  <input
+                                    value={linkValue}
+                                    onChange={(e) => setLinkValue(e.target.value)}
+                                    placeholder="https://..."
+                                    className="theme-input rounded-2xl px-3 py-1.5 text-xs text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100 w-full"
+                                  />
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      disabled={isPending}
+                                      onClick={() => saveLink(row.id)}
+                                      className="inline-flex h-7 items-center justify-center rounded-full bg-brand px-3 text-xs font-semibold text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:bg-slate-400"
+                                    >
+                                      {savingLinkId === row.id ? "Saving…" : "Save"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditLinkId(null)}
+                                      className="theme-button-secondary inline-flex h-7 items-center justify-center rounded-full px-3 text-xs font-semibold"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1.5">
+                                  {row.session_link ? (
+                                    <a
+                                      href={row.session_link}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs font-medium text-brand hover:underline break-all"
+                                    >
+                                      View Session ↗
+                                    </a>
+                                  ) : (
+                                    <span className="theme-muted text-xs italic">No link yet</span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditLink(row)}
+                                    className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
+                                  >
+                                    Edit
+                                  </button>
+                                  {linkMessage[row.id] && (
+                                    <p className="text-xs theme-muted">{linkMessage[row.id]}</p>
+                                  )}
+                                </div>
+                              )}
+                            </td>
 
-                      {/* Missing LOs */}
-                      <td className="py-4 min-w-[200px]">
-                        {report?.status === "completed" ? (
-                          <div className="space-y-1.5">
-                            {report.missing_los && report.missing_los.length > 0 ? (
-                              <ul className="space-y-1">
-                                {report.missing_los.map((lo, i) => (
-                                  <li key={i} className="flex items-start gap-1.5">
-                                    <span className="mt-0.5 text-rose-500 dark:text-rose-400 flex-shrink-0">✗</span>
-                                    <span className="text-xs text-ink leading-relaxed">{lo}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">All covered! 🎉</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="theme-muted text-xs italic">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
+                            {/* Transcript */}
+                            <td className="py-4 pr-4 min-w-[200px]">
+                              {isTranscriptOpen ? (
+                                <TranscriptPanel
+                                  row={row}
+                                  onDone={() => { setTranscriptOpenId(null); router.refresh(); }}
+                                />
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  {/* Status badge */}
+                                  {!started ? (
+                                    <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                      ⏳ Before lecture starts
+                                    </span>
+                                  ) : report?.status === "completed" && report?.transcript ? (
+                                    <span className="inline-flex w-fit items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                      ✓ Transcript ready
+                                    </span>
+                                  ) : report?.status === "analyzing" ? (
+                                    <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 animate-pulse dark:bg-amber-950/60 dark:text-amber-300">
+                                      ⟳ Analyzing…
+                                    </span>
+                                  ) : report?.transcript ? (
+                                    /* transcript exists but analysis pending/failed — show stored badge */
+                                    <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                                      ○ Transcript stored
+                                    </span>
+                                  ) : report?.status === "error" ? (
+                                    /* no transcript at all and errored */
+                                    <span className="inline-flex w-fit items-center rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">
+                                      ✗ Fetch failed
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                      — Not fetched
+                                    </span>
+                                  )}
+
+                                  {/* Transcript snippet */}
+                                  {report?.transcript && (
+                                    <p className="theme-muted text-xs line-clamp-2 leading-relaxed">
+                                      {report.transcript.slice(0, 140)}…
+                                    </p>
+                                  )}
+
+                                  {started && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setTranscriptOpenId(row.id)}
+                                      className="theme-button-secondary inline-flex h-7 w-fit items-center justify-center rounded-full px-3 text-xs font-semibold"
+                                    >
+                                      {report?.transcript ? "Edit / Re-analyze" : "Add Manually"}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Covered LOs */}
+                            <td className="py-4 pr-4 min-w-[200px]">
+                              {report?.status === "completed" ? (
+                                <div className="space-y-1.5">
+                                  {report.fallback && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300" title="Gemini quota was exhausted — results are based on keyword matching, not AI analysis. Re-analyze when quota resets.">
+                                      ⚠ Keyword match
+                                    </span>
+                                  )}
+                                  {report.covered_los && report.covered_los.length > 0 ? (
+                                    <ul className="space-y-1">
+                                      {report.covered_los.map((lo, i) => (
+                                        <li key={i} className="flex items-start gap-1.5">
+                                          <span className="mt-0.5 text-emerald-500 dark:text-emerald-400 flex-shrink-0">✓</span>
+                                          <span className="text-xs text-ink leading-relaxed">{lo}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <span className="theme-muted text-xs italic">None covered</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="theme-muted text-xs italic">—</span>
+                              )}
+                            </td>
+
+                            {/* Missing LOs */}
+                            <td className="py-4 min-w-[200px]">
+                              {report?.status === "completed" ? (
+                                <div className="space-y-1.5">
+                                  {report.missing_los && report.missing_los.length > 0 ? (
+                                    <ul className="space-y-1">
+                                      {report.missing_los.map((lo, i) => (
+                                        <li key={i} className="flex items-start gap-1.5">
+                                          <span className="mt-0.5 text-rose-500 dark:text-rose-400 flex-shrink-0">✗</span>
+                                          <span className="text-xs text-ink leading-relaxed">{lo}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">All covered! 🎉</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="theme-muted text-xs italic">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
                       })}
                     </tbody>
                   </table>
