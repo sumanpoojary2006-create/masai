@@ -1,4 +1,5 @@
 import { runComplianceCheck } from "../lib/automation";
+import { closeLmsDb } from "../lib/lms-db";
 
 async function main() {
   const targetUserId = process.env.TARGET_USER_ID?.trim() || undefined;
@@ -7,6 +8,11 @@ async function main() {
 }
 
 main().catch((error) => {
+  closeLmsDb();
   console.error(error);
   process.exit(1);
+});
+
+process.on("beforeExit", () => {
+  closeLmsDb();
 });

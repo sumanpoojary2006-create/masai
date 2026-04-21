@@ -1,6 +1,42 @@
 import { createServerSupabase } from "./supabase";
 import { LoReport } from "./types";
 
+export interface SheetBatch {
+  name: string;
+  rows: string[][];
+}
+
+interface PushToGoogleSheetParams {
+  batches: SheetBatch[];
+}
+
+export async function pushToGoogleSheet(params: PushToGoogleSheetParams | Record<string, unknown>) {
+  const url = process.env.GOOGLE_APPS_SCRIPT_URL?.trim();
+  if (!url) {
+    throw new Error("GOOGLE_APPS_SCRIPT_URL environment variable is missing.");
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+      redirect: "follow"
+    });
+
+    const result = (await response.json()) as { success?: boolean; error?: string };
+    if (!response.ok || result.error) {
+      throw new Error(result.error || `Apps Script error: ${response.statusText}`);
+    }
+
+    return { success: true, result };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[google-sheets] Apps Script push failed:", err);
+    throw new Error(`Failed to push to Topic Coverage Tracker: ${message}`);
+  }
+}
+
 /**
  * Pushes a lecture's LO coverage report to a Google Spreadsheet via an Apps Script web app.
  *
@@ -29,7 +65,6 @@ export async function pushLoReportToSheet(lectureId: string) {
 
   // 2. Prepare payload
   // We send the data structured so the Apps Script can easily parse it.
-  const sheetName = lecture.batch_name;
   const payload = {
     batch: lecture.batch_name,
     lectureName: lecture.lecture_name,
@@ -41,28 +76,5 @@ export async function pushLoReportToSheet(lectureId: string) {
   };
 
   // 3. Trigger Apps Script
-  const url = process.env.GOOGLE_APPS_SCRIPT_URL?.trim();
-  if (!url) {
-    throw new Error("GOOGLE_APPS_SCRIPT_URL environment variable is missing.");
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      redirect: "follow" // Essential for Apps Script redirects
-    });
-
-    const result = await response.json() as { success?: boolean; error?: string };
-
-    if (!response.ok || result.error) {
-      throw new Error(result.error || `Apps Script error: ${response.statusText}`);
-    }
-
-    return { success: true, result };
-  } catch (err: any) {
-    console.error("[google-sheets] Apps Script push failed:", err);
-    throw new Error(`Failed to push to Topic Coverage Tracker: ${err.message}`);
-  }
+  return pushToGoogleSheet(payload as Record<string, unknown>);
 }
