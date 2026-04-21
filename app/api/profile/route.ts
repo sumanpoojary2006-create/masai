@@ -27,7 +27,7 @@ export async function PUT(request: Request) {
     const lmsUsername = String(formData.get("lms_username") ?? "").trim();
     const lmsPassword = String(formData.get("lms_password") ?? "").trim();
     const slackMemberId = String(formData.get("slack_member_id") ?? "").trim() || null;
-    
+
     let parsedConfigs: Record<string, unknown>[] = [];
     try {
       const batchConfigsStr = formData.get("batch_configs");
@@ -40,27 +40,28 @@ export async function PUT(request: Request) {
 
     const batchConfigs = Array.isArray(parsedConfigs)
       ? parsedConfigs
-          .map((entry, index) => {
-            const config = (entry ?? {}) as Record<string, unknown>;
-            const batchName = String(config.batch_name ?? "").trim();
-            const lectureBatchUrl = String(config.lecture_batch_url ?? "").trim();
-            const assignmentBatchUrl = String(
-              config.assignment_batch_url || deriveAssignmentBatchUrl(lectureBatchUrl)
-            ).trim();
+        .map((entry, index) => {
+          const config = (entry ?? {}) as Record<string, unknown>;
+          const batchName = String(config.batch_name ?? "").trim();
+          const lectureBatchUrl = String(config.lecture_batch_url ?? "").trim();
+          const assignmentBatchUrl = String(
+            config.assignment_batch_url || deriveAssignmentBatchUrl(lectureBatchUrl)
+          ).trim();
 
-            const file = formData.get(`curriculum_file_${index}`);
+          const file = formData.get(`curriculum_file_${index}`);
 
-            return {
-              batch_name: batchName,
-              lecture_batch_url: lectureBatchUrl,
-              assignment_batch_url: assignmentBatchUrl,
-              curriculum_file: file instanceof File ? file : null
-            };
-          })
-          .filter(
-            (config) =>
-              config.batch_name || config.lecture_batch_url || config.assignment_batch_url
-          )
+          return {
+            batch_name: batchName,
+            lecture_batch_url: lectureBatchUrl,
+            assignment_batch_url: assignmentBatchUrl,
+            spreadsheet_id: spreadsheetId,
+            curriculum_file: file instanceof File ? file : null
+          };
+        })
+        .filter(
+          (config) =>
+            config.batch_name || config.lecture_batch_url || config.assignment_batch_url
+        )
       : [];
 
     if (!lmsUsername || !lmsPassword || batchConfigs.length === 0) {
@@ -176,7 +177,7 @@ export async function PUT(request: Request) {
               throw new Error("Database error while saving curriculum: " + curriculumError.message);
             }
           } else {
-             throw new Error(`The uploaded curriculum file for batch '${config.batch_name}' does not contain recognized columns. Ensure it has "lecture_name" and "learning_objective".`);
+            throw new Error(`The uploaded curriculum file for batch '${config.batch_name}' does not contain recognized columns. Ensure it has "lecture_name" and "learning_objective".`);
           }
         } catch (e) {
           console.error("Failed to parse curriculum file for batch:", config.batch_name, e);

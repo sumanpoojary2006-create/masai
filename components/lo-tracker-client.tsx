@@ -535,8 +535,16 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                             {/* Lecture */}
                             <td className="py-4 pl-4 pr-4 min-w-[160px]">
                               <p className="font-semibold text-ink">{row.lecture_name}</p>
-                              <p className="theme-muted mt-0.5 text-xs">
-                                {formatLectureDate(row.lecture_date)} · {formatLectureTime(row.start_time)} – {formatLectureTime(row.end_time)}
+                              <p className="theme-muted mt-1 text-[10px] font-medium uppercase tracking-wider flex items-center gap-1.5">
+                                {row.session_link?.includes("id=") ? (
+                                  <>
+                                    ID: <span className="text-brand">{new URL(row.session_link).searchParams.get("id")}</span>
+                                  </>
+                                ) : (
+                                  row.module_name
+                                )}
+                                <span>·</span>
+                                {formatLectureDate(row.lecture_date)} · {formatLectureTime(row.start_time)}
                               </p>
                               {report && (
                                 <div className="mt-2">

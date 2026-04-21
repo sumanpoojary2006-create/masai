@@ -134,8 +134,11 @@ export function hhmmToTimeStr(val: number): string {
 
 export interface LmsTaskCheck {
   preread: boolean;
+  preread_at?: string | null;
   notes: boolean;
+  notes_at?: string | null;
   assignment: boolean;
+  assignment_at?: string | null;
   /** Zoom / session link for the live lecture (null if not found) */
   session_link: string | null;
 }
@@ -207,11 +210,9 @@ export async function checkLmsTasksForLecture(
   const endStr = windowEnd.toISOString().slice(0, 10);
 
   // ── reading records (pre-reads + notes) ──────────────────────────────────
-  // Existence of the record is sufficient — pre-reads uploaded as files have
-  // notes=NULL but content in faculty_resources, so we don't filter by has_content.
   const [readingRows] = await conn.query<RowDataPacket[]>(
     `
-    SELECT title, category
+    SELECT title, category, created_at
     FROM lectures
     WHERE batch_id    = ?
       AND type        = 'reading'
@@ -225,7 +226,7 @@ export async function checkLmsTasksForLecture(
   // ── assignments ───────────────────────────────────────────────────────────
   const [assignRows] = await conn.query<RowDataPacket[]>(
     `
-    SELECT title
+    SELECT title, created_at
     FROM assignments
     WHERE batch_id    = ?
       AND start_date  BETWEEN ? AND ?
@@ -250,18 +251,30 @@ export async function checkLmsTasksForLecture(
   );
 
   let preread = false;
+  let preread_at: string | null = null;
   let notes = false;
+  let notes_at: string | null = null;
   let assignment = false;
+  let assignment_at: string | null = null;
 
-  for (const row of readingRows as Array<{ title: string; category: string }>) {
+  for (const row of readingRows as Array<{ title: string; category: string; created_at: string }>) {
     if (!titleMatches(row.title, topic)) continue;
     const cat = row.category.toLowerCase();
-    if (cat.includes("pre")) preread = true;
-    else if (cat === "notes") notes = true;
+    if (cat.includes("pre")) {
+      preread = true;
+      preread_at = row.created_at;
+    } else if (cat === "notes") {
+      notes = true;
+      notes_at = row.created_at;
+    }
   }
 
-  for (const row of assignRows as Array<{ title: string }>) {
-    if (titleMatches(row.title, topic)) { assignment = true; break; }
+  for (const row of assignRows as Array<{ title: string; created_at: string }>) {
+    if (titleMatches(row.title, topic)) {
+      assignment = true;
+      assignment_at = row.created_at;
+      break;
+    }
   }
 
   const lmsId = (liveRows[0] as { id?: number } | undefined)?.id ?? null;
@@ -269,5 +282,5 @@ export async function checkLmsTasksForLecture(
     ? `https://experience-admin.masaischool.com/lectures/detail/?id=${lmsId}`
     : null;
 
-  return { preread, notes, assignment, session_link };
+  return { preread, preread_at, notes, notes_at, assignment, assignment_at, session_link };
 }

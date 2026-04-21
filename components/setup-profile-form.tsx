@@ -58,11 +58,11 @@ export function SetupProfileForm({
   const [batchConfigs, setBatchConfigs] = useState<BatchConfigInput[]>(
     initialBatchConfigs.length > 0
       ? initialBatchConfigs.map((config) => ({
-          batch_name: config.batch_name ?? "",
-          lecture_batch_url: config.lecture_batch_url ?? "",
-          assignment_batch_url: config.assignment_batch_url ?? "",
-          curriculum_file: null
-        }))
+        batch_name: config.batch_name ?? "",
+        lecture_batch_url: config.lecture_batch_url ?? "",
+        assignment_batch_url: config.assignment_batch_url ?? "",
+        curriculum_file: null
+      }))
       : [emptyBatchConfig()]
   );
   const [message, setMessage] = useState<string | null>(null);
@@ -80,9 +80,9 @@ export function SetupProfileForm({
       current.map((config, configIndex) =>
         configIndex === index
           ? {
-              ...config,
-              [field]: value
-            }
+            ...config,
+            [field]: value
+          }
           : config
       )
     );
@@ -300,7 +300,7 @@ export function SetupProfileForm({
                       className="file:mr-4 file:rounded-full file:border-0 file:bg-brand/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand hover:file:bg-brand/20 text-sm text-ink theme-input rounded-2xl px-4 py-2"
                     />
                     <span className="theme-muted text-xs font-normal">
-                      Upload a CSV or Excel file containing the curriculum for this batch. 
+                      Upload a CSV or Excel file containing the curriculum for this batch.
                       The file <b>must</b> include a <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-pink-600 dark:text-pink-400 font-mono text-[10px]">lecture_name</code> column and a <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-pink-600 dark:text-pink-400 font-mono text-[10px]">learning_objective</code> column. (Alternative column names like <i>Topic Name</i>, <i>Title</i>, or <i>Objectives</i> are also supported).
                     </span>
                   </label>

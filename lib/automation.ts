@@ -78,9 +78,35 @@ async function checkResourcesFromDb(
       `[db-check] "${lecture.lecture_name}" — preread=${check.preread}, notes=${check.notes}, assignment=${check.assignment}`
     );
 
-    records.push({ lectureId: lecture.id, resourceType: "preread",    found: check.preread,     uploadedAt: check.preread     ? nowIso : null, rawPayload: { source: "lms-db" } });
-    records.push({ lectureId: lecture.id, resourceType: "notes",      found: check.notes,       uploadedAt: check.notes       ? nowIso : null, rawPayload: { source: "lms-db" } });
-    records.push({ lectureId: lecture.id, resourceType: "assignment", found: check.assignment,  uploadedAt: check.assignment  ? nowIso : null, rawPayload: { source: "lms-db" } });
+    const timezone = getAppTimezone();
+    const toIso = (dtStr: string | null | undefined) => {
+      if (!dtStr) return null;
+      // LMS DB timestamps (created_at) are stored in IST (Asia/Kolkata)
+      const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+      return dt.isValid ? dt.toUTC().toISO() : nowIso;
+    };
+
+    records.push({
+      lectureId: lecture.id,
+      resourceType: "preread",
+      found: check.preread,
+      uploadedAt: check.preread ? (toIso(check.preread_at) || nowIso) : null,
+      rawPayload: { source: "lms-db" }
+    });
+    records.push({
+      lectureId: lecture.id,
+      resourceType: "notes",
+      found: check.notes,
+      uploadedAt: check.notes ? (toIso(check.notes_at) || nowIso) : null,
+      rawPayload: { source: "lms-db" }
+    });
+    records.push({
+      lectureId: lecture.id,
+      resourceType: "assignment",
+      found: check.assignment,
+      uploadedAt: check.assignment ? (toIso(check.assignment_at) || nowIso) : null,
+      rawPayload: { source: "lms-db" }
+    });
   }
 
   return records;

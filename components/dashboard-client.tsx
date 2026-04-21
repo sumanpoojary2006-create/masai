@@ -352,7 +352,15 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                           <tr className="align-top">
                             <td className="py-4 pr-4">
                               <p className="font-semibold text-ink">{lecture.lecture_name}</p>
-                              <p className="theme-muted mt-1 text-sm">{lecture.module_name}</p>
+                              <p className="theme-muted mt-1 text-xs font-medium uppercase tracking-wider">
+                                {lecture.session_link?.includes("id=") ? (
+                                  <>
+                                    Lecture ID: <span className="text-brand">{new URL(lecture.session_link).searchParams.get("id")}</span>
+                                  </>
+                                ) : (
+                                  lecture.module_name
+                                )}
+                              </p>
                             </td>
                             <td className="theme-muted py-4 pr-4 text-sm">
                               <p>{formatLectureDate(lecture.lecture_date)}</p>

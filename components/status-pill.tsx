@@ -7,7 +7,11 @@ export function StatusPill({ task }: { task: TaskRecord }) {
 
   return (
     <span
-      title={lateCompletion ? "Completed after deadline" : undefined}
+      title={
+        task.status === "completed"
+          ? `Uploaded: ${task.completed_at ? new Date(task.completed_at).toLocaleString() : "Unknown"} | Deadline: ${new Date(task.deadline).toLocaleString()}${lateCompletion ? " (LATE)" : " (On Time)"}`
+          : `Deadline: ${new Date(task.deadline).toLocaleString()}`
+      }
       className={`inline-flex min-w-24 justify-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ring-1 ${statusClasses(
         task.status,
         lateCompletion
