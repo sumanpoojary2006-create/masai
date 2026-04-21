@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { getScopedLmsUrl } from "@/lib/lms-batch-urls";
 import { createServerSupabase } from "@/lib/supabase";
 import { createAuthSupabase } from "@/lib/supabase-server";
 import { UserBatchConfigRecord, UserProfileRecord } from "@/lib/types";
@@ -45,7 +46,76 @@ export async function getUserBatchConfigs(userId: string) {
     throw new Error(error.message);
   }
 
-  return (data ?? []) as UserBatchConfigRecord[];
+  const savedConfigs = (data ?? []) as UserBatchConfigRecord[];
+
+  if (savedConfigs.length > 0) {
+    return savedConfigs;
+  }
+
+  const [profileResult, lectureBatchesResult] = await Promise.all([
+    supabase
+      .from("user_profiles")
+      .select("batch_name, lecture_batch_url, assignment_batch_url")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase.from("lectures").select("batch_name").eq("user_id", userId)
+  ]);
+
+  if (profileResult.error) {
+    throw new Error(profileResult.error.message);
+  }
+
+  if (lectureBatchesResult.error) {
+    throw new Error(lectureBatchesResult.error.message);
+  }
+
+  const profile = profileResult.data;
+  const lectureBatches = [
+    ...new Set((lectureBatchesResult.data ?? []).map((lecture) => lecture.batch_name))
+  ];
+
+  const recoveredConfigs = lectureBatches
+    .map((batchName) => {
+      const isPrimaryBatch = batchName === profile?.batch_name;
+      const lectureBatchUrl =
+        isPrimaryBatch
+          ? profile?.lecture_batch_url ?? null
+          : getScopedLmsUrl("lectures", batchName);
+      const assignmentBatchUrl =
+        isPrimaryBatch
+          ? profile?.assignment_batch_url ?? null
+          : getScopedLmsUrl("assignments", batchName);
+
+      if (!lectureBatchUrl || !assignmentBatchUrl) {
+        return null;
+      }
+
+      return {
+        user_id: userId,
+        batch_name: batchName,
+        lecture_batch_url: lectureBatchUrl,
+        assignment_batch_url: assignmentBatchUrl
+      };
+    })
+    .filter((config): config is Required<Omit<UserBatchConfigRecord, "id">> => Boolean(config));
+
+  if (recoveredConfigs.length === 0) {
+    return [];
+  }
+
+  const { data: insertedConfigs, error: upsertError } = await supabase
+    .from("user_batch_configs")
+    .upsert(recoveredConfigs, {
+      onConflict: "user_id,batch_name"
+    })
+    .select("id, user_id, batch_name, lecture_batch_url, assignment_batch_url")
+    .order("batch_name", { ascending: true });
+
+  if (upsertError) {
+    throw new Error(upsertError.message);
+  }
+
+  return (insertedConfigs ?? []) as UserBatchConfigRecord[];
 }
 
 export async function requireAuthenticatedUser() {
