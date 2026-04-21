@@ -111,10 +111,10 @@ async function checkResourcesFromDb(
   return records;
 }
 
-function latestTimestamp(values: Array<string | null | undefined>) {
+function earliestTimestamp(values: Array<string | null | undefined>) {
   return values
     .filter((value): value is string => Boolean(value))
-    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] ?? null;
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
 }
 
 function nextStatus(
@@ -547,7 +547,7 @@ export async function runComplianceCheck(options?: {
           resourceType: task.type,
           found: Boolean(record?.found || existingRow?.found || stickyCompleted),
           uploadedAt:
-            latestTimestamp([
+            earliestTimestamp([
               record?.uploadedAt ?? null,
               existingRow?.uploaded_at ?? null,
               task.completed_at ?? null
