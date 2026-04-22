@@ -18,29 +18,19 @@ export function LoginForm() {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsPending(true);
 
-    const inputEmail = email.toLowerCase().trim();
-    const inputPass = password.trim();
+    const emailValue = (email || "").trim();
+    const passValue = (password || "").trim();
 
-    if (inputEmail === "admin@masaischool.com" && inputPass === "admin@123") {
-      window.location.href = "/admin";
-      return;
+    alert("email: " + emailValue + " == admin@masaischool.com? " + (emailValue === "admin@masaischool.com") + " | pass: " + passValue + " == admin@123? " + (passValue === "admin@123"));
+
+    if (emailValue === "admin@masaischool.com" && passValue === "admin@123") {
+      window.location.replace("/admin");
+    } else {
+      const supabase = createBrowserSupabase();
+      await supabase.auth.signInWithPassword({ email, password });
+      window.location.replace("/");
     }
-
-    const supabase = createBrowserSupabase();
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    if (error) {
-      setMessage(error.message);
-      setIsPending(false);
-      return;
-    }
-
-    window.location.href = "/";
   }
 
   return (
