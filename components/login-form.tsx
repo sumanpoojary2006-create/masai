@@ -23,16 +23,9 @@ export function LoginForm() {
 
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPassword = password.trim();
-    const adminEmail = ADMIN_USERNAME.toLowerCase();
-    const adminPass = ADMIN_PASSWORD;
 
-    console.log("Input:", trimmedEmail, adminEmail, trimmedPassword === adminPass);
-
-    if (trimmedEmail === adminEmail && trimmedPassword === adminPass) {
-      console.log("Admin detected, redirecting...");
-      router.replace("/admin");
-      router.refresh();
-      setIsPending(false);
+    if (trimmedEmail === "admin@masaischool.com" && trimmedPassword === "admin@123") {
+      await router.push("/admin");
       return;
     }
 
@@ -48,8 +41,7 @@ export function LoginForm() {
       return;
     }
 
-    router.replace("/");
-    router.refresh();
+    await router.push("/");
   }
 
   return (
