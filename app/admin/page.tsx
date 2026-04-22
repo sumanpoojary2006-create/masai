@@ -7,12 +7,45 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AdminDashboardClient } from "@/components/admin-dashboard-client";
-import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats, AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
+
+interface AdminUserStats {
+  userId: string;
+  email: string;
+  batchConfigs: { batch_name: string }[];
+  totalLectures: number;
+  completedTasks: number;
+  pendingTasks: number;
+  missedTasks: number;
+  onTimeCount: number;
+  lateCount: number;
+}
+
+interface AdminBatchStats {
+  batchName: string;
+  lectureCount: number;
+  completedTasks: number;
+  pendingTasks: number;
+  missedTasks: number;
+}
+
+interface AdminLectureStats {
+  id: string;
+  batchName: string;
+  lectureName: string;
+  lectureDate: string;
+  startTime: string;
+  endTime: string;
+  userEmail: string;
+  prereadStatus: string | null;
+  notesStatus: string | null;
+  assignmentStatus: string | null;
+}
 
 function AdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [userStats, setUserStats] = useState<AdminUserStats[]>([]);
   const [batchStats, setBatchStats] = useState<AdminBatchStats[]>([]);
   const [lectureStats, setLectureStats] = useState<AdminLectureStats[]>([]);
@@ -26,23 +59,27 @@ function AdminContent() {
     }
 
     async function loadData() {
+      setError(null);
       try {
-        const [users, batches, lectures] = await Promise.all([
-          getAdminDashboardData(),
-          getAdminBatchStats(),
-          getAdminLectureStats()
-        ]);
-        setUserStats(users);
-        setBatchStats(batches);
-        setLectureStats(lectures);
-      } catch (err) {
+        const res = await fetch("/api/admin/data?admin=true");
+        const data = await res.json();
+        
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to fetch");
+        }
+        
+        setUserStats(data.userStats || []);
+        setBatchStats(data.batchStats || []);
+        setLectureStats(data.lectureStats || []);
+      } catch (err: any) {
         console.error("Failed to load admin data:", err);
+        setError(err?.message || "Failed to load data");
       } finally {
         setLoading(false);
       }
     }
     loadData();
-  }, [isAdmin]);
+  }, [isAdmin, router]);
 
   const overallStats = userStats.reduce(
     (acc, user) => ({
@@ -55,10 +92,53 @@ function AdminContent() {
     { totalLectures: 0, completedTasks: 0, pendingTasks: 0, missedTasks: 0, totalUsers: 0 }
   );
 
-  if (loading || !isAdmin) {
+  if (loading) {
     return (
       <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-10">
-        <p className="text-slate-500">Loading...</p>
+        <p className="text-slate-500">Loading admin data...</p>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-10">
+        <div className="text-center">
+          <p className="text-red-600">Error: {error}</p>
+          <button onClick={() => window.location.reload()} className="mt-4 px-4 py-2 bg-ink text-white rounded">
+            Retry
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-10">
+        <p className="text-slate-500">Please log in as admin first.</p>
+      </main>
+    );
+  }
+
+  if (userStats.length === 0 && batchStats.length === 0) {
+    return (
+      <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10">
+        <section className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink">Admin Dashboard</h1>
+            <p className="theme-muted mt-2 text-sm">Platform-wide analytics</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Link href="/" className="theme-button-secondary px-5 py-2.5 text-sm font-semibold rounded-full">My Dashboard</Link>
+            <ThemeToggle />
+            <LogoutButton />
+          </div>
+        </section>
+        <div className="text-center py-20">
+          <p className="text-slate-500 text-lg">No data available yet.</p>
+          <p className="text-slate-400 text-sm mt-2">Add users and upload lecture sheets to see analytics.</p>
+        </div>
       </main>
     );
   }
@@ -107,9 +187,9 @@ function AdminContent() {
       </section>
 
       <AdminDashboardClient
-        userStats={userStats}
-        batchStats={batchStats}
-        lectureStats={lectureStats}
+        userStats={userStats as any}
+        batchStats={batchStats as any}
+        lectureStats={lectureStats as any}
       />
     </main>
   );

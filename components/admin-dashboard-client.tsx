@@ -26,13 +26,13 @@ interface AdminStats {
 
 function buildLeaderboard(users: AdminUserStats[]) {
   return [...users].sort((a, b) => {
-    const aTotal = a.onTimeCount + a.lateCount;
-    const bTotal = b.onTimeCount + b.lateCount;
+    const aTotal = (a.onTimeCount || 0) + (a.lateCount || 0);
+    const bTotal = (b.onTimeCount || 0) + (b.lateCount || 0);
     if (aTotal === 0 && bTotal === 0) return 0;
     if (aTotal === 0) return 1;
     if (bTotal === 0) return -1;
-    const aConsistency = a.onTimeCount / aTotal;
-    const bConsistency = b.onTimeCount / bTotal;
+    const aConsistency = (a.onTimeCount || 0) / aTotal;
+    const bConsistency = (b.onTimeCount || 0) / bTotal;
     return bConsistency - aConsistency;
   });
 }
@@ -127,14 +127,14 @@ export function AdminDashboardClient({
                 <h3 className="font-[var(--font-heading)] text-lg font-bold text-ink">User Performance</h3>
                 <div className="mt-4 space-y-3">
                   {leaderboard.slice(0, 5).map((user, index) => {
-                    const total = user.onTimeCount + user.lateCount;
-                    const consistency = total > 0 ? Math.round((user.onTimeCount / total) * 100) : 0;
+                    const total = (user.onTimeCount || 0) + (user.lateCount || 0);
+                    const consistency = total > 0 ? Math.round(((user.onTimeCount || 0) / total) * 100) : 0;
                     return (
                       <div key={user.userId} className="flex items-center gap-3" onMouseEnter={() => setHoveredUser(user.userId)} onMouseLeave={() => setHoveredUser(null)}>
                         <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${getRankStyle(index + 1)}`}>{index + 1}</span>
                         <div className="flex-1">
                           <p className="text-sm font-semibold text-ink truncate">{user.email.split("@")[0]}</p>
-                          <ConsistencyChart onTime={user.onTimeCount} late={user.lateCount} total={total} />
+                          <ConsistencyChart onTime={user.onTimeCount || 0} late={user.lateCount || 0} total={total} />
                         </div>
                         <span className={`text-sm font-bold ${consistency >= 80 ? "text-emerald-600" : consistency >= 50 ? "text-amber-600" : "text-rose-600"}`}>{consistency}%</span>
                       </div>
@@ -203,18 +203,18 @@ export function AdminDashboardClient({
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 {leaderboard.map((user, index) => {
-                  const total = user.onTimeCount + user.lateCount;
-                  const consistency = total > 0 ? Math.round((user.onTimeCount / total) * 100) : 0;
+                  const total = (user.onTimeCount || 0) + (user.lateCount || 0);
+                  const consistency = total > 0 ? Math.round(((user.onTimeCount || 0) / total) * 100) : 0;
                   return (
                     <div key={user.userId} className="flex items-center gap-4 px-5 py-4 transition hover:bg-slate-50 dark:hover:bg-slate-800">
                       <span className={`flex h-10 w-10 items-center justify-center rounded-full text-lg font-bold ${getRankStyle(index + 1)}`}>{index + 1}</span>
                       <div className="flex-1">
                         <p className="font-semibold text-ink">{user.email}</p>
-                        <p className="text-xs text-slate-500">{user.batchConfigs.map((c) => c.batch_name).join(", ")}</p>
+                        <p className="text-xs text-slate-500">{(user.batchConfigs || []).map((c: any) => c.batch_name).join(", ")}</p>
                       </div>
                       <div className="text-right">
-                        <ConsistencyChart onTime={user.onTimeCount} late={user.lateCount} total={total} />
-                        <p className="mt-1 text-xs text-slate-500">{user.onTimeCount} on-time / {total} completed</p>
+                        <ConsistencyChart onTime={user.onTimeCount || 0} late={user.lateCount || 0} total={total} />
+                        <p className="mt-1 text-xs text-slate-500">{user.onTimeCount || 0} on-time / {total} completed</p>
                       </div>
                       <div className={`w-16 text-right font-bold ${consistency >= 80 ? "text-emerald-600" : consistency >= 50 ? "text-amber-600" : "text-rose-600"}`}>{consistency}%</div>
                     </div>
