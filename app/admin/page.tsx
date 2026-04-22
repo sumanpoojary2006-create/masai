@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AdminDashboardClient } from "@/components/admin-dashboard-client";
 import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats, AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
 
-export default function AdminPage() {
+function AdminContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
@@ -112,5 +112,17 @@ export default function AdminPage() {
         lectureStats={lectureStats}
       />
     </main>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={
+      <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-10">
+        <p className="text-slate-500">Loading...</p>
+      </main>
+    }>
+      <AdminContent />
+    </Suspense>
   );
 }
