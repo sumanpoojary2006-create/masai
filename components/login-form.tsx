@@ -6,7 +6,7 @@ import { useState } from "react";
 
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
-const ADMIN_USERNAME = "admin";
+const ADMIN_USERNAME = "admin@masaischool.com";
 const ADMIN_PASSWORD = "admin@123";
 
 export function LoginForm() {
