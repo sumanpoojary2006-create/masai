@@ -479,11 +479,11 @@ export async function syncCurrentWeekLectures(
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const weekStart = now.startOf("week");             // Monday 00:00 IST
-  const weekEnd = weekStart.plus({ days: 6 });       // Sunday IST (inclusive)
+  const weekEnd = weekStart.plus({ days: 7 });       // Include next Monday for preread planning
 
   // Pass plain IST date strings — the DB start_date column stores IST dates
   const weekStartDate = weekStart.toISODate()!;      // "2026-04-20"
-  const weekEndDate = weekEnd.toISODate()!;          // "2026-04-26"
+  const weekEndDate = weekEnd.toISODate()!;          // "2026-04-27"
 
   console.log(`[sync-lectures] Week (IST): ${weekStartDate} → ${weekEndDate}`);
 

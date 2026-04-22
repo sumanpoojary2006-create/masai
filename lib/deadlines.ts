@@ -26,9 +26,12 @@ export function computeDeadline(
   endTime: string
 ) {
   if (type === "preread") {
-    // Pre-read must be released by 3:00 PM the day before the lecture
-    const prevDay3pm = parseLocalDateTime(lectureDate, "15:00:00").minus({ days: 1 });
-    return toIsoOrThrow(prevDay3pm);
+    // Pre-read must be released by 3:00 PM the day before the lecture.
+    // Monday sessions are special: Sunday is off, so deadline is Saturday 3:00 PM.
+    const lectureDay3pm = parseLocalDateTime(lectureDate, "15:00:00");
+    const daysToSubtract = lectureDay3pm.weekday === 1 ? 2 : 1;
+    const prereadDeadline = lectureDay3pm.minus({ days: daysToSubtract });
+    return toIsoOrThrow(prereadDeadline);
   }
 
   // Notes & Assignment must be released by 3:00 PM the day after the lecture

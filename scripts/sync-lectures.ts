@@ -50,7 +50,7 @@ async function main() {
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const weekStartDate = now.startOf("week").toISODate()!;
-  const weekEndDate = now.startOf("week").plus({ days: 6 }).toISODate()!;
+  const weekEndDate = now.startOf("week").plus({ days: 7 }).toISODate()!;
 
   for (const profile of profiles) {
     console.log(`\n════════════════════════════════════`);
@@ -97,21 +97,66 @@ async function main() {
       }
     }
 
+    // Preserve existing learning objectives for synced lectures when there is no
+    // exact curriculum-key match in this run (e.g. AI-matched values from LO Tracker).
+    const { data: existingLecturesForUser, error: existingLecturesError } = await supabase
+      .from("lectures")
+      .select("id, batch_name, module_name, lecture_name, lecture_date, start_time, learning_objective")
+      .eq("user_id", profile.user_id)
+      .is("archived_at", null)
+      .in("batch_name", batchNamesInSync)
+      .gte("lecture_date", weekStartDate)
+      .lte("lecture_date", weekEndDate);
+
+    if (existingLecturesError) {
+      console.error("  [sync] Failed to fetch existing lectures for LO preservation:", existingLecturesError.message);
+      continue;
+    }
+
+    const existingLearningObjectiveMap = new Map<string, string>();
+    for (const lecture of existingLecturesForUser ?? []) {
+      existingLearningObjectiveMap.set(
+        lectureIdentityKey({
+          batch_name: lecture.batch_name,
+          module_name: lecture.module_name ?? "",
+          lecture_name: lecture.lecture_name,
+          lecture_date: lecture.lecture_date,
+          start_time: lecture.start_time
+        }),
+        String(lecture.learning_objective ?? "").trim()
+      );
+    }
+
     // Upsert lectures
     const { data: upsertedLectures, error: lectureError } = await supabase
       .from("lectures")
       .upsert(
-        synced.map((lec) => ({
-          user_id: profile.user_id,
-          batch_name: lec.batch_name,
-          module_name: lec.module_name,
-          lecture_name: lec.lecture_name,
-          learning_objective: curriculumMap.get(`${lec.batch_name}::${lec.lecture_name.toLowerCase()}`) || "",
-          lecture_date: lec.lecture_date,
-          start_time: lec.start_time,
-          end_time: lec.end_time,
-          session_link: lec.session_link
-        })),
+        synced.map((lec) => {
+          const exactCurriculumObjective =
+            curriculumMap.get(`${lec.batch_name}::${lec.lecture_name.toLowerCase()}`) ?? "";
+          const existingObjective =
+            existingLearningObjectiveMap.get(
+              lectureIdentityKey({
+                batch_name: lec.batch_name,
+                module_name: lec.module_name,
+                lecture_name: lec.lecture_name,
+                lecture_date: lec.lecture_date,
+                start_time: lec.start_time
+              })
+            ) ?? "";
+
+          return {
+            user_id: profile.user_id,
+            batch_name: lec.batch_name,
+            module_name: lec.module_name,
+            lecture_name: lec.lecture_name,
+            learning_objective: exactCurriculumObjective || existingObjective,
+            lecture_date: lec.lecture_date,
+            start_time: lec.start_time,
+            end_time: lec.end_time,
+            session_link: lec.session_link
+          };
+        }),
         { onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time" }
       )
       .select("id, lecture_date, start_time, end_time");
@@ -165,7 +210,7 @@ async function main() {
       console.log(`  Created/refreshed ${taskPayload.length} task(s).`);
     }
 
-    // Archive stale current-week lectures that no longer exist in LMS sync result.
+    // Archive stale current-week (+ next Monday) lectures that no longer exist in LMS sync result.
     const syncedKeys = new Set(
       synced.map((lecture) =>
         lectureIdentityKey({
