@@ -22,7 +22,8 @@ export function LoginForm() {
     }
 
     const supabase = createBrowserSupabase();
-    supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
+    supabase.auth.signInWithPassword({ email, password }).then((result: { error: Error | null }) => {
+      const { error } = result;
       if (error) {
         setMessage(error.message);
         setIsPending(false);
