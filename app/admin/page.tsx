@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -11,8 +11,9 @@ import { redirect } from "next/navigation";
 
 function hasAdminCookie() {
   try {
-    const cookieStore = cookies();
-    return cookieStore.get("admin_session")?.value === "true";
+    const headersList = headers();
+    const cookieHeader = headersList.get("cookie") || "";
+    return cookieHeader.includes("admin_session=true");
   } catch {
     return false;
   }
