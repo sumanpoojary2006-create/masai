@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 
 import { TASK_TYPES } from "@/lib/constants";
 import { getAppTimezone } from "@/lib/env";
+import { decryptLmsPassword } from "@/lib/lms-password";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   DashboardLecture,
@@ -281,6 +282,7 @@ export async function getAutomationProfiles(userId?: string) {
 
   return typedProfiles.map((profile) => ({
     ...profile,
+    lms_password: profile.lms_password ? decryptLmsPassword(profile.lms_password) : "",
     batch_configs: batchConfigsByUser.get(profile.user_id) ?? []
   }));
 }

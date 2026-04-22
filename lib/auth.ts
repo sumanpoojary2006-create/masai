@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getScopedLmsUrl } from "@/lib/lms-batch-urls";
+import { decryptLmsPassword } from "@/lib/lms-password";
 import { createServerSupabase } from "@/lib/supabase";
 import { createAuthSupabase } from "@/lib/supabase-server";
 import { UserBatchConfigRecord, UserProfileRecord } from "@/lib/types";
@@ -19,7 +20,7 @@ export async function getCurrentUser() {
   return user;
 }
 
-export async function getUserProfile(userId: string) {
+export async function getUserProfile(userId: string, options?: { includePassword?: boolean }) {
   const supabase = createServerSupabase();
   const { data, error } = await supabase
     .from("user_profiles")
@@ -31,7 +32,16 @@ export async function getUserProfile(userId: string) {
     throw new Error(error.message);
   }
 
-  return (data as UserProfileRecord | null) ?? null;
+  const profile = (data as UserProfileRecord | null) ?? null;
+  if (!profile) return null;
+
+  return {
+    ...profile,
+    lms_password:
+      options?.includePassword && profile.lms_password
+        ? decryptLmsPassword(profile.lms_password)
+        : ""
+  };
 }
 
 export async function getUserBatchConfigs(userId: string) {

@@ -14,7 +14,7 @@ export function AuthShell({
   children: React.ReactNode;
 }) {
   return (
-    <main className="app-shell mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-10 sm:px-6 lg:px-8">
+    <main className="app-shell mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-x-hidden px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between gap-4">
         <Link href="/" className="font-[var(--font-heading)] text-2xl font-bold text-ink">
           Masai Resource Tracker
@@ -22,9 +22,9 @@ export function AuthShell({
         <ThemeToggle />
       </div>
 
-      <div className="mx-auto flex w-full max-w-5xl flex-1 items-center py-10">
-        <div className="grid w-full gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-          <section className="theme-panel flex flex-col justify-between rounded-[2rem] p-8 shadow-panel">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 py-10">
+        <div className="grid w-full min-w-0 gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <section className="theme-panel min-w-0 flex-col justify-between rounded-[2rem] p-8 shadow-panel lg:flex">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
                 Multi-profile Access
@@ -49,7 +49,7 @@ export function AuthShell({
             </div>
           </section>
 
-          <section className="theme-panel rounded-[2rem] p-8 shadow-panel">
+          <section className="theme-panel min-w-0 rounded-[2rem] p-8 shadow-panel">
             {children}
             {footer ? <div className="mt-6 text-sm">{footer}</div> : null}
           </section>

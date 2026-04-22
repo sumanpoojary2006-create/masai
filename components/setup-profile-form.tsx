@@ -177,9 +177,10 @@ export function SetupProfileForm({
         LMS password
         <input
           type="password"
-          required
+          required={!isEditingExistingProfile}
           value={form.lms_password}
           onChange={(event) => updateProfileField("lms_password", event.target.value)}
+          placeholder={isEditingExistingProfile ? "Leave blank to keep existing password" : ""}
           className="theme-input rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
         />
       </label>

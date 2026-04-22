@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { parseCurriculumWorkbook } from "@/lib/importer";
 import { deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
+import { decryptLmsPassword, encryptLmsPassword } from "@/lib/lms-password";
 import { createServerSupabase } from "@/lib/supabase";
 
 export async function PUT(request: Request) {
@@ -65,7 +66,23 @@ export async function PUT(request: Request) {
         )
       : [];
 
-    if (!lmsUsername || !lmsPassword || batchConfigs.length === 0) {
+    const supabase = createServerSupabase();
+    const { data: existingProfile, error: existingProfileError } = await supabase
+      .from("user_profiles")
+      .select("lms_password")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (existingProfileError) {
+      throw new Error(existingProfileError.message);
+    }
+
+    const existingPassword = existingProfile?.lms_password
+      ? decryptLmsPassword(existingProfile.lms_password)
+      : "";
+    const resolvedPassword = lmsPassword || existingPassword;
+
+    if (!lmsUsername || !resolvedPassword || batchConfigs.length === 0) {
       return NextResponse.json(
         {
           message: "LMS username, LMS password, and at least one batch configuration are required."
@@ -106,14 +123,13 @@ export async function PUT(request: Request) {
       );
     }
 
-    const supabase = createServerSupabase();
     const primaryBatch = batchConfigs[0];
     const { error } = await supabase.from("user_profiles").upsert(
       {
         user_id: user.id,
         email: user.email ?? "",
         lms_username: lmsUsername,
-        lms_password: lmsPassword,
+        lms_password: encryptLmsPassword(resolvedPassword),
         batch_name: primaryBatch.batch_name,
         lecture_batch_url: primaryBatch.lecture_batch_url,
         assignment_batch_url: primaryBatch.assignment_batch_url,

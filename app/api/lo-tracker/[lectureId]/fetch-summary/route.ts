@@ -28,7 +28,7 @@ export async function POST(
         .eq("id", lectureId)
         .eq("user_id", user.id)
         .maybeSingle(),
-      getUserProfile(user.id)
+      getUserProfile(user.id, { includePassword: true })
     ]);
 
     if (lectureResult.error) throw new Error(lectureResult.error.message);
