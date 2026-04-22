@@ -21,7 +21,15 @@ export function LoginForm() {
     setIsPending(true);
     setMessage(null);
 
-    if (email === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPassword = password.trim();
+    const adminEmail = ADMIN_USERNAME.toLowerCase();
+    const adminPass = ADMIN_PASSWORD;
+
+    console.log("Input:", trimmedEmail, adminEmail, trimmedPassword === adminPass);
+
+    if (trimmedEmail === adminEmail && trimmedPassword === adminPass) {
+      console.log("Admin detected, redirecting...");
       router.replace("/admin");
       router.refresh();
       setIsPending(false);
