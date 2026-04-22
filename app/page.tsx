@@ -7,7 +7,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UploadForm } from "@/components/upload-form";
 import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
-import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
+import { hasPublicSupabaseConfig, hasSupabaseConfig, isAdminUser } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
 import { DashboardLecture } from "@/lib/types";
 import { redirect } from "next/navigation";
@@ -89,6 +89,14 @@ export default async function HomePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {isAdminUser(user.id) && (
+            <Link
+              href="/admin"
+              className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
+            >
+              Admin
+            </Link>
+          )}
           <Link
             href="/lo-tracker"
             className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"

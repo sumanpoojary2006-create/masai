@@ -50,3 +50,13 @@ export function getAutomationEnv() {
     timezone: getAppTimezone()
   };
 }
+
+export function getAdminUserIds(): string[] {
+  const adminIds = process.env.ADMIN_USER_IDS;
+  if (!adminIds) return [];
+  return adminIds.split(",").map((id) => id.trim()).filter(Boolean);
+}
+
+export function isAdminUser(userId: string): boolean {
+  return getAdminUserIds().includes(userId);
+}

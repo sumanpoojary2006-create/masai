@@ -286,3 +286,191 @@ export async function getAutomationProfiles(userId?: string) {
     batch_configs: batchConfigsByUser.get(profile.user_id) ?? []
   }));
 }
+
+export interface AdminUserStats {
+  userId: string;
+  email: string;
+  batchConfigs: UserBatchConfigRecord[];
+  totalLectures: number;
+  completedTasks: number;
+  pendingTasks: number;
+  missedTasks: number;
+}
+
+export async function getAdminDashboardData(): Promise<AdminUserStats[]> {
+  const supabase = createServerSupabase();
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id, email, onboarding_complete")
+    .eq("onboarding_complete", true)
+    .order("email", { ascending: true });
+
+  if (profileError) throw new Error(profileError.message);
+  if (!profiles || profiles.length === 0) return [];
+
+  const userIds = profiles.map((p) => p.user_id);
+
+  const { data: batchConfigs, error: configError } = await supabase
+    .from("user_batch_configs")
+    .select("id, user_id, batch_name, lecture_batch_url, assignment_batch_url")
+    .in("user_id", userIds)
+    .order("batch_name", { ascending: true });
+
+  if (configError) throw new Error(configError.message);
+
+  const { data: lectures, error: lectureError } = await supabase
+    .from("lectures")
+    .select("id, user_id, batch_name, tasks(id, type, deadline, status, completed_at)")
+    .in("user_id", userIds)
+    .is("archived_at", null);
+
+  if (lectureError) throw new Error(lectureError.message);
+
+  const batchConfigsByUser = (batchConfigs ?? []).reduce<Map<string, UserBatchConfigRecord[]>>(
+    (accumulator, config) => {
+      const current = accumulator.get(config.user_id) ?? [];
+      current.push(config as UserBatchConfigRecord);
+      accumulator.set(config.user_id, current);
+      return accumulator;
+    },
+    new Map()
+  );
+
+  const lecturesByUser = lectures?.reduce<Map<string, DashboardLecture[]>>(
+    (accumulator, lecture) => {
+      const current = accumulator.get(lecture.user_id) ?? [];
+      current.push({
+        id: lecture.id,
+        user_id: lecture.user_id,
+        batch_name: lecture.batch_name,
+        module_name: "",
+        lecture_name: "",
+        learning_objective: "",
+        session_link: "",
+        lecture_date: "",
+        start_time: "",
+        end_time: "",
+        tasks: buildTaskMap((lecture.tasks ?? []) as TaskRecord[])
+      });
+      accumulator.set(lecture.user_id, current);
+      return accumulator;
+    },
+    new Map()
+  ) ?? new Map();
+
+  return profiles.map((profile) => {
+    const userLectures = lecturesByUser.get(profile.user_id) ?? [];
+    const allTasks = userLectures.flatMap((lecture) => Object.values(lecture.tasks));
+
+    return {
+      userId: profile.user_id,
+      email: profile.email,
+      batchConfigs: batchConfigsByUser.get(profile.user_id) ?? [],
+      totalLectures: userLectures.length,
+      completedTasks: allTasks.filter((task) => task?.status === "completed").length,
+      pendingTasks: allTasks.filter((task) => task?.status === "pending").length,
+      missedTasks: allTasks.filter((task) => task?.status === "missed").length
+    };
+  });
+}
+
+export interface AdminBatchStats {
+  batchName: string;
+  lectureCount: number;
+  completedTasks: number;
+  pendingTasks: number;
+  missedTasks: number;
+}
+
+export async function getAdminBatchStats(): Promise<AdminBatchStats[]> {
+  const supabase = createServerSupabase();
+
+  const { data: lectures, error } = await supabase
+    .from("lectures")
+    .select("id, batch_name, tasks(id, type, deadline, status, completed_at)")
+    .is("archived_at", null);
+
+  if (error) throw new Error(error.message);
+
+  const batchMap = new Map<string, AdminBatchStats>();
+
+  for (const lecture of lectures ?? []) {
+    const batchName = lecture.batch_name;
+    const current = batchMap.get(batchName) ?? {
+      batchName,
+      lectureCount: 0,
+      completedTasks: 0,
+      pendingTasks: 0,
+      missedTasks: 0
+    };
+
+    current.lectureCount++;
+    const tasks = (lecture.tasks ?? []) as TaskRecord[];
+    for (const task of tasks) {
+      if (task.status === "completed") current.completedTasks++;
+      else if (task.status === "pending") current.pendingTasks++;
+      else if (task.status === "missed") current.missedTasks++;
+    }
+
+    batchMap.set(batchName, current);
+  }
+
+  return Array.from(batchMap.values()).sort((a, b) =>
+    b.lectureCount - a.lectureCount
+  );
+}
+
+export interface AdminLectureStats {
+  id: string;
+  batchName: string;
+  lectureName: string;
+  lectureDate: string;
+  startTime: string;
+  endTime: string;
+  userEmail: string;
+  prereadStatus: TaskStatus | null;
+  notesStatus: TaskStatus | null;
+  assignmentStatus: TaskStatus | null;
+}
+
+export async function getAdminLectureStats(): Promise<AdminLectureStats[]> {
+  const supabase = createServerSupabase();
+
+  const { data: lectures, error } = await supabase
+    .from("lectures")
+    .select("id, user_id, batch_name, module_name, lecture_name, lecture_date, start_time, end_time, tasks(id, type, deadline, status, completed_at)")
+    .is("archived_at", null)
+    .order("lecture_date", { ascending: false })
+    .order("start_time", { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  const userIds = [...new Set((lectures ?? []).map((l) => l.user_id))];
+  const { data: profiles } = await supabase
+    .from("user_profiles")
+    .select("user_id, email")
+    .in("user_id", userIds);
+
+  const userEmailMap = new Map<string, string>((profiles ?? []).map((p) => [p.user_id, p.email]));
+
+  return (lectures ?? []).map((lecture) => {
+    const tasks = (lecture.tasks ?? []) as TaskRecord[];
+    const preread = tasks.find((t) => t.type === "preread");
+    const notes = tasks.find((t) => t.type === "notes");
+    const assignment = tasks.find((t) => t.type === "assignment");
+
+    return {
+      id: lecture.id,
+      batchName: lecture.batch_name,
+      lectureName: lecture.lecture_name,
+      lectureDate: lecture.lecture_date,
+      startTime: lecture.start_time,
+      endTime: lecture.end_time,
+      userEmail: userEmailMap.get(lecture.user_id) ?? "Unknown",
+      prereadStatus: (preread?.status ?? null) as TaskStatus | null,
+      notesStatus: (notes?.status ?? null) as TaskStatus | null,
+      assignmentStatus: (assignment?.status ?? null) as TaskStatus | null
+    };
+  });
+}
