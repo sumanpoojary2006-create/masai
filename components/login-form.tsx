@@ -1,36 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
-const ADMIN_USERNAME = "admin@masaischool.com";
-const ADMIN_PASSWORD = "admin@123";
-
 export function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setIsPending(true);
 
-    const emailValue = (email || "").trim();
-    const passValue = (password || "").trim();
-
-    alert("email: " + emailValue + " == admin@masaischool.com? " + (emailValue === "admin@masaischool.com") + " | pass: " + passValue + " == admin@123? " + (passValue === "admin@123"));
-
-    if (emailValue === "admin@masaischool.com" && passValue === "admin@123") {
-      window.location.replace("/admin");
-    } else {
-      const supabase = createBrowserSupabase();
-      await supabase.auth.signInWithPassword({ email, password });
-      window.location.replace("/");
+    if (email === "admin@masaischool.com" && password === "admin@123") {
+      document.cookie = "admin_session=true; path=/; max-age=86400";
+      window.location.href = "/admin";
+      return;
     }
+
+    const supabase = createBrowserSupabase();
+    supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
+      if (error) {
+        setMessage(error.message);
+        setIsPending(false);
+      } else {
+        window.location.href = "/";
+      }
+    });
   }
 
   return (

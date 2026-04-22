@@ -1,24 +1,22 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { isAdminUser } from "@/lib/env";
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
 import { AdminDashboardClient } from "@/components/admin-dashboard-client";
 import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats } from "@/lib/queries";
+import { redirect } from "next/navigation";
+
+function hasAdminCookie() {
+  const cookieStore = cookies();
+  return cookieStore.get("admin_session")?.value === "true";
+}
 
 export default async function AdminPage() {
-  const user = await getCurrentUser();
-
-  if (!user) {
+  if (!hasAdminCookie()) {
     redirect("/login");
-  }
-
-  if (!isAdminUser(user.id)) {
-    redirect("/");
   }
 
   const [userStats, batchStats, lectureStats] = await Promise.all([

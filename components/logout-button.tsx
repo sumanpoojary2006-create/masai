@@ -12,6 +12,13 @@ export function LogoutButton() {
   async function handleLogout() {
     setIsPending(true);
 
+    const isAdmin = document.cookie.includes("admin_session=true");
+    if (isAdmin) {
+      document.cookie = "admin_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      window.location.href = "/login";
+      return;
+    }
+
     const supabase = createBrowserSupabase();
     await supabase.auth.signOut();
     router.replace("/login");
