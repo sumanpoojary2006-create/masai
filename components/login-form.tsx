@@ -18,9 +18,7 @@ export function LoginForm() {
     setIsPending(true);
 
     if (email === "admin@masaischool.com" && password === "admin@123") {
-      fetch("/api/admin/set-cookie", { method: "POST" }).then(() => {
-        router.push("/admin");
-      });
+      router.push("/admin?admin=true");
       return;
     }
 

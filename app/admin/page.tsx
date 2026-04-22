@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -11,13 +11,16 @@ import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats, AdminB
 
 export default function AdminPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [userStats, setUserStats] = useState<AdminUserStats[]>([]);
   const [batchStats, setBatchStats] = useState<AdminBatchStats[]>([]);
   const [lectureStats, setLectureStats] = useState<AdminLectureStats[]>([]);
 
+  const isAdmin = searchParams.get("admin") === "true";
+
   useEffect(() => {
-    if (typeof window !== "undefined" && !document.cookie.includes("admin_session")) {
+    if (!isAdmin) {
       router.push("/login");
       return;
     }
@@ -39,7 +42,7 @@ export default function AdminPage() {
       }
     }
     loadData();
-  }, []);
+  }, [isAdmin]);
 
   const overallStats = userStats.reduce(
     (acc, user) => ({
@@ -52,7 +55,7 @@ export default function AdminPage() {
     { totalLectures: 0, completedTasks: 0, pendingTasks: 0, missedTasks: 0, totalUsers: 0 }
   );
 
-  if (loading) {
+  if (loading || !isAdmin) {
     return (
       <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-10">
         <p className="text-slate-500">Loading...</p>

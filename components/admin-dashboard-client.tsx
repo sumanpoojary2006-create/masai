@@ -109,14 +109,6 @@ export function AdminDashboardClient({
     return <span className={`inline-flex min-w-20 justify-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${classes}`}>{status}</span>;
   }
 
-  if (typeof window !== "undefined" && !document.cookie.includes("admin_session")) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <p className="text-slate-500">Please log in as admin first.</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <section className="theme-panel rounded-3xl p-2">
