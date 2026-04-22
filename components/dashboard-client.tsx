@@ -21,18 +21,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({
-    batch_name: "",
-    module_name: "",
-    lecture_name: "",
-    learning_objective: "",
-    lecture_date: "",
-    start_time: "",
-    end_time: ""
-  });
   const [isPending, startTransition] = useTransition();
 
   const batches = [...new Set(lectures.map((lecture) => lecture.batch_name))].sort();
@@ -86,57 +76,6 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     });
   }
 
-  function startEditing(lecture: DashboardLecture) {
-    setEditingId(lecture.id);
-    setMessage(null);
-    setEditForm({
-      batch_name: lecture.batch_name,
-      module_name: lecture.module_name,
-      lecture_name: lecture.lecture_name,
-      learning_objective: lecture.learning_objective ?? "",
-      lecture_date: lecture.lecture_date,
-      start_time: lecture.start_time.slice(0, 5),
-      end_time: lecture.end_time.slice(0, 5)
-    });
-  }
-
-  function cancelEditing() {
-    setEditingId(null);
-    setMessage(null);
-  }
-
-  function updateField(field: keyof typeof editForm, value: string) {
-    setEditForm((current) => ({
-      ...current,
-      [field]: value
-    }));
-  }
-
-  function handleSave(lectureId: string) {
-    startTransition(async () => {
-      setMessage(null);
-
-      const response = await fetch(`/api/lectures/${lectureId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(editForm)
-      });
-
-      const payload = (await response.json()) as { message?: string };
-
-      if (!response.ok) {
-        setMessage(payload.message ?? "Unable to update the lecture.");
-        return;
-      }
-
-      setMessage(payload.message ?? "Lecture updated.");
-      setEditingId(null);
-      router.refresh();
-    });
-  }
-
   function handleSync() {
     startTransition(async () => {
       setIsSyncing(true);
@@ -182,19 +121,15 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       return <span className="theme-muted text-sm">Not created</span>;
     }
 
-    const deadlineLabel = formatDeadline(task.deadline)
-      .replace(" AM", "\u00A0AM")
-      .replace(" PM", "\u00A0PM");
-
     return (
-      <div className="flex min-h-[88px] min-w-0 flex-col justify-start gap-2">
+      <div className="flex min-h-[88px] flex-col justify-start gap-2">
         <StatusPill task={task} />
-        <div className="theme-muted min-w-0 text-[11px] leading-tight">
+        <p className="theme-muted text-[11px] leading-relaxed">
           <span className="font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
             Deadline
           </span>
-          <p className="mt-1 font-medium whitespace-nowrap">{deadlineLabel}</p>
-        </div>
+          <span className="ml-1 font-medium">{formatDeadline(task.deadline)}</span>
+        </p>
       </div>
     );
   }
@@ -357,36 +292,28 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 </div>
 
                 <div className="overflow-x-auto px-5 py-2">
-                  <table className="min-w-[1120px] w-full table-fixed divide-y divide-slate-200/70 dark:divide-slate-700/70">
-                    <colgroup>
-                      <col className="w-[32%]" />
-                      <col className="w-[12%]" />
-                      <col className="w-[14%]" />
-                      <col className="w-[14%]" />
-                      <col className="w-[14%]" />
-                      <col className="w-[14%]" />
-                    </colgroup>
+                  <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
                     <thead>
                       <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-6 pt-3">Lecture</th>
-                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Schedule</th>
-                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Pre-read</th>
-                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Notes</th>
-                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pr-4 pt-3">Assignment</th>
-                        <th className="theme-subpanel-header sticky top-0 z-10 pb-3 pt-3">Action</th>
+                        <th className="pb-3 pr-4 pt-3">Lecture</th>
+                        <th className="pb-3 pr-4 pt-3">Schedule</th>
+                        <th className="pb-3 pr-4 pt-3">Pre-read</th>
+                        <th className="pb-3 pr-4 pt-3">Notes</th>
+                        <th className="pb-3 pr-4 pt-3">Assignment</th>
+                        <th className="pb-3 pt-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
                       {batchLectures.map((lecture) => (
                         <Fragment key={lecture.id}>
                           <tr className="align-top">
-                            <td className="py-4 pr-6">
-                              <p className="font-semibold break-words text-ink">{lecture.lecture_name}</p>
+                            <td className="py-4 pr-4">
+                              <p className="font-semibold text-ink">{lecture.lecture_name}</p>
                               <p className="theme-muted mt-1 text-xs font-medium uppercase tracking-wider">
                                 Lecture ID: <span className="text-brand">{getDisplayLectureId(lecture)}</span>
                               </p>
                             </td>
-                            <td className="theme-muted py-4 pr-4 text-sm whitespace-nowrap">
+                            <td className="theme-muted py-4 pr-4 text-sm">
                               <p>{formatLectureDate(lecture.lecture_date)}</p>
                               <p className="mt-1">{formatLectureTime(lecture.start_time)}</p>
                             </td>
@@ -394,115 +321,37 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                             <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "notes")}</td>
                             <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "assignment")}</td>
                             <td className="py-4">
-                              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                                <button
-                                  type="button"
-                                  disabled={isPending}
-                                  onClick={() => startEditing(lecture)}
-                                  className="theme-button-secondary inline-flex h-9 items-center justify-center rounded-full px-4 text-xs font-semibold uppercase tracking-[0.12em] transition disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                                >
-                                  Edit
-                                </button>
+                              <div className="flex items-start">
                                 <button
                                   type="button"
                                   disabled={isPending && deletingId === lecture.id}
                                   onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
-                                  className="inline-flex h-9 items-center justify-center rounded-full border border-rose-200 px-4 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:disabled:border-slate-700 dark:disabled:text-slate-600"
+                                  title="Delete lecture"
+                                  aria-label="Delete lecture"
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-300 text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:disabled:border-slate-700 dark:disabled:text-slate-600"
                                 >
-                                  {deletingId === lecture.id ? "Deleting..." : "Delete"}
+                                  {deletingId === lecture.id ? (
+                                    <span className="text-[10px] font-semibold">...</span>
+                                  ) : (
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      className="h-4 w-4"
+                                    >
+                                      <path d="M3 6h18" />
+                                      <path d="M8 6V4h8v2" />
+                                      <path d="M19 6l-1 14H6L5 6" />
+                                      <path d="M10 11v6" />
+                                      <path d="M14 11v6" />
+                                    </svg>
+                                  )}
                                 </button>
                               </div>
                             </td>
                           </tr>
-                          {editingId === lecture.id ? (
-                            <tr className="bg-white/90 dark:bg-slate-900/80">
-                              <td colSpan={6} className="px-0 pb-5 pt-1">
-                                <div className="theme-edit-panel rounded-2xl p-4">
-                                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                                Batch
-                                <input
-                                  value={editForm.batch_name}
-                                  onChange={(event) => updateField("batch_name", event.target.value)}
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                                Module
-                                <input
-                                  value={editForm.module_name}
-                                  onChange={(event) => updateField("module_name", event.target.value)}
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                                Lecture Name
-                                <input
-                                  value={editForm.lecture_name}
-                                  onChange={(event) => updateField("lecture_name", event.target.value)}
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                              <label className="theme-muted col-span-full flex flex-col gap-2 text-sm font-medium xl:col-span-3">
-                                Learning Objectives
-                                <input
-                                  value={editForm.learning_objective}
-                                  onChange={(event) => updateField("learning_objective", event.target.value)}
-                                  placeholder="e.g. Understand transformer architecture"
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                                Date
-                                <input
-                                  type="date"
-                                  value={editForm.lecture_date}
-                                  onChange={(event) => updateField("lecture_date", event.target.value)}
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                                Start Time
-                                <input
-                                  type="time"
-                                  value={editForm.start_time}
-                                  onChange={(event) => updateField("start_time", event.target.value)}
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                                End Time
-                                <input
-                                  type="time"
-                                  value={editForm.end_time}
-                                  onChange={(event) => updateField("end_time", event.target.value)}
-                                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                                />
-                              </label>
-                            </div>
-
-                                  <div className="mt-4 flex flex-wrap gap-3">
-                                    <button
-                                      type="button"
-                                      disabled={isPending}
-                                      onClick={() => handleSave(lecture.id)}
-                                      className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                                    >
-                                      Save Changes
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={isPending}
-                                      onClick={cancelEditing}
-                                      className="theme-button-secondary inline-flex h-10 items-center justify-center rounded-full px-5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:text-slate-400"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          ) : null}
                         </Fragment>
                       ))}
                     </tbody>

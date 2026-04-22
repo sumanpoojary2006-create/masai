@@ -10,6 +10,33 @@ import { createServerSupabase } from "../lib/supabase";
 import { TASK_TYPES } from "../lib/constants";
 import { TaskRecord } from "../lib/types";
 
+function computeWeekLabel(lectureDate: string, timezone: string): string {
+  const dt = DateTime.fromISO(lectureDate, { zone: timezone });
+  const monday = dt.startOf("week");
+  const sunday = monday.plus({ days: 6 });
+
+  if (monday.month === sunday.month) {
+    return `${monday.day} - ${sunday.day} ${sunday.toFormat("LLL")}`;
+  }
+  return `${monday.day} ${monday.toFormat("LLL")} - ${sunday.day} ${sunday.toFormat("LLL")}`;
+}
+
+function lectureIdentityKey(input: {
+  batch_name: string;
+  module_name: string;
+  lecture_name: string;
+  lecture_date: string;
+  start_time: string;
+}) {
+  return [
+    input.batch_name.trim().toLowerCase(),
+    input.module_name.trim().toLowerCase(),
+    input.lecture_name.trim().toLowerCase(),
+    input.lecture_date,
+    input.start_time
+  ].join("::");
+}
+
 async function main() {
   const targetUserId = process.env.TARGET_USER_ID?.trim() || undefined;
   const profiles = await getAutomationProfiles(targetUserId);
@@ -22,6 +49,8 @@ async function main() {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
+  const weekStartDate = now.startOf("week").toISODate()!;
+  const weekEndDate = now.startOf("week").plus({ days: 6 }).toISODate()!;
 
   for (const profile of profiles) {
     console.log(`\n════════════════════════════════════`);
@@ -134,6 +163,67 @@ async function main() {
       console.error("  [sync] Task upsert failed:", taskError.message);
     } else {
       console.log(`  Created/refreshed ${taskPayload.length} task(s).`);
+    }
+
+    // Archive stale current-week lectures that no longer exist in LMS sync result.
+    const syncedKeys = new Set(
+      synced.map((lecture) =>
+        lectureIdentityKey({
+          batch_name: lecture.batch_name,
+          module_name: lecture.module_name,
+          lecture_name: lecture.lecture_name,
+          lecture_date: lecture.lecture_date,
+          start_time: lecture.start_time
+        })
+      )
+    );
+    const configuredBatchNames = profile.batch_configs.map((config) => config.batch_name);
+    const { data: currentWeekLectures, error: currentWeekLecturesError } = await supabase
+      .from("lectures")
+      .select("id, batch_name, module_name, lecture_name, lecture_date, start_time")
+      .eq("user_id", profile.user_id)
+      .is("archived_at", null)
+      .in("batch_name", configuredBatchNames)
+      .gte("lecture_date", weekStartDate)
+      .lte("lecture_date", weekEndDate);
+
+    if (currentWeekLecturesError) {
+      console.error("  [sync] Failed to fetch current-week lectures for stale cleanup:", currentWeekLecturesError.message);
+    } else {
+      const staleLectures = (currentWeekLectures ?? []).filter(
+        (lecture) =>
+          !syncedKeys.has(
+            lectureIdentityKey({
+              batch_name: lecture.batch_name,
+              module_name: lecture.module_name ?? "",
+              lecture_name: lecture.lecture_name,
+              lecture_date: lecture.lecture_date,
+              start_time: lecture.start_time
+            })
+          )
+      );
+
+      if (staleLectures.length > 0) {
+        const staleLectureIds = staleLectures.map((lecture) => lecture.id);
+        const weekLabel =
+          staleLectures.length === 1
+            ? computeWeekLabel(staleLectures[0].lecture_date, timezone)
+            : null;
+
+        const { error: archiveError } = await supabase
+          .from("lectures")
+          .update({
+            archived_at: now.toUTC().toISO(),
+            ...(weekLabel ? { week_label: weekLabel } : {})
+          })
+          .in("id", staleLectureIds);
+
+        if (archiveError) {
+          console.error("  [sync] Failed to archive stale lectures:", archiveError.message);
+        } else {
+          console.log(`  Archived ${staleLectures.length} stale lecture(s) not present in LMS current-week sync.`);
+        }
+      }
     }
 
     // Print what was synced
