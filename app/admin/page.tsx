@@ -1,34 +1,45 @@
-export const dynamic = "force-dynamic";
+"use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { headers } from "next/headers";
+import { useRouter } from "next/navigation";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AdminDashboardClient } from "@/components/admin-dashboard-client";
-import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats } from "@/lib/queries";
-import { redirect } from "next/navigation";
+import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats, AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
 
-function hasAdminCookie() {
-  try {
-    const headersList = headers();
-    const cookieHeader = headersList.get("cookie") || "";
-    return cookieHeader.includes("admin_session=true");
-  } catch {
-    return false;
-  }
-}
+export default function AdminPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [userStats, setUserStats] = useState<AdminUserStats[]>([]);
+  const [batchStats, setBatchStats] = useState<AdminBatchStats[]>([]);
+  const [lectureStats, setLectureStats] = useState<AdminLectureStats[]>([]);
 
-export default async function AdminPage() {
-  if (!hasAdminCookie()) {
-    redirect("/login");
-  }
+  useEffect(() => {
+    if (typeof window !== "undefined" && !document.cookie.includes("admin_session")) {
+      router.push("/login");
+      return;
+    }
 
-  const [userStats, batchStats, lectureStats] = await Promise.all([
-    getAdminDashboardData(),
-    getAdminBatchStats(),
-    getAdminLectureStats()
-  ]);
+    async function loadData() {
+      try {
+        const [users, batches, lectures] = await Promise.all([
+          getAdminDashboardData(),
+          getAdminBatchStats(),
+          getAdminLectureStats()
+        ]);
+        setUserStats(users);
+        setBatchStats(batches);
+        setLectureStats(lectures);
+      } catch (err) {
+        console.error("Failed to load admin data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   const overallStats = userStats.reduce(
     (acc, user) => ({
@@ -40,6 +51,14 @@ export default async function AdminPage() {
     }),
     { totalLectures: 0, completedTasks: 0, pendingTasks: 0, missedTasks: 0, totalUsers: 0 }
   );
+
+  if (loading) {
+    return (
+      <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-10">
+        <p className="text-slate-500">Loading...</p>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -53,10 +72,7 @@ export default async function AdminPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
-          >
+          <Link href="/" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">
             My Dashboard
           </Link>
           <ThemeToggle />
@@ -66,44 +82,24 @@ export default async function AdminPage() {
 
       <section className="summary-strip theme-panel grid gap-4 rounded-[2rem] p-5 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-3xl bg-ink p-5 text-white">
-          <p className="text-xs uppercase tracking-[0.22em] text-slate-300">
-            Total Users
-          </p>
-          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-            {overallStats.totalUsers}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-slate-300">Total Users</p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">{overallStats.totalUsers}</p>
         </div>
         <div className="rounded-3xl bg-indigo-50 p-5 text-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-200">
-          <p className="text-xs uppercase tracking-[0.22em] text-indigo-700 dark:text-indigo-400">
-            Lectures
-          </p>
-          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-            {overallStats.totalLectures}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-indigo-700 dark:text-indigo-400">Lectures</p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">{overallStats.totalLectures}</p>
         </div>
         <div className="rounded-3xl bg-emerald-50 p-5 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200">
-          <p className="text-xs uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-400">
-            Completed
-          </p>
-          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-            {overallStats.completedTasks}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-400">Completed</p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">{overallStats.completedTasks}</p>
         </div>
         <div className="rounded-3xl bg-amber-50 p-5 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-          <p className="text-xs uppercase tracking-[0.22em] text-amber-700 dark:text-amber-400">
-            Pending
-          </p>
-          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-            {overallStats.pendingTasks}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-amber-700 dark:text-amber-400">Pending</p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">{overallStats.pendingTasks}</p>
         </div>
         <div className="rounded-3xl bg-rose-50 p-5 text-rose-900 dark:bg-rose-950/50 dark:text-rose-200">
-          <p className="text-xs uppercase tracking-[0.22em] text-rose-700 dark:text-rose-400">
-            Missed
-          </p>
-          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">
-            {overallStats.missedTasks}
-          </p>
+          <p className="text-xs uppercase tracking-[0.22em] text-rose-700 dark:text-rose-400">Missed</p>
+          <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">{overallStats.missedTasks}</p>
         </div>
       </section>
 
