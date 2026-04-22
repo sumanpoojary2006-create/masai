@@ -24,6 +24,7 @@ export function LoginForm() {
     if (email === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
       router.replace("/admin");
       router.refresh();
+      setIsPending(false);
       return;
     }
 
