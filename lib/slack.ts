@@ -92,6 +92,10 @@ function alertLine(event: ComplianceAlertEvent) {
     return `• 🚨 ${event.lecture.lecture_name} | ${label} missed deadline`;
   }
 
+  if (event.alertType === "reminder_30m") {
+    return `• ⚠️ ${event.lecture.lecture_name} | ${label} WARNING — upload before 03:00 PM`;
+  }
+
   return `• ⏳ ${event.lecture.lecture_name} | ${label} ${deadlineLabel}`;
 }
 

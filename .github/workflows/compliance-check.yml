@@ -2,7 +2,7 @@ name: Compliance Check
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       target_user_id:

@@ -164,7 +164,9 @@ function chooseAlertType(
     { type: "reminder_10h" as AlertType, offsetMinutes: 10 * 60 },
     { type: "reminder_6h" as AlertType, offsetMinutes: 6 * 60 },
     { type: "reminder_2h" as AlertType, offsetMinutes: 2 * 60 },
-    { type: "reminder_30m" as AlertType, offsetMinutes: 30 }
+    // Kept historical key name for DB compatibility, but this now acts as
+    // a strict warning reminder at T-45m (2:15 PM for 3:00 PM deadlines).
+    { type: "reminder_30m" as AlertType, offsetMinutes: 45 }
   ];
 
   if (nextTaskStatus === "missed") {
@@ -177,7 +179,12 @@ function chooseAlertType(
 
   const eligibleReminder = reminderSchedule.reduce<AlertType | null>((current, reminder) => {
     const target = deadline.minus({ minutes: reminder.offsetMinutes });
-    if (now >= target && now < deadline && !sentAlertTypes.has(reminder.type)) {
+    const inWindow =
+      reminder.type === "reminder_30m"
+        ? now >= target && now < target.plus({ minutes: 15 })
+        : now >= target && now < deadline;
+
+    if (inWindow && !sentAlertTypes.has(reminder.type)) {
       return reminder.type;
     }
 
