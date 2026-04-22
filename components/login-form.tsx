@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
 export function LoginForm() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -16,8 +18,9 @@ export function LoginForm() {
     setIsPending(true);
 
     if (email === "admin@masaischool.com" && password === "admin@123") {
-      document.cookie = "admin_session=true; path=/; max-age=86400";
-      window.location.href = "/admin";
+      fetch("/api/admin/set-cookie", { method: "POST" }).then(() => {
+        router.push("/admin");
+      });
       return;
     }
 
@@ -28,7 +31,7 @@ export function LoginForm() {
         setMessage(error.message);
         setIsPending(false);
       } else {
-        window.location.href = "/";
+        router.push("/");
       }
     });
   }

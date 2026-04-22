@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
+import { cookies } from "next/headers";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -9,7 +10,12 @@ import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats } from 
 import { redirect } from "next/navigation";
 
 function hasAdminCookie() {
-  return true;
+  try {
+    const cookieStore = cookies();
+    return cookieStore.get("admin_session")?.value === "true";
+  } catch {
+    return false;
+  }
 }
 
 export default async function AdminPage() {
