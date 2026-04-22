@@ -295,6 +295,13 @@ export interface AdminUserStats {
   completedTasks: number;
   pendingTasks: number;
   missedTasks: number;
+  onTimeCount: number;
+  lateCount: number;
+}
+
+function isOnTime(completedAt: string | null, deadline: string): boolean {
+  if (!completedAt) return false;
+  return new Date(completedAt) <= new Date(deadline);
 }
 
 export async function getAdminDashboardData(): Promise<AdminUserStats[]> {
@@ -363,14 +370,32 @@ export async function getAdminDashboardData(): Promise<AdminUserStats[]> {
     const userLectures = lecturesByUser.get(profile.user_id) ?? [];
     const allTasks = userLectures.flatMap((lecture) => Object.values(lecture.tasks));
 
+    let onTimeCount = 0;
+    let lateCount = 0;
+    let completedCount = 0;
+
+    for (const task of allTasks) {
+      if (!task) continue;
+      if (task.status === "completed") {
+        completedCount++;
+        if (isOnTime(task.completed_at, task.deadline)) {
+          onTimeCount++;
+        } else {
+          lateCount++;
+        }
+      }
+    }
+
     return {
       userId: profile.user_id,
       email: profile.email,
       batchConfigs: batchConfigsByUser.get(profile.user_id) ?? [],
       totalLectures: userLectures.length,
-      completedTasks: allTasks.filter((task) => task?.status === "completed").length,
+      completedTasks: completedCount,
       pendingTasks: allTasks.filter((task) => task?.status === "pending").length,
-      missedTasks: allTasks.filter((task) => task?.status === "missed").length
+      missedTasks: allTasks.filter((task) => task?.status === "missed").length,
+      onTimeCount,
+      lateCount
     };
   });
 }
