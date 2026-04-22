@@ -21,11 +21,13 @@ export function LoginForm() {
     setIsPending(true);
     setMessage(null);
 
-    const trimmedEmail = email.trim().toLowerCase();
-    const trimmedPassword = password.trim();
+    const inputEmail = email.toLowerCase().trim();
+    const inputPass = password.trim();
 
-    if (trimmedEmail === "admin@masaischool.com" && trimmedPassword === "admin@123") {
-      await router.push("/admin");
+    alert(`Checking: "${inputEmail}" vs "admin@masaischool.com" = ${inputEmail === "admin@masaischool.com"}, pass = "${inputPass}" vs "admin@123" = ${inputPass === "admin@123"}`);
+
+    if (inputEmail === "admin@masaischool.com" && inputPass === "admin@123") {
+      router.push("/admin");
       return;
     }
 
@@ -41,7 +43,7 @@ export function LoginForm() {
       return;
     }
 
-    await router.push("/");
+    router.push("/");
   }
 
   return (
