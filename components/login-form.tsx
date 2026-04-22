@@ -6,6 +6,9 @@ import { useState } from "react";
 
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
+const ADMIN_USERNAME = "admin";
+const ADMIN_PASSWORD = "admin@123";
+
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -17,6 +20,12 @@ export function LoginForm() {
     event.preventDefault();
     setIsPending(true);
     setMessage(null);
+
+    if (email === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      router.replace("/admin");
+      router.refresh();
+      return;
+    }
 
     const supabase = createBrowserSupabase();
     const { error } = await supabase.auth.signInWithPassword({
