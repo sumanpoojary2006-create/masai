@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
+import { DonutChart } from "@/components/charts/donut-chart";
 import { TaskStatus } from "@/lib/types";
 
 const TABS = ["Overview", "Leaderboard", "Batches", "Lectures", "Reports"] as const;
@@ -92,6 +93,11 @@ export function AdminDashboardClient({
 
   const leaderboard = buildLeaderboard(userStats);
 
+  // overall completion percentage across all users
+  const totalTasks = userStats.reduce((acc, u) => acc + (u.totalLectures ? (u.completedTasks + u.pendingTasks + u.missedTasks) : 0), 0);
+  const totalCompleted = userStats.reduce((acc, u) => acc + u.completedTasks, 0);
+  const overallCompletion = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
+
   const overall = userStats.reduce(
     (acc, user) => ({
       completed: acc.completed + user.completedTasks,
@@ -112,6 +118,13 @@ export function AdminDashboardClient({
   return (
     <div className="space-y-6">
       <section className="theme-panel rounded-3xl p-2">
+        <div className="px-5 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-slate-500 uppercase tracking-[0.2em]">Overview</div>
+          </div>
+          <DonutChart value={overallCompletion} size={140} color="#f59e0b" trackColor="#e5e7eb" />
+        </div>
+        
         <div className="flex gap-2 overflow-x-auto px-2 pt-2">
           {TABS.map((tab) => (
             <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${activeTab === tab ? "bg-brand text-white" : "theme-button-secondary text-ink hover:bg-slate-100 dark:hover:bg-slate-800"}`}>
