@@ -124,7 +124,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     return (
       <div className="flex min-h-[88px] flex-col justify-start gap-2">
         <StatusPill task={task} />
-        <p className="theme-muted text-[11px] leading-relaxed">
+        <p className="theme-muted text-[11px] leading-relaxed whitespace-nowrap">
           <span className="font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
             Deadline
           </span>
@@ -292,15 +292,15 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                 </div>
 
                 <div className="overflow-x-auto px-5 py-2">
-                  <table className="min-w-full divide-y divide-slate-200/70 dark:divide-slate-700/70">
+                  <table className="w-full table-fixed divide-y divide-slate-200/70 dark:divide-slate-700/70">
                     <thead>
                       <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                        <th className="pb-3 pr-4 pt-3">Lecture</th>
-                        <th className="pb-3 pr-4 pt-3">Schedule</th>
-                        <th className="pb-3 pr-4 pt-3">Pre-read</th>
-                        <th className="pb-3 pr-4 pt-3">Notes</th>
-                        <th className="pb-3 pr-4 pt-3">Assignment</th>
-                        <th className="pb-3 pt-3">Action</th>
+                        <th className="w-[30%] pb-3 pr-4 pt-3">Lecture</th>
+                        <th className="w-[15%] pb-3 pr-4 pt-3">Schedule</th>
+                        <th className="w-[15%] pb-3 pr-4 pt-3">Pre-read</th>
+                        <th className="w-[15%] pb-3 pr-4 pt-3">Notes</th>
+                        <th className="w-[15%] pb-3 pr-4 pt-3">Assignment</th>
+                        <th className="w-[10%] pb-3 pt-3">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">

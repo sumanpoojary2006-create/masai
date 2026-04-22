@@ -1,6 +1,9 @@
 name: Sync Lectures
 
 on:
+  schedule:
+    # Daily morning sync at 08:00 AM IST (02:30 UTC)
+    - cron: "30 2 * * *"
   workflow_dispatch:
     inputs:
       target_user_id:

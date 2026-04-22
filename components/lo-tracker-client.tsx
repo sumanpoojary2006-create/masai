@@ -157,7 +157,6 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [isPushingSheet, setIsPushingSheet] = useState(false);
   const [actionResults, setActionResults] = useState<ActionResult[] | null>(null);
@@ -198,23 +197,6 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
         setActionResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
       }
       setIsSyncing(false);
-      if (res.ok) router.refresh();
-    });
-  }
-
-  function handleAnalyzePending() {
-    startTransition(async () => {
-      setIsAnalyzing(true);
-      setActionResults(null);
-      setActionLabel("Analyze LOs");
-      const res = await fetch("/api/lo-tracker/analyze-pending", { method: "POST" });
-      const json = (await res.json()) as { results?: ActionResult[]; message?: string };
-      setActionResults(
-        json.results?.length
-          ? json.results
-          : [{ lectureId: "info", lectureName: "–", status: "skipped", reason: json.message ?? "Nothing to analyze." }]
-      );
-      setIsAnalyzing(false);
       if (res.ok) router.refresh();
     });
   }
@@ -403,7 +385,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <button
               type="button"
-              disabled={isPending || isSyncing || isAnalyzing || isMatching}
+              disabled={isPending || isSyncing || isMatching}
               onClick={handleSyncTranscripts}
               className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
             >
@@ -412,20 +394,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
 
             <button
               type="button"
-              disabled={isPending || isSyncing || isAnalyzing || isMatching}
-              onClick={handleAnalyzePending}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-full border-2 border-brand px-6 text-sm font-semibold text-brand transition hover:bg-brand hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 dark:border-brand dark:text-brand dark:hover:bg-brand dark:hover:text-white dark:disabled:border-slate-700 dark:disabled:text-slate-600"
-            >
-              {isAnalyzing ? (
-                <><span className="animate-spin inline-block">⟳</span> Analyzing…</>
-              ) : (
-                <><span>✦</span> Analyze Pending LOs</>
-              )}
-            </button>
-
-            <button
-              type="button"
-              disabled={isPending || isSyncing || isAnalyzing || isMatching}
+              disabled={isPending || isSyncing || isMatching}
               onClick={handleMatchMissingLOs}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-full border-2 border-indigo-500 px-6 text-sm font-semibold text-indigo-500 transition hover:bg-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400 dark:border-indigo-400 dark:text-indigo-400 dark:hover:bg-indigo-500 dark:hover:text-white dark:disabled:border-slate-700 dark:disabled:text-slate-600"
             >

@@ -3,7 +3,8 @@ import { getAutomationProfiles } from "../lib/queries";
 import { sendLoSyncSlackNotification } from "../lib/slack";
 
 async function main() {
-  const profiles = await getAutomationProfiles();
+  const targetUserId = process.env.TARGET_USER_ID?.trim() || undefined;
+  const profiles = await getAutomationProfiles(targetUserId);
 
   if (profiles.length === 0) {
     console.log("No profiles found.");

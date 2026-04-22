@@ -37,7 +37,10 @@ export async function POST() {
           "Content-Type": "application/json",
           "X-GitHub-Api-Version": "2022-11-28"
         },
-        body: JSON.stringify({ ref: githubRef })
+        body: JSON.stringify({
+          ref: githubRef,
+          inputs: { target_user_id: user.id }
+        })
       }
     );
 
@@ -52,7 +55,7 @@ export async function POST() {
     return NextResponse.json({
       dispatched: true,
       message:
-        "LO sync workflow dispatched to GitHub Actions. It will fetch summaries and run LO analysis. Check back in 2–3 minutes."
+        "LO sync workflow dispatched for your account. It will fetch summaries and run LO analysis automatically. Check back in 2–3 minutes."
     });
   } catch (error) {
     return NextResponse.json(
