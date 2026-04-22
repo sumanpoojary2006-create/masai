@@ -19,15 +19,12 @@ export function LoginForm() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsPending(true);
-    setMessage(null);
 
     const inputEmail = email.toLowerCase().trim();
     const inputPass = password.trim();
 
-    alert(`Checking: "${inputEmail}" vs "admin@masaischool.com" = ${inputEmail === "admin@masaischool.com"}, pass = "${inputPass}" vs "admin@123" = ${inputPass === "admin@123"}`);
-
     if (inputEmail === "admin@masaischool.com" && inputPass === "admin@123") {
-      router.push("/admin");
+      window.location.href = "/admin";
       return;
     }
 
@@ -43,7 +40,7 @@ export function LoginForm() {
       return;
     }
 
-    router.push("/");
+    window.location.href = "/";
   }
 
   return (
