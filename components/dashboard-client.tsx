@@ -268,22 +268,22 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
           <div className="flex flex-col gap-3 lg:items-end">
             <div className="flex flex-wrap items-end justify-start gap-3 lg:justify-end">
-              <div className="flex flex-col gap-3">
+              <div className="flex w-full flex-col gap-2 sm:w-[250px] lg:w-[260px]">
                 <button
                   type="button"
                   onClick={() => setShowTodayTodo((current) => !current)}
-                  className="group inline-flex h-12 items-center justify-center rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/15 to-cyan-400/15 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(124,58,237,0.15)] transition duration-200 hover:-translate-y-0.5 hover:border-fuchsia-300/60 hover:from-fuchsia-500/25 hover:via-violet-500/25 hover:to-cyan-400/25 hover:shadow-[0_18px_36px_rgba(124,58,237,0.28)]"
+                  className="group inline-flex h-11 w-full items-center justify-center rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/15 to-cyan-400/15 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(124,58,237,0.15)] transition duration-200 hover:-translate-y-0.5 hover:border-fuchsia-300/60 hover:from-fuchsia-500/25 hover:via-violet-500/25 hover:to-cyan-400/25 hover:shadow-[0_18px_36px_rgba(124,58,237,0.28)]"
                 >
-                  <span className="mr-2 text-base transition group-hover:scale-110">✦</span>
+                  <span className="mr-2 text-sm transition group-hover:scale-110">✦</span>
                   {showTodayTodo ? "Hide today's to do list" : "Today's to do list"}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setShowTodayLectures((current) => !current)}
-                  className="group inline-flex h-12 items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-emerald-500/15 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(20,184,166,0.14)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/60 hover:from-cyan-500/25 hover:via-teal-500/25 hover:to-emerald-500/25 hover:shadow-[0_18px_36px_rgba(20,184,166,0.24)]"
+                  className="group inline-flex h-11 w-full items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-emerald-500/15 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(20,184,166,0.14)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/60 hover:from-cyan-500/25 hover:via-teal-500/25 hover:to-emerald-500/25 hover:shadow-[0_18px_36px_rgba(20,184,166,0.24)]"
                 >
-                  <span className="mr-2 text-base transition group-hover:scale-110">☼</span>
+                  <span className="mr-2 text-sm transition group-hover:scale-110">☼</span>
                   {showTodayLectures ? "Hide today's session" : "Today's session"}
                 </button>
               </div>
