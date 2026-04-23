@@ -1,71 +1,268 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { DateTime } from "luxon";
+import { useEffect, useMemo, useState } from "react";
 
 import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
-import { DonutChart } from "@/components/charts/donut-chart";
 import { TaskStatus } from "@/lib/types";
 
-const TABS = ["Overview", "Leaderboard", "Batches", "Lectures", "Reports"] as const;
-type Tab = (typeof TABS)[number];
-
-interface ExportedData {
+type ExportedData = {
   leaderboardCsv?: string;
   batchCsv?: string;
   lectureCsv?: string;
   error?: string;
+};
+
+type NavKey = "overview" | "health" | "batches" | "attention" | "exports";
+
+const NAV_ITEMS: Array<{ key: NavKey; label: string }> = [
+  { key: "overview", label: "Dashboard" },
+  { key: "health", label: "Task Health" },
+  { key: "batches", label: "Batches" },
+  { key: "attention", label: "Attention" },
+  { key: "exports", label: "Reports" }
+];
+
+const STATUS_ACCENTS: Record<TaskStatus, string> = {
+  completed: "bg-emerald-500/15 text-emerald-300 ring-emerald-400/20",
+  pending: "bg-amber-500/15 text-amber-200 ring-amber-400/20",
+  missed: "bg-rose-500/15 text-rose-200 ring-rose-400/20"
+};
+
+function getWeekBounds() {
+  const today = DateTime.now().setZone("Asia/Kolkata");
+  return {
+    from: today.startOf("week").toISODate() ?? "",
+    to: today.endOf("week").toISODate() ?? ""
+  };
 }
 
-interface AdminStats {
-  totalUsers: number;
-  totalLectures: number;
-  completedTasks: number;
-  pendingTasks: number;
-  missedTasks: number;
+function getTaskStatuses(lecture: AdminLectureStats) {
+  return [lecture.prereadStatus, lecture.notesStatus, lecture.assignmentStatus].filter(
+    Boolean
+  ) as TaskStatus[];
 }
 
 function buildLeaderboard(users: AdminUserStats[]) {
-  return [...users].sort((a, b) => {
-    const aTotal = (a.onTimeCount || 0) + (a.lateCount || 0);
-    const bTotal = (b.onTimeCount || 0) + (b.lateCount || 0);
-    if (aTotal === 0 && bTotal === 0) return 0;
-    if (aTotal === 0) return 1;
-    if (bTotal === 0) return -1;
-    const aConsistency = (a.onTimeCount || 0) / aTotal;
-    const bConsistency = (b.onTimeCount || 0) / bTotal;
-    return bConsistency - aConsistency;
+  return [...users].sort((left, right) => {
+    const leftTotal = (left.onTimeCount || 0) + (left.lateCount || 0);
+    const rightTotal = (right.onTimeCount || 0) + (right.lateCount || 0);
+    const leftScore = leftTotal > 0 ? (left.onTimeCount || 0) / leftTotal : 0;
+    const rightScore = rightTotal > 0 ? (right.onTimeCount || 0) / rightTotal : 0;
+
+    if (rightScore !== leftScore) {
+      return rightScore - leftScore;
+    }
+
+    return right.completedTasks - left.completedTasks;
   });
 }
 
-function getRankStyle(rank: number) {
-  if (rank === 1) return "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100";
-  if (rank === 2) return "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200";
-  if (rank === 3) return "bg-orange-50 text-orange-700 dark:bg-orange-900 dark:text-orange-200";
-  return "bg-slate-50 text-slate-400 dark:bg-slate-800 dark:text-slate-500";
+function Sparkline({
+  values,
+  color,
+  className = "h-12 w-full"
+}: {
+  values: number[];
+  color: string;
+  className?: string;
+}) {
+  const points = useMemo(() => {
+    if (values.length === 0) return "";
+    const max = Math.max(...values, 1);
+    return values
+      .map((value, index) => {
+        const x = (index / Math.max(values.length - 1, 1)) * 100;
+        const y = 100 - (value / max) * 80 - 10;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [values]);
+
+  return (
+    <svg viewBox="0 0 100 100" className={className} preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id={`spark-${color.replace(/[^a-z0-9]/gi, "")}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  );
 }
 
-function ConsistencyChart({ onTime, late, total }: { onTime: number; late: number; total: number }) {
-  if (total === 0) return null;
-  const onTimePct = (onTime / total) * 100;
-  const latePct = (late / total) * 100;
+function RingMeter({
+  completed,
+  pending,
+  missed
+}: {
+  completed: number;
+  pending: number;
+  missed: number;
+}) {
+  const total = Math.max(completed + pending + missed, 1);
+  const radius = 44;
+  const circumference = 2 * Math.PI * radius;
+  const completedLength = (completed / total) * circumference;
+  const pendingLength = (pending / total) * circumference;
+  const missedLength = (missed / total) * circumference;
+
   return (
-    <div className="flex h-3 w-24 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-      <div className="h-full bg-emerald-500 transition-all" style={{ width: `${onTimePct}%` }} />
-      <div className="h-full bg-amber-400 transition-all" style={{ width: `${latePct}%` }} />
+    <div className="relative h-56 w-56">
+      <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          stroke="rgba(148,163,184,0.12)"
+          strokeWidth="12"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          stroke="#34d399"
+          strokeWidth="12"
+          strokeDasharray={`${completedLength} ${circumference}`}
+          strokeLinecap="round"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          stroke="#38bdf8"
+          strokeWidth="12"
+          strokeDasharray={`${pendingLength} ${circumference}`}
+          strokeDashoffset={-completedLength}
+          strokeLinecap="round"
+        />
+        <circle
+          cx="60"
+          cy="60"
+          r={radius}
+          fill="none"
+          stroke="#f59e0b"
+          strokeWidth="12"
+          strokeDasharray={`${missedLength} ${circumference}`}
+          strokeDashoffset={-(completedLength + pendingLength)}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <p className="text-4xl font-bold text-white">{Math.round((completed / total) * 100)}%</p>
+        <p className="text-sm text-slate-400">completion</p>
+      </div>
     </div>
   );
 }
 
-function BatchProgressBar({ completed, pending, missed, total }: { completed: number; pending: number; missed: number; total: number }) {
-  if (total === 0) return null;
+function ActivityBars({
+  labels,
+  completed,
+  open
+}: {
+  labels: string[];
+  completed: number[];
+  open: number[];
+}) {
+  const max = Math.max(...completed, ...open, 1);
+
   return (
-    <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-      <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(completed / total) * 100}%` }} />
-      <div className="h-full bg-amber-400 transition-all" style={{ width: `${(pending / total) * 100}%` }} />
-      <div className="h-full bg-rose-400 transition-all" style={{ width: `${(missed / total) * 100}%` }} />
+    <div className="space-y-4">
+      <div className="grid grid-cols-7 gap-3">
+        {labels.map((label, index) => (
+          <div key={label} className="flex flex-col items-center gap-3">
+            <div className="flex h-40 items-end gap-2">
+              <div
+                className="w-3 rounded-full bg-sky-400/90"
+                style={{ height: `${Math.max((completed[index] / max) * 100, 6)}%` }}
+              />
+              <div
+                className="w-3 rounded-full bg-violet-500/90"
+                style={{ height: `${Math.max((open[index] / max) * 100, 6)}%` }}
+              />
+            </div>
+            <span className="text-xs text-slate-400">{label}</span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-6 text-xs text-slate-400">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-sky-400" />
+          Completed
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
+          Open items
+        </div>
+      </div>
     </div>
   );
+}
+
+function MetricCard({
+  label,
+  value,
+  note,
+  accent,
+  sparkline,
+  badge
+}: {
+  label: string;
+  value: string;
+  note: string;
+  accent: string;
+  sparkline: number[];
+  badge: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-[28px] border border-white/8 bg-slate-900/70 p-5 shadow-[0_18px_60px_rgba(2,6,23,0.35)]">
+      <div
+        className="absolute inset-x-0 top-0 h-1"
+        style={{ background: `linear-gradient(90deg, ${accent}, transparent)` }}
+      />
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-medium text-slate-300">{label}</p>
+          <p className="mt-3 text-5xl font-bold tracking-tight text-white">{value}</p>
+          <p className="mt-2 text-sm text-slate-400">{note}</p>
+        </div>
+        <div
+          className="flex h-14 w-14 items-center justify-center rounded-2xl text-sm font-semibold text-white"
+          style={{ background: `${accent}22`, boxShadow: `inset 0 0 0 1px ${accent}44` }}
+        >
+          {badge}
+        </div>
+      </div>
+      <div className="mt-6">
+        <Sparkline values={sparkline} color={accent} />
+      </div>
+    </div>
+  );
+}
+
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export function AdminDashboardClient({
@@ -77,305 +274,641 @@ export function AdminDashboardClient({
   batchStats: AdminBatchStats[];
   lectureStats: AdminLectureStats[];
 }) {
-  const [activeTab, setActiveTab] = useState<Tab>("Overview");
-  const [batchFilter, setBatchFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [hoveredUser, setHoveredUser] = useState<string | null>(null);
+  const router = useRouter();
+  const defaultWeek = useMemo(() => getWeekBounds(), []);
+  const [dateFrom, setDateFrom] = useState(defaultWeek.from);
+  const [dateTo, setDateTo] = useState(defaultWeek.to);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
-  const batches = [...new Set(lectureStats.map((l) => l.batchName))].sort();
-  const filteredLectures = lectureStats.filter((lecture) => {
-    const batchMatches = batchFilter === "all" || lecture.batchName === batchFilter;
-    const dateFromMatches = !dateFrom || lecture.lectureDate >= dateFrom;
-    const dateToMatches = !dateTo || lecture.lectureDate <= dateTo;
-    return batchMatches && dateFromMatches && dateToMatches;
-  });
+  useEffect(() => {
+    if (!autoRefresh) {
+      return;
+    }
 
-  const leaderboard = buildLeaderboard(userStats);
+    const intervalId = window.setInterval(() => {
+      router.refresh();
+    }, 60_000);
 
-  // overall completion percentage across all users
-  const totalTasks = userStats.reduce((acc, u) => acc + (u.totalLectures ? (u.completedTasks + u.pendingTasks + u.missedTasks) : 0), 0);
-  const totalCompleted = userStats.reduce((acc, u) => acc + u.completedTasks, 0);
-  const overallCompletion = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
+    return () => window.clearInterval(intervalId);
+  }, [autoRefresh, router]);
 
-  const overall = userStats.reduce(
-    (acc, user) => ({
-      completed: acc.completed + user.completedTasks,
-      pending: acc.pending + user.pendingTasks,
-      missed: acc.missed + user.missedTasks,
-      total: acc.total + user.completedTasks + user.pendingTasks + user.missedTasks,
-      users: acc.users + 1
-    }),
-    { completed: 0, pending: 0, missed: 0, total: 0, users: 0 }
+  const filteredLectures = useMemo(() => {
+    return lectureStats.filter((lecture) => {
+      const fromMatches = !dateFrom || lecture.lectureDate >= dateFrom;
+      const toMatches = !dateTo || lecture.lectureDate <= dateTo;
+      return fromMatches && toMatches;
+    });
+  }, [dateFrom, dateTo, lectureStats]);
+
+  const lectureBatches = useMemo(
+    () => [...new Set(filteredLectures.map((lecture) => lecture.batchName))].sort(),
+    [filteredLectures]
   );
 
-  function renderStatus(status: TaskStatus | null) {
-    if (!status) return <span className="text-xs text-slate-400">N/A</span>;
-    const classes = status === "completed" ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : status === "pending" ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-rose-50 text-rose-700 ring-rose-200";
-    return <span className={`inline-flex min-w-20 justify-center rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${classes}`}>{status}</span>;
+  const taskSummary = useMemo(() => {
+    return filteredLectures.reduce(
+      (accumulator, lecture) => {
+        for (const status of getTaskStatuses(lecture)) {
+          if (status === "completed") accumulator.completed += 1;
+          if (status === "pending") accumulator.pending += 1;
+          if (status === "missed") accumulator.missed += 1;
+        }
+        return accumulator;
+      },
+      { completed: 0, pending: 0, missed: 0 }
+    );
+  }, [filteredLectures]);
+
+  const totalTrackedTasks = taskSummary.completed + taskSummary.pending + taskSummary.missed;
+  const completionRate =
+    totalTrackedTasks > 0 ? (taskSummary.completed / totalTrackedTasks) * 100 : 0;
+
+  const activeUsers = useMemo(
+    () => new Set(filteredLectures.map((lecture) => lecture.userEmail)).size,
+    [filteredLectures]
+  );
+
+  const recentDates = useMemo(() => {
+    const allDates = [...new Set(lectureStats.map((lecture) => lecture.lectureDate))]
+      .sort()
+      .slice(-7);
+
+    return allDates;
+  }, [lectureStats]);
+
+  const activitySeries = useMemo(() => {
+    return recentDates.map((date) => {
+      const lecturesForDate = lectureStats.filter((lecture) => lecture.lectureDate === date);
+      const statuses = lecturesForDate.flatMap(getTaskStatuses);
+      return {
+        label: DateTime.fromISO(date).toFormat("LLL dd"),
+        completed: statuses.filter((status) => status === "completed").length,
+        open: statuses.filter((status) => status !== "completed").length
+      };
+    });
+  }, [lectureStats, recentDates]);
+
+  const leaderboard = useMemo(() => buildLeaderboard(userStats).slice(0, 5), [userStats]);
+
+  const batchPerformance = useMemo(() => {
+    const ownerLookup = new Map<string, string>();
+    for (const lecture of lectureStats) {
+      if (!ownerLookup.has(lecture.batchName)) {
+        ownerLookup.set(lecture.batchName, lecture.userEmail);
+      }
+    }
+
+    return lectureBatches.map((batchName) => {
+      const lectures = filteredLectures.filter((lecture) => lecture.batchName === batchName);
+      const statuses = lectures.flatMap(getTaskStatuses);
+      const completed = statuses.filter((status) => status === "completed").length;
+      const pending = statuses.filter((status) => status === "pending").length;
+      const missed = statuses.filter((status) => status === "missed").length;
+      const total = Math.max(completed + pending + missed, 1);
+
+      return {
+        batchName,
+        owner: ownerLookup.get(batchName) ?? "Unknown",
+        lectureCount: lectures.length,
+        completed,
+        pending,
+        missed,
+        rate: Math.round((completed / total) * 100)
+      };
+    });
+  }, [filteredLectures, lectureBatches, lectureStats]);
+
+  const attentionLectures = useMemo(() => {
+    return [...filteredLectures]
+      .map((lecture) => {
+        const statuses = getTaskStatuses(lecture);
+        const missedCount = statuses.filter((status) => status === "missed").length;
+        const pendingCount = statuses.filter((status) => status === "pending").length;
+        return {
+          ...lecture,
+          missedCount,
+          pendingCount,
+          score: missedCount * 3 + pendingCount
+        };
+      })
+      .sort((left, right) => {
+        if (right.score !== left.score) return right.score - left.score;
+        return left.lectureDate.localeCompare(right.lectureDate);
+      })
+      .slice(0, 5);
+  }, [filteredLectures]);
+
+  async function handleExport() {
+    setIsExporting(true);
+    setExportMessage(null);
+
+    try {
+      const response = await fetch("/api/admin/export", { method: "GET" });
+      const payload = (await response.json()) as ExportedData;
+
+      if (!response.ok) {
+        setExportMessage(payload.error ?? "Export failed.");
+        setIsExporting(false);
+        return;
+      }
+
+      const bundle = [
+        "# LEADERBOARD",
+        payload.leaderboardCsv ?? "",
+        "",
+        "# BATCHES",
+        payload.batchCsv ?? "",
+        "",
+        "# LECTURES",
+        payload.lectureCsv ?? ""
+      ].join("\n");
+
+      downloadCsv("masailens-admin-report.csv", bundle);
+      setExportMessage("Exported masailens-admin-report.csv");
+    } catch {
+      setExportMessage("Export failed.");
+    }
+
+    setIsExporting(false);
+  }
+
+  function scrollToSection(sectionId: NavKey) {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   return (
-    <div className="space-y-6">
-      <section className="theme-panel rounded-3xl p-2">
-        <div className="px-5 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="text-sm text-slate-500 uppercase tracking-[0.2em]">Overview</div>
+    <div className="min-h-screen bg-[#0b1020] text-white">
+      <div className="mx-auto flex max-w-[1600px] gap-6 px-4 py-5 sm:px-6 xl:px-8">
+        <aside className="sticky top-5 hidden h-[calc(100vh-2.5rem)] w-72 flex-col justify-between rounded-[30px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] xl:flex">
+          <div className="space-y-8">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-sky-500 text-lg font-bold">
+                M
+              </div>
+              <div>
+                <p className="text-2xl font-semibold tracking-tight text-white">MasaiLens</p>
+                <p className="mt-1 inline-flex rounded-full bg-white/6 px-2.5 py-1 text-xs text-slate-300">
+                  Admin Console
+                </p>
+              </div>
+            </div>
+
+            <nav className="space-y-2">
+              {NAV_ITEMS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => scrollToSection(item.key)}
+                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
+                    item.key === "overview"
+                      ? "bg-gradient-to-r from-violet-600 to-indigo-500 text-white shadow-[0_12px_32px_rgba(79,70,229,0.35)]"
+                      : "text-slate-300 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/10 text-xs font-semibold">
+                    {item.label.slice(0, 1)}
+                  </span>
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="rounded-[26px] border border-white/8 bg-gradient-to-b from-[#121b34] to-[#0f1730] p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-white">System Status</p>
+                  <p className="mt-1 text-xs text-slate-400">Live platform health</p>
+                </div>
+                <span className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-white/6 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Users</p>
+                  <p className="mt-2 text-2xl font-bold text-white">{userStats.length}</p>
+                </div>
+                <div className="rounded-2xl bg-white/6 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Batches</p>
+                  <p className="mt-2 text-2xl font-bold text-white">{batchStats.length}</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <DonutChart value={overallCompletion} size={140} color="#f59e0b" trackColor="#e5e7eb" />
-        </div>
-        
-        <div className="flex gap-2 overflow-x-auto px-2 pt-2">
-          {TABS.map((tab) => (
-            <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`shrink-0 rounded-2xl px-5 py-2.5 text-sm font-semibold transition ${activeTab === tab ? "bg-brand text-white" : "theme-button-secondary text-ink hover:bg-slate-100 dark:hover:bg-slate-800"}`}>
-              {tab}
-            </button>
-          ))}
-        </div>
 
-        {activeTab === "Overview" && (
-          <div className="space-y-6 p-5">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              <div className="group relative theme-subpanel rounded-3xl p-5 transition hover:scale-[1.02]">
-                <h3 className="font-[var(--font-heading)] text-lg font-bold text-ink">User Performance</h3>
-                <div className="mt-4 space-y-3">
-                  {leaderboard.slice(0, 5).map((user, index) => {
-                    const total = (user.onTimeCount || 0) + (user.lateCount || 0);
-                    const consistency = total > 0 ? Math.round(((user.onTimeCount || 0) / total) * 100) : 0;
-                    return (
-                      <div key={user.userId} className="flex items-center gap-3" onMouseEnter={() => setHoveredUser(user.userId)} onMouseLeave={() => setHoveredUser(null)}>
-                        <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${getRankStyle(index + 1)}`}>{index + 1}</span>
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-ink truncate">{user.email.split("@")[0]}</p>
-                          <ConsistencyChart onTime={user.onTimeCount || 0} late={user.lateCount || 0} total={total} />
-                        </div>
-                        <span className={`text-sm font-bold ${consistency >= 80 ? "text-emerald-600" : consistency >= 50 ? "text-amber-600" : "text-rose-600"}`}>{consistency}%</span>
-                      </div>
-                    );
-                  })}
+          <div className="rounded-[26px] border border-white/8 bg-[#0b1329] p-4">
+            <p className="text-sm font-semibold text-white">Admin User</p>
+            <p className="mt-1 text-xs text-slate-400">Super administrator access</p>
+            <Link
+              href="/"
+              className="mt-4 inline-flex items-center rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/5"
+            >
+              Go to main dashboard
+            </Link>
+          </div>
+        </aside>
+
+        <main className="flex-1 space-y-6">
+          <section
+            id="overview"
+            className="rounded-[34px] border border-white/8 bg-[#10162a] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)] sm:p-6"
+          >
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.28em] text-teal-300/70">Masai admin intelligence</p>
+                <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+                  Welcome back, Admin.
+                </h1>
+                <p className="mt-3 max-w-2xl text-base text-slate-400">
+                  A live view of platform operations, batch health, and lecture compliance
+                  across all active owners.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end lg:justify-end">
+                <div className="flex flex-col gap-2 text-sm text-slate-300">
+                  <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Date range</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(event) => setDateFrom(event.target.value)}
+                      className="rounded-2xl border border-white/10 bg-[#0b1329] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400"
+                    />
+                    <span className="text-slate-500">→</span>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(event) => setDateTo(event.target.value)}
+                      className="rounded-2xl border border-white/10 bg-[#0b1329] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setAutoRefresh((current) => !current)}
+                  className="inline-flex h-12 items-center rounded-2xl border border-white/10 bg-[#0b1329] px-5 text-sm font-medium text-slate-200 transition hover:bg-white/5"
+                >
+                  Auto refresh: <span className="ml-1 text-emerald-300">{autoRefresh ? "On" : "Off"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isExporting}
+                  onClick={handleExport}
+                  className="inline-flex h-12 items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-500 px-5 text-sm font-semibold text-white shadow-[0_14px_35px_rgba(79,70,229,0.4)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isExporting ? "Exporting..." : "Export"}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="Logged Users"
+                value={`${userStats.length}`}
+                note={`${userStats.filter((user) => user.totalLectures > 0).length} owners with activity`}
+                accent="#8b5cf6"
+                sparkline={activitySeries.map((item) => item.completed + item.open)}
+                badge="US"
+              />
+              <MetricCard
+                label="Active Users (Range)"
+                value={`${activeUsers}`}
+                note={`${filteredLectures.length} lectures in selected window`}
+                accent="#38bdf8"
+                sparkline={activitySeries.map((item) => item.completed)}
+                badge="AC"
+              />
+              <MetricCard
+                label="Running Batches"
+                value={`${lectureBatches.length}`}
+                note={`${batchPerformance.filter((batch) => batch.pending === 0 && batch.missed === 0).length} fully on track`}
+                accent="#2dd4bf"
+                sparkline={activitySeries.map((item) => item.open)}
+                badge="BT"
+              />
+              <MetricCard
+                label="Platform Performance"
+                value={`${completionRate.toFixed(1)}%`}
+                note={`${taskSummary.completed} of ${totalTrackedTasks} tracked tasks completed`}
+                accent="#fbbf24"
+                sparkline={activitySeries.map((item) => item.completed)}
+                badge="PF"
+              />
+            </div>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.95fr)]">
+            <section
+              id="health"
+              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Task health overview</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Completion mix and recent activity in the selected range.
+                  </p>
+                </div>
+                <div className="rounded-full border border-white/8 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                  {filteredLectures.length} lectures
                 </div>
               </div>
 
-              <div className="theme-subpanel rounded-3xl p-5">
-                <h3 className="font-[var(--font-heading)] text-lg font-bold text-ink">Batch Progress</h3>
-                <div className="mt-4 space-y-4">
-                  {batchStats.slice(0, 4).map((batch) => {
-                    const total = batch.completedTasks + batch.pendingTasks + batch.missedTasks;
-                    const pct = total > 0 ? Math.round((batch.completedTasks / total) * 100) : 0;
-                    return (
-                      <div key={batch.batchName}>
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-ink">{batch.batchName}</p>
-                          <span className="text-xs text-slate-500">{pct}%</span>
-                        </div>
-                        <BatchProgressBar completed={batch.completedTasks} pending={batch.pendingTasks} missed={batch.missedTasks} total={total} />
-                      </div>
-                    );
-                  })}
+              <div className="mt-8 grid gap-8 lg:grid-cols-[320px_minmax(0,1fr)]">
+                <div className="flex flex-col items-center justify-center gap-5 rounded-[28px] border border-white/8 bg-[#0b1329] p-6">
+                  <RingMeter
+                    completed={taskSummary.completed}
+                    pending={taskSummary.pending}
+                    missed={taskSummary.missed}
+                  />
+                  <div className="grid w-full grid-cols-3 gap-3">
+                    <div className="rounded-2xl bg-emerald-500/10 p-3 text-center">
+                      <p className="text-2xl font-bold text-emerald-300">{taskSummary.completed}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-emerald-200/80">Done</p>
+                    </div>
+                    <div className="rounded-2xl bg-sky-500/10 p-3 text-center">
+                      <p className="text-2xl font-bold text-sky-300">{taskSummary.pending}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-sky-200/80">Open</p>
+                    </div>
+                    <div className="rounded-2xl bg-amber-500/10 p-3 text-center">
+                      <p className="text-2xl font-bold text-amber-300">{taskSummary.missed}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-amber-200/80">Missed</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <div className="theme-subpanel rounded-3xl p-5 flex flex-col justify-center items-center">
-                <div className="relative w-40 h-40">
-                  <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="12" className="text-slate-100 dark:text-slate-700" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="12" strokeDasharray={`${(overall.completed / overall.total) * 251.2} 251.2`} strokeLinecap="round" className="text-emerald-500 transition-all duration-500" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="12" strokeDasharray={`${(overall.pending / overall.total) * 251.2} 251.2`} strokeDashoffset={`-${(overall.completed / overall.total) * 251.2}`} strokeLinecap="round" className="text-amber-400 transition-all duration-500" />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-3xl font-bold text-ink">{overall.total > 0 ? Math.round((overall.completed / overall.total) * 100) : 0}%</span>
-                    <span className="text-xs text-slate-500">Completion</span>
+                <div className="rounded-[28px] border border-white/8 bg-[#0b1329] p-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-lg font-semibold text-white">User activity overview</p>
+                      <p className="mt-1 text-sm text-slate-400">
+                        Daily completed vs open tasks over the latest seven lecture dates.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-8">
+                    <ActivityBars
+                      labels={activitySeries.map((item) => item.label)}
+                      completed={activitySeries.map((item) => item.completed)}
+                      open={activitySeries.map((item) => item.open)}
+                    />
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-2xl bg-emerald-50 p-4 text-center dark:bg-emerald-900/30">
-                <p className="text-2xl font-bold text-emerald-600">{overall.completed}</p>
-                <p className="text-xs text-emerald-700 dark:text-emerald-400">Completed</p>
+            <section
+              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Leaderboard</p>
+                  <p className="mt-1 text-sm text-slate-400">Ranked by on-time completion consistency.</p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                  Top 5
+                </div>
               </div>
-              <div className="rounded-2xl bg-amber-50 p-4 text-center dark:bg-amber-900/30">
-                <p className="text-2xl font-bold text-amber-600">{overall.pending}</p>
-                <p className="text-xs text-amber-700 dark:text-amber-400">Pending</p>
-              </div>
-              <div className="rounded-2xl bg-rose-50 p-4 text-center dark:bg-rose-900/30">
-                <p className="text-2xl font-bold text-rose-600">{overall.missed}</p>
-                <p className="text-xs text-rose-700 dark:text-rose-400">Missed</p>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {activeTab === "Leaderboard" && (
-          <div className="p-5">
-            <div className="theme-subpanel overflow-hidden rounded-3xl">
-              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-                <h3 className="font-[var(--font-heading)] text-lg font-bold text-ink">Consistency Leaderboard</h3>
-                <p className="theme-muted mt-1 text-sm">Ranked by on-time completion rate</p>
-              </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+              <div className="mt-6 space-y-3">
                 {leaderboard.map((user, index) => {
                   const total = (user.onTimeCount || 0) + (user.lateCount || 0);
                   const consistency = total > 0 ? Math.round(((user.onTimeCount || 0) / total) * 100) : 0;
                   return (
-                    <div key={user.userId} className="flex items-center gap-4 px-5 py-4 transition hover:bg-slate-50 dark:hover:bg-slate-800">
-                      <span className={`flex h-10 w-10 items-center justify-center rounded-full text-lg font-bold ${getRankStyle(index + 1)}`}>{index + 1}</span>
-                      <div className="flex-1">
-                        <p className="font-semibold text-ink">{user.email}</p>
-                        <p className="text-xs text-slate-500">{(user.batchConfigs || []).map((c: any) => c.batch_name).join(", ")}</p>
+                    <div
+                      key={user.userId}
+                      className="flex items-center gap-4 rounded-[24px] border border-white/8 bg-[#0b1329] px-4 py-4"
+                    >
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/8 text-sm font-bold text-white">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-white">{user.email}</p>
+                        <p className="mt-1 truncate text-xs text-slate-400">
+                          {(user.batchConfigs || []).map((config) => config.batch_name).join(", ") || "No configured batch"}
+                        </p>
                       </div>
                       <div className="text-right">
-                        <ConsistencyChart onTime={user.onTimeCount || 0} late={user.lateCount || 0} total={total} />
-                        <p className="mt-1 text-xs text-slate-500">{user.onTimeCount || 0} on-time / {total} completed</p>
+                        <p className="text-lg font-semibold text-white">{consistency}%</p>
+                        <p className="text-xs text-slate-400">{user.completedTasks} completed</p>
                       </div>
-                      <div className={`w-16 text-right font-bold ${consistency >= 80 ? "text-emerald-600" : consistency >= 50 ? "text-amber-600" : "text-rose-600"}`}>{consistency}%</div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          </div>
-        )}
+            </section>
+          </section>
 
-        {activeTab === "Batches" && (
-          <div className="p-5">
-            <div className="theme-subpanel overflow-hidden rounded-3xl">
-              <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-                <h3 className="font-[var(--font-heading)] text-lg font-bold text-ink">Batch Analytics</h3>
-              </div>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    <th className="p-4">Batch</th>
-                    <th className="p-4 text-center">Lectures</th>
-                    <th className="p-4 text-center">Completed</th>
-                    <th className="p-4 text-center">Pending</th>
-                    <th className="p-4 text-center">Missed</th>
-                    <th className="p-4 text-right">Rate</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {batchStats.map((batch) => {
-                    const total = batch.completedTasks + batch.pendingTasks + batch.missedTasks;
-                    const rate = total > 0 ? Math.round((batch.completedTasks / total) * 100) : 0;
-                    return (
-                      <tr key={batch.batchName}>
-                        <td className="p-4 font-semibold text-ink">{batch.batchName}</td>
-                        <td className="p-4 text-center font-semibold text-ink">{batch.lectureCount}</td>
-                        <td className="p-4 text-center text-emerald-600">{batch.completedTasks}</td>
-                        <td className="p-4 text-center text-amber-600">{batch.pendingTasks}</td>
-                        <td className="p-4 text-center text-rose-600">{batch.missedTasks}</td>
-                        <td className="p-4 text-right">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-sm font-bold ${rate >= 80 ? "bg-emerald-50 text-emerald-700" : rate >= 50 ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>{rate}%</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "Lectures" && (
-          <div className="p-5">
-            <div className="flex flex-col gap-4 mb-4 lg:flex-row lg:items-end">
-              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                Batch
-                <select value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)} className="theme-input rounded-2xl px-4 py-2 text-sm">
-                  <option value="all">All</option>
-                  {batches.map((b) => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </label>
-              <div className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                Week
-                <div className="flex items-center gap-2">
-                  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="theme-input rounded-2xl px-4 py-2 text-sm" />
-                  <span>→</span>
-                  <input type="date" value={dateTo} min={dateFrom} onChange={(e) => setDateTo(e.target.value)} className="theme-input rounded-2xl px-4 py-2 text-sm" />
+          <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.95fr)]">
+            <section
+              id="batches"
+              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Running batches</p>
+                  <p className="mt-1 text-sm text-slate-400">Operational pulse for every batch in scope.</p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                  {batchPerformance.length} active
                 </div>
               </div>
+
+              <div className="mt-6 overflow-hidden rounded-[26px] border border-white/8 bg-[#0b1329]">
+                <table className="w-full border-separate border-spacing-0">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-400">
+                      <th className="px-4 py-4 font-medium">Batch</th>
+                      <th className="px-4 py-4 font-medium">Owner</th>
+                      <th className="px-4 py-4 font-medium">Lectures</th>
+                      <th className="px-4 py-4 font-medium">Progress</th>
+                      <th className="px-4 py-4 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {batchPerformance.map((batch) => {
+                      const health =
+                        batch.missed > 0 ? "Needs attention" : batch.pending > 0 ? "In progress" : "On track";
+
+                      return (
+                        <tr key={batch.batchName} className="border-t border-white/6 text-sm text-slate-200">
+                          <td className="px-4 py-4">
+                            <p className="font-semibold text-white">{batch.batchName}</p>
+                          </td>
+                          <td className="px-4 py-4 text-slate-300">{batch.owner}</td>
+                          <td className="px-4 py-4 font-semibold text-white">{batch.lectureCount}</td>
+                          <td className="px-4 py-4">
+                            <div className="space-y-2">
+                              <div className="h-2.5 overflow-hidden rounded-full bg-white/8">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-teal-400 to-cyan-400"
+                                  style={{ width: `${batch.rate}%` }}
+                                />
+                              </div>
+                              <p className="text-xs text-slate-400">{batch.rate}% completed</p>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                                batch.missed > 0
+                                  ? "bg-amber-500/15 text-amber-200"
+                                  : batch.pending > 0
+                                    ? "bg-sky-500/15 text-sky-200"
+                                    : "bg-emerald-500/15 text-emerald-200"
+                              }`}
+                            >
+                              {health}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section
+              id="attention"
+              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-white">Needs attention</p>
+                  <p className="mt-1 text-sm text-slate-400">Lectures with the highest unresolved pressure.</p>
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-3">
+                {attentionLectures.map((lecture) => (
+                  <div
+                    key={lecture.id}
+                    className="rounded-[24px] border border-white/8 bg-[#0b1329] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-white">{lecture.lectureName}</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {lecture.batchName} • {formatLectureDate(lecture.lectureDate)} • {formatLectureTime(lecture.startTime)}
+                        </p>
+                      </div>
+                      <div className="rounded-full bg-white/6 px-3 py-1 text-xs text-slate-300">
+                        {lecture.userEmail}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {lecture.prereadStatus ? (
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.prereadStatus]}`}>
+                          Pre-read {lecture.prereadStatus}
+                        </span>
+                      ) : null}
+                      {lecture.notesStatus ? (
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.notesStatus]}`}>
+                          Notes {lecture.notesStatus}
+                        </span>
+                      ) : null}
+                      {lecture.assignmentStatus ? (
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.assignmentStatus]}`}>
+                          Assignment {lecture.assignmentStatus}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </section>
+
+          <section
+            id="exports"
+            className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+          >
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-white">Lecture ledger</p>
+                <p className="mt-1 text-sm text-slate-400">
+                  A quick ledger of the current filtered range, plus export for offline review.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                  {filteredLectures.length} lectures in view
+                </div>
+                <button
+                  type="button"
+                  disabled={isExporting}
+                  onClick={handleExport}
+                  className="inline-flex h-11 items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-500 px-5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isExporting ? "Exporting..." : "Export report"}
+                </button>
+              </div>
             </div>
-            <div className="theme-subpanel overflow-hidden rounded-3xl overflow-x-auto max-h-96">
-              <table className="w-full table-fixed">
-                <thead className="sticky top-0 bg-white dark:bg-slate-800">
-                  <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    <th className="p-3">Lecture</th>
-                    <th className="p-3">Batch</th>
-                    <th className="p-3">Schedule</th>
-                    <th className="p-3 text-center">Pre-read</th>
-                    <th className="p-3 text-center">Notes</th>
-                    <th className="p-3 text-center">Assignment</th>
+
+            {exportMessage ? (
+              <p className="mt-4 text-sm text-slate-300">{exportMessage}</p>
+            ) : null}
+
+            <div className="mt-6 overflow-hidden rounded-[26px] border border-white/8 bg-[#0b1329]">
+              <table className="w-full border-separate border-spacing-0">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-400">
+                    <th className="px-4 py-4 font-medium">Lecture</th>
+                    <th className="px-4 py-4 font-medium">Batch</th>
+                    <th className="px-4 py-4 font-medium">Schedule</th>
+                    <th className="px-4 py-4 font-medium">Pre-read</th>
+                    <th className="px-4 py-4 font-medium">Notes</th>
+                    <th className="px-4 py-4 font-medium">Assignment</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                  {filteredLectures.map((lecture) => (
-                    <tr key={lecture.id}>
-                      <td className="p-3 font-semibold text-ink">{lecture.lectureName}</td>
-                      <td className="p-3 text-slate-600">{lecture.batchName}</td>
-                      <td className="p-3 text-slate-600">
+                <tbody>
+                  {filteredLectures.slice(0, 8).map((lecture) => (
+                    <tr key={lecture.id} className="border-t border-white/6 text-sm text-slate-200">
+                      <td className="px-4 py-4 font-semibold text-white">{lecture.lectureName}</td>
+                      <td className="px-4 py-4 text-slate-300">{lecture.batchName}</td>
+                      <td className="px-4 py-4 text-slate-300">
                         <p>{formatLectureDate(lecture.lectureDate)}</p>
-                        <p className="text-xs">{formatLectureTime(lecture.startTime)}</p>
+                        <p className="mt-1 text-xs">{formatLectureTime(lecture.startTime)}</p>
                       </td>
-                      <td className="p-3 text-center">{renderStatus(lecture.prereadStatus)}</td>
-                      <td className="p-3 text-center">{renderStatus(lecture.notesStatus)}</td>
-                      <td className="p-3 text-center">{renderStatus(lecture.assignmentStatus)}</td>
+                      <td className="px-4 py-4">
+                        {lecture.prereadStatus ? (
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.prereadStatus]}`}>
+                            {lecture.prereadStatus}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500">N/A</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        {lecture.notesStatus ? (
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.notesStatus]}`}>
+                            {lecture.notesStatus}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500">N/A</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        {lecture.assignmentStatus ? (
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.assignmentStatus]}`}>
+                            {lecture.assignmentStatus}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500">N/A</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {activeTab === "Reports" && <ReportsTab />}
-      </section>
-    </div>
-  );
-}
-
-function ReportsTab() {
-  const [isExporting, setIsExporting] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function handleExport(reportType: "leaderboard" | "batch" | "lecture" | "all") {
-    setIsExporting(true);
-    setMessage(null);
-    try {
-      const response = await fetch("/api/admin/export", { method: "GET" });
-      const data = (await response.json()) as ExportedData;
-      if (!response.ok) { setMessage(data.error ?? "Export failed"); setIsExporting(false); return; }
-      let filename = "";
-      let content = "";
-      switch (reportType) {
-        case "leaderboard": filename = "leaderboard.csv"; content = data.leaderboardCsv ?? ""; break;
-        case "batch": filename = "batch-report.csv"; content = data.batchCsv ?? ""; break;
-        case "lecture": filename = "lecture-report.csv"; content = data.lectureCsv ?? ""; break;
-        case "all": filename = "admin-report.csv"; content = [`# LEADERBOARD`, data.leaderboardCsv ?? "", `# BATCHES`, data.batchCsv ?? "", `# LECTURES`, data.lectureCsv ?? ""].join("\n\n"); break;
-      }
-      const blob = new Blob([content], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = filename; a.click();
-      URL.revokeObjectURL(url);
-      setMessage(`Exported ${filename}`);
-    } catch { setMessage("Export failed"); }
-    setIsExporting(false);
-  }
-
-  return (
-    <div className="space-y-6 p-5">
-      <div className="theme-subpanel rounded-3xl p-5">
-        <h3 className="font-[var(--font-heading)] text-lg font-bold text-ink">Export Reports</h3>
-        <p className="theme-muted mt-1 text-sm">Download CSV reports for offline analysis</p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button type="button" disabled={isExporting} onClick={() => handleExport("leaderboard")} className="theme-button-secondary px-5 py-2.5 text-sm font-semibold">Leaderboard</button>
-          <button type="button" disabled={isExporting} onClick={() => handleExport("batch")} className="theme-button-secondary px-5 py-2.5 text-sm font-semibold">Batch Report</button>
-          <button type="button" disabled={isExporting} onClick={() => handleExport("lecture")} className="theme-button-secondary px-5 py-2.5 text-sm font-semibold">Lecture Report</button>
-          <button type="button" disabled={isExporting} onClick={() => handleExport("all")} className="theme-button-primary px-5 py-2.5 text-sm font-semibold">Full Report</button>
-        </div>
-        {message && <p className="theme-muted mt-4 text-sm">{message}</p>}
+          </section>
+        </main>
       </div>
     </div>
   );
