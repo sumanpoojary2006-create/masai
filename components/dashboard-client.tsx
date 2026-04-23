@@ -266,99 +266,102 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
             </h2>
           </div>
 
-          <div className="flex flex-col gap-3 lg:items-end">
-            <div className="flex flex-wrap items-end justify-start gap-3 lg:justify-end">
-              <div className="flex w-full flex-col gap-2 sm:w-[250px] lg:w-[260px]">
+          <div className="w-full lg:max-w-[940px]">
+            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
+              <div className="flex w-full flex-col gap-2">
                 <button
                   type="button"
                   onClick={() => setShowTodayTodo((current) => !current)}
-                  className="group inline-flex h-11 w-full items-center justify-center rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/15 to-cyan-400/15 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(124,58,237,0.15)] transition duration-200 hover:-translate-y-0.5 hover:border-fuchsia-300/60 hover:from-fuchsia-500/25 hover:via-violet-500/25 hover:to-cyan-400/25 hover:shadow-[0_18px_36px_rgba(124,58,237,0.28)]"
+                  className="group inline-flex h-11 w-full items-center justify-center rounded-2xl border border-fuchsia-300/70 bg-gradient-to-r from-fuchsia-100 via-violet-50 to-cyan-50 px-4 text-sm font-semibold text-slate-800 shadow-[0_10px_30px_rgba(124,58,237,0.12)] backdrop-blur-sm transition duration-200 hover:-translate-y-0.5 hover:border-fuchsia-400/80 hover:from-fuchsia-200 hover:via-violet-100 hover:to-cyan-100 hover:text-slate-900 hover:shadow-[0_18px_36px_rgba(124,58,237,0.2)] dark:border-fuchsia-400/40 dark:from-fuchsia-500/15 dark:via-violet-500/15 dark:to-cyan-400/15 dark:text-white dark:hover:border-fuchsia-300/60 dark:hover:from-fuchsia-500/25 dark:hover:via-violet-500/25 dark:hover:to-cyan-400/25 dark:hover:text-white dark:hover:shadow-[0_18px_36px_rgba(124,58,237,0.28)]"
                 >
-                  <span className="mr-2 text-sm transition group-hover:scale-110">✦</span>
+                  <span className="mr-2 text-sm text-fuchsia-600 transition group-hover:scale-110 dark:text-white">✦</span>
                   {showTodayTodo ? "Hide today's to do list" : "Today's to do list"}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setShowTodayLectures((current) => !current)}
-                  className="group inline-flex h-11 w-full items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-emerald-500/15 px-4 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(20,184,166,0.14)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/60 hover:from-cyan-500/25 hover:via-teal-500/25 hover:to-emerald-500/25 hover:shadow-[0_18px_36px_rgba(20,184,166,0.24)]"
+                  className="group inline-flex h-11 w-full items-center justify-center rounded-2xl border border-cyan-300/70 bg-gradient-to-r from-cyan-100 via-teal-50 to-emerald-50 px-4 text-sm font-semibold text-slate-800 shadow-[0_10px_30px_rgba(20,184,166,0.12)] backdrop-blur-sm transition duration-200 hover:-translate-y-0.5 hover:border-cyan-400/80 hover:from-cyan-200 hover:via-teal-100 hover:to-emerald-100 hover:text-slate-900 hover:shadow-[0_18px_36px_rgba(20,184,166,0.2)] dark:border-cyan-400/40 dark:from-cyan-500/15 dark:via-teal-500/15 dark:to-emerald-500/15 dark:text-white dark:hover:border-cyan-300/60 dark:hover:from-cyan-500/25 dark:hover:via-teal-500/25 dark:hover:to-emerald-500/25 dark:hover:text-white dark:hover:shadow-[0_18px_36px_rgba(20,184,166,0.24)]"
                 >
-                  <span className="mr-2 text-sm transition group-hover:scale-110">☼</span>
+                  <span className="mr-2 text-sm text-cyan-700 transition group-hover:scale-110 dark:text-white">☼</span>
                   {showTodayLectures ? "Hide today's session" : "Today's session"}
                 </button>
               </div>
 
-              <button
-                type="button"
-                disabled={isPending || isSyncing}
-                onClick={handleSync}
-                className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
-              >
-                {isSyncing ? "Syncing..." : "Sync Up"}
-              </button>
+              <div className="flex min-w-0 flex-col gap-3">
+                <div className="flex flex-wrap items-end justify-start gap-3 lg:justify-end">
+                  <button
+                    type="button"
+                    disabled={isPending || isSyncing}
+                    onClick={handleSync}
+                    className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
+                  >
+                    {isSyncing ? "Syncing..." : "Sync Up"}
+                  </button>
 
-              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                Batch
-                <select
-                  value={batchFilter}
-                  onChange={(event) => setBatchFilter(event.target.value)}
-                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                >
-                  <option value="all">All batches</option>
-                  {batches.map((batch) => (
-                    <option key={batch} value={batch}>
-                      {batch}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
+                    Batch
+                    <select
+                      value={batchFilter}
+                      onChange={(event) => setBatchFilter(event.target.value)}
+                      className="theme-input min-w-[180px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                    >
+                      <option value="all">All batches</option>
+                      {batches.map((batch) => (
+                        <option key={batch} value={batch}>
+                          {batch}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-                Status
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
-                  className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                >
-                  {STATUS_FILTERS.map((status) => (
-                    <option key={status} value={status}>
-                      {status === "all" ? "All statuses" : status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
+                  <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
+                    Status
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
+                      className="theme-input min-w-[180px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                    >
+                      {STATUS_FILTERS.map((status) => (
+                        <option key={status} value={status}>
+                          {status === "all" ? "All statuses" : status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
 
-            {/* Keep the week filter on one compact line so it doesn't drop awkwardly below the toolbar. */}
-            <div className="theme-muted flex flex-wrap items-end justify-start gap-3 text-sm font-medium lg:justify-end">
-              <span className="pb-2">Week</span>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setDateFrom(event.target.value)}
-                className="theme-input w-[150px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-              />
-              <span className="pb-2 text-slate-400 dark:text-slate-500">→</span>
-              <input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(event) => setDateTo(event.target.value)}
-                className="theme-input w-[150px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-              />
-              {(dateFrom || dateTo) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDateFrom("");
-                    setDateTo("");
-                  }}
-                  className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-400 transition hover:border-rose-300 hover:text-rose-500 dark:border-slate-600 dark:text-slate-500 dark:hover:border-rose-700 dark:hover:text-rose-400"
-                  title="Clear date filter"
-                >
-                  ✕
-                </button>
-              )}
+                <div className="theme-muted flex flex-wrap items-end justify-start gap-3 text-sm font-medium lg:justify-end">
+                  <span className="pb-2">Week</span>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(event) => setDateFrom(event.target.value)}
+                    className="theme-input w-[150px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                  />
+                  <span className="pb-2 text-slate-400 dark:text-slate-500">→</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={(event) => setDateTo(event.target.value)}
+                    className="theme-input w-[150px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+                  />
+                  {(dateFrom || dateTo) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDateFrom("");
+                        setDateTo("");
+                      }}
+                      className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-400 transition hover:border-rose-300 hover:text-rose-500 dark:border-slate-600 dark:text-slate-500 dark:hover:border-rose-700 dark:hover:text-rose-400"
+                      title="Clear date filter"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>
