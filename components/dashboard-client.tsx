@@ -246,7 +246,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   return (
     <div className="space-y-8">
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-6">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
               Compliance Dashboard
@@ -256,84 +256,87 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
             </h2>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-            <button
-              type="button"
-              onClick={() => setShowTodayTodo((current) => !current)}
-              className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
-            >
-              {showTodayTodo ? "Hide today's to do list" : "Today's to do list"}
-            </button>
-
-            <button
-              type="button"
-              disabled={isPending || isSyncing}
-              onClick={handleSync}
-              className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
-            >
-              {isSyncing ? "Syncing..." : "Sync Up"}
-            </button>
-
-            <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-              Batch
-              <select
-                value={batchFilter}
-                onChange={(event) => setBatchFilter(event.target.value)}
-                className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+          <div className="flex flex-col gap-3 lg:items-end">
+            <div className="flex flex-wrap items-end justify-start gap-3 lg:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowTodayTodo((current) => !current)}
+                className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
               >
-                <option value="all">All batches</option>
-                {batches.map((batch) => (
-                  <option key={batch} value={batch}>
-                    {batch}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {showTodayTodo ? "Hide today's to do list" : "Today's to do list"}
+              </button>
 
-            <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
-              Status
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
-                className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              <button
+                type="button"
+                disabled={isPending || isSyncing}
+                onClick={handleSync}
+                className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
               >
-                {STATUS_FILTERS.map((status) => (
-                  <option key={status} value={status}>
-                    {status === "all" ? "All statuses" : status}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {isSyncing ? "Syncing..." : "Sync Up"}
+              </button>
 
-            {/* From / To date range — grouped so they never split across rows */}
-            <div className="theme-muted flex flex-col gap-2 text-sm font-medium">
-              Week
-              <div className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(event) => setDateFrom(event.target.value)}
+              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
+                Batch
+                <select
+                  value={batchFilter}
+                  onChange={(event) => setBatchFilter(event.target.value)}
                   className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                />
-                <span className="text-slate-400 dark:text-slate-500">→</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom || undefined}
-                  onChange={(event) => setDateTo(event.target.value)}
+                >
+                  <option value="all">All batches</option>
+                  {batches.map((batch) => (
+                    <option key={batch} value={batch}>
+                      {batch}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="theme-muted flex flex-col gap-2 text-sm font-medium">
+                Status
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
                   className="theme-input rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
-                />
-                {(dateFrom || dateTo) && (
-                  <button
-                    type="button"
-                    onClick={() => { setDateFrom(""); setDateTo(""); }}
-                    className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-400 transition hover:border-rose-300 hover:text-rose-500 dark:border-slate-600 dark:text-slate-500 dark:hover:border-rose-700 dark:hover:text-rose-400"
-                    title="Clear date filter"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+                >
+                  {STATUS_FILTERS.map((status) => (
+                    <option key={status} value={status}>
+                      {status === "all" ? "All statuses" : status}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {/* Keep the week filter on one compact line so it doesn't drop awkwardly below the toolbar. */}
+            <div className="theme-muted flex flex-wrap items-end justify-start gap-3 text-sm font-medium lg:justify-end">
+              <span className="pb-2">Week</span>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="theme-input w-[150px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              />
+              <span className="pb-2 text-slate-400 dark:text-slate-500">→</span>
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="theme-input w-[150px] rounded-2xl px-4 py-2 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+              />
+              {(dateFrom || dateTo) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-400 transition hover:border-rose-300 hover:text-rose-500 dark:border-slate-600 dark:text-slate-500 dark:hover:border-rose-700 dark:hover:text-rose-400"
+                  title="Clear date filter"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
         </div>
