@@ -34,9 +34,12 @@ export function computeDeadline(
     return toIsoOrThrow(prereadDeadline);
   }
 
-  // Notes & Assignment must be released by 3:00 PM the day after the lecture
-  const nextDay3pm = parseLocalDateTime(lectureDate, "15:00:00").plus({ days: 1 });
-  return toIsoOrThrow(nextDay3pm);
+  // Notes & Assignment must be released by 3:00 PM on the next working day.
+  // Saturday sessions are special: Sunday is off, so deadline moves to Monday 3:00 PM.
+  const lectureDay3pm = parseLocalDateTime(lectureDate, "15:00:00");
+  const daysToAdd = lectureDay3pm.weekday === 6 ? 2 : 1;
+  const notesAndAssignmentDeadline = lectureDay3pm.plus({ days: daysToAdd });
+  return toIsoOrThrow(notesAndAssignmentDeadline);
 }
 
 export function formatLectureDate(date: string) {
