@@ -29,7 +29,7 @@ export default async function HomePage() {
       <main className="app-shell mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
         <section className="flex items-center justify-between gap-4">
           <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink sm:text-4xl">
-            Masai Resource Tracker
+            MasaiLens by Masai
           </h1>
           <ThemeToggle />
         </section>
@@ -81,7 +81,7 @@ export default async function HomePage() {
       <section className="flex items-center justify-between gap-4">
         <div>
           <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink sm:text-4xl">
-            Masai Resource Tracker
+            MasaiLens by Masai
           </h1>
           <p className="theme-muted mt-2 text-sm">
             Signed in as {user.email} • {batchConfigs.length} batch

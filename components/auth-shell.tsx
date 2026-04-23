@@ -17,7 +17,7 @@ export function AuthShell({
     <main className="app-shell mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-x-hidden px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between gap-4">
         <Link href="/" className="font-[var(--font-heading)] text-2xl font-bold text-ink">
-          Masai Resource Tracker
+          MasaiLens by Masai
         </Link>
         <ThemeToggle />
       </div>

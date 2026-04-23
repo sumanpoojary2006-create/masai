@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Lecture Compliance Tracker",
+  title: "MasaiLens by Masai",
   description:
-    "Track lecture resource uploads, monitor LMS compliance, and trigger Slack alerts from one free Next.js app."
+    "Track lecture resource uploads, monitor LMS compliance, and trigger Slack alerts from one shared MasaiLens workspace."
 };
 
 export default function RootLayout({
