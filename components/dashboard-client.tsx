@@ -40,6 +40,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showTodayTodo, setShowTodayTodo] = useState(false);
+  const [showTodayLectures, setShowTodayLectures] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -66,6 +67,15 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   ).sort(([leftBatch], [rightBatch]) => leftBatch.localeCompare(rightBatch));
 
   const todayIsoDate = DateTime.now().setZone(APP_TIMEZONE).toISODate();
+  const todayLectures = filteredLectures.filter((lecture) => lecture.lecture_date === todayIsoDate);
+  const groupedTodayLectures = Object.entries(
+    todayLectures.reduce<Record<string, DashboardLecture[]>>((accumulator, lecture) => {
+      const current = accumulator[lecture.batch_name] ?? [];
+      current.push(lecture);
+      accumulator[lecture.batch_name] = current;
+      return accumulator;
+    }, {})
+  ).sort(([leftBatch], [rightBatch]) => leftBatch.localeCompare(rightBatch));
   const todayTasks = filteredLectures.flatMap<TodayTaskItem>((lecture) =>
     (Object.entries(lecture.tasks) as Array<
       [TodayTaskItem["taskType"], DashboardLecture["tasks"][TodayTaskItem["taskType"]]]
@@ -258,13 +268,25 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
           <div className="flex flex-col gap-3 lg:items-end">
             <div className="flex flex-wrap items-end justify-start gap-3 lg:justify-end">
-              <button
-                type="button"
-                onClick={() => setShowTodayTodo((current) => !current)}
-                className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
-              >
-                {showTodayTodo ? "Hide today's to do list" : "Today's to do list"}
-              </button>
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowTodayTodo((current) => !current)}
+                  className="group inline-flex h-12 items-center justify-center rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/15 to-cyan-400/15 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(124,58,237,0.15)] transition duration-200 hover:-translate-y-0.5 hover:border-fuchsia-300/60 hover:from-fuchsia-500/25 hover:via-violet-500/25 hover:to-cyan-400/25 hover:shadow-[0_18px_36px_rgba(124,58,237,0.28)]"
+                >
+                  <span className="mr-2 text-base transition group-hover:scale-110">✦</span>
+                  {showTodayTodo ? "Hide today's to do list" : "Today's to do list"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowTodayLectures((current) => !current)}
+                  className="group inline-flex h-12 items-center justify-center rounded-2xl border border-cyan-400/40 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-emerald-500/15 px-5 text-sm font-semibold text-white shadow-[0_10px_30px_rgba(20,184,166,0.14)] transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/60 hover:from-cyan-500/25 hover:via-teal-500/25 hover:to-emerald-500/25 hover:shadow-[0_18px_36px_rgba(20,184,166,0.24)]"
+                >
+                  <span className="mr-2 text-base transition group-hover:scale-110">☼</span>
+                  {showTodayLectures ? "Hide today's session" : "Today's session"}
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -483,6 +505,77 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                     </div>
                   </div>
                 ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {showTodayLectures ? (
+          <div className="mt-6 rounded-3xl border border-cyan-200/30 bg-gradient-to-br from-cyan-500/10 via-slate-900/10 to-emerald-500/10 p-5 dark:border-cyan-500/20 dark:from-cyan-500/10 dark:via-slate-900/40 dark:to-emerald-500/10">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300 dark:text-cyan-300">
+                  Today's session
+                </p>
+                <h3 className="mt-2 font-[var(--font-heading)] text-xl font-bold text-ink">
+                  Lectures scheduled today
+                </h3>
+                <p className="theme-muted mt-1 text-sm">
+                  {DateTime.now().setZone(APP_TIMEZONE).toFormat("dd LLL yyyy")} • filtered from the current dashboard view
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-300/30 bg-white/5 px-4 py-3 backdrop-blur">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200/80">
+                  Scheduled today
+                </p>
+                <p className="mt-2 text-2xl font-bold text-white">{todayLectures.length}</p>
+              </div>
+            </div>
+
+            {groupedTodayLectures.length === 0 ? (
+              <div className="mt-5 rounded-2xl border border-dashed border-slate-300/30 bg-white/5 px-5 py-6 text-sm text-slate-300">
+                No lectures are scheduled today for the current dashboard filters.
+              </div>
+            ) : (
+              <div className="mt-5 space-y-4">
+                {groupedTodayLectures.map(([batchName, batchLectures]) => (
+                  <div
+                    key={batchName}
+                    className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur"
+                  >
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200/80">
+                      {batchName}
+                    </p>
+                    <div className="mt-3 space-y-3">
+                      {batchLectures.map((lecture) => (
+                        <div
+                          key={lecture.id}
+                          className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-slate-950/20 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"
+                        >
+                          <div>
+                            <p className="font-semibold text-white">{lecture.lecture_name}</p>
+                            <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+                              Lecture ID: <span className="text-cyan-300">{getDisplayLectureId(lecture)}</span>
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                              <p>{formatLectureDate(lecture.lecture_date)}</p>
+                              <p className="mt-1 font-semibold text-white">{formatLectureTime(lecture.start_time)}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {lecture.tasks.preread ? <StatusPill task={lecture.tasks.preread} /> : null}
+                              {lecture.tasks.notes ? <StatusPill task={lecture.tasks.notes} /> : null}
+                              {lecture.tasks.assignment ? <StatusPill task={lecture.tasks.assignment} /> : null}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
