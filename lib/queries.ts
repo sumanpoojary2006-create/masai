@@ -402,10 +402,55 @@ export async function getAdminDashboardData(): Promise<AdminUserStats[]> {
 
 export interface AdminBatchStats {
   batchName: string;
+  ownerEmail: string | null;
   lectureCount: number;
   completedTasks: number;
   pendingTasks: number;
   missedTasks: number;
+}
+
+async function getBatchOwnerEmailMap(
+  supabase: ReturnType<typeof createServerSupabase>,
+  lectureUserIds: string[] = []
+) {
+  const { data: batchConfigs, error: batchConfigError } = await supabase
+    .from("user_batch_configs")
+    .select("batch_name, user_id");
+
+  if (batchConfigError) {
+    throw new Error(batchConfigError.message);
+  }
+
+  const configUserIds = (batchConfigs ?? []).map((config) => config.user_id);
+  const profileUserIds = [...new Set([...lectureUserIds, ...configUserIds].filter(Boolean))];
+
+  if (profileUserIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id, email")
+    .in("user_id", profileUserIds);
+
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
+
+  const emailByUserId = new Map<string, string>(
+    (profiles ?? []).map((profile) => [profile.user_id, profile.email])
+  );
+
+  const ownersByBatch = new Map<string, string>();
+  for (const config of batchConfigs ?? []) {
+    const email = emailByUserId.get(config.user_id);
+    if (!email || ownersByBatch.has(config.batch_name)) {
+      continue;
+    }
+    ownersByBatch.set(config.batch_name, email);
+  }
+
+  return ownersByBatch;
 }
 
 export async function getAdminBatchStats(): Promise<AdminBatchStats[]> {
@@ -413,10 +458,13 @@ export async function getAdminBatchStats(): Promise<AdminBatchStats[]> {
 
   const { data: lectures, error } = await supabase
     .from("lectures")
-    .select("id, batch_name, tasks(id, type, deadline, status, completed_at)")
+    .select("id, user_id, batch_name, tasks(id, type, deadline, status, completed_at)")
     .is("archived_at", null);
 
   if (error) throw new Error(error.message);
+
+  const lectureUserIds = [...new Set((lectures ?? []).map((lecture) => lecture.user_id))];
+  const batchOwnerEmailMap = await getBatchOwnerEmailMap(supabase, lectureUserIds);
 
   const batchMap = new Map<string, AdminBatchStats>();
 
@@ -424,6 +472,9 @@ export async function getAdminBatchStats(): Promise<AdminBatchStats[]> {
     const batchName = lecture.batch_name;
     const current = batchMap.get(batchName) ?? {
       batchName,
+      ownerEmail:
+        batchOwnerEmailMap.get(batchName) ??
+        null,
       lectureCount: 0,
       completedTasks: 0,
       pendingTasks: 0,
@@ -472,10 +523,12 @@ export async function getAdminLectureStats(): Promise<AdminLectureStats[]> {
   if (error) throw new Error(error.message);
 
   const userIds = [...new Set((lectures ?? []).map((l) => l.user_id))];
-  const { data: profiles } = await supabase
-    .from("user_profiles")
-    .select("user_id, email")
-    .in("user_id", userIds);
+  const batchOwnerEmailMap = await getBatchOwnerEmailMap(supabase, userIds);
+
+  const { data: profiles } =
+    userIds.length > 0
+      ? await supabase.from("user_profiles").select("user_id, email").in("user_id", userIds)
+      : { data: [] };
 
   const userEmailMap = new Map<string, string>((profiles ?? []).map((p) => [p.user_id, p.email]));
 
@@ -492,7 +545,10 @@ export async function getAdminLectureStats(): Promise<AdminLectureStats[]> {
       lectureDate: lecture.lecture_date,
       startTime: lecture.start_time,
       endTime: lecture.end_time,
-      userEmail: userEmailMap.get(lecture.user_id) ?? "Unknown",
+      userEmail:
+        userEmailMap.get(lecture.user_id) ??
+        batchOwnerEmailMap.get(lecture.batch_name) ??
+        "Unassigned",
       prereadStatus: (preread?.status ?? null) as TaskStatus | null,
       notesStatus: (notes?.status ?? null) as TaskStatus | null,
       assignmentStatus: (assignment?.status ?? null) as TaskStatus | null

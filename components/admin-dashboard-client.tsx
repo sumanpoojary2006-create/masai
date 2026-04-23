@@ -46,6 +46,40 @@ function getTaskStatuses(lecture: AdminLectureStats) {
   ) as TaskStatus[];
 }
 
+function getOpenTaskStatuses(lecture: AdminLectureStats) {
+  return [
+    lecture.prereadStatus ? { label: "Pre-read", status: lecture.prereadStatus } : null,
+    lecture.notesStatus ? { label: "Notes", status: lecture.notesStatus } : null,
+    lecture.assignmentStatus ? { label: "Assignment", status: lecture.assignmentStatus } : null
+  ].filter(
+    (
+      entry
+    ): entry is {
+      label: string;
+      status: TaskStatus;
+    } => {
+      if (!entry) {
+        return false;
+      }
+
+      return entry.status !== "completed";
+    }
+  );
+}
+
+function formatOwnerLabel(ownerEmail: string | null | undefined) {
+  if (!ownerEmail || ownerEmail === "Unassigned") {
+    return "Unassigned";
+  }
+
+  const localPart = ownerEmail.split("@")[0] ?? ownerEmail;
+  return localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function buildLeaderboard(users: AdminUserStats[]) {
   return [...users].sort((left, right) => {
     const leftTotal = (left.onTimeCount || 0) + (left.lateCount || 0);
@@ -353,12 +387,7 @@ export function AdminDashboardClient({
   const leaderboard = useMemo(() => buildLeaderboard(userStats).slice(0, 5), [userStats]);
 
   const batchPerformance = useMemo(() => {
-    const ownerLookup = new Map<string, string>();
-    for (const lecture of lectureStats) {
-      if (!ownerLookup.has(lecture.batchName)) {
-        ownerLookup.set(lecture.batchName, lecture.userEmail);
-      }
-    }
+    const batchStatsLookup = new Map(batchStats.map((batch) => [batch.batchName, batch]));
 
     return lectureBatches.map((batchName) => {
       const lectures = filteredLectures.filter((lecture) => lecture.batchName === batchName);
@@ -370,7 +399,7 @@ export function AdminDashboardClient({
 
       return {
         batchName,
-        owner: ownerLookup.get(batchName) ?? "Unknown",
+        owner: formatOwnerLabel(batchStatsLookup.get(batchName)?.ownerEmail),
         lectureCount: lectures.length,
         completed,
         pending,
@@ -378,7 +407,7 @@ export function AdminDashboardClient({
         rate: Math.round((completed / total) * 100)
       };
     });
-  }, [filteredLectures, lectureBatches, lectureStats]);
+  }, [batchStats, filteredLectures, lectureBatches]);
 
   const attentionLectures = useMemo(() => {
     return [...filteredLectures]
@@ -397,7 +426,7 @@ export function AdminDashboardClient({
         if (right.score !== left.score) return right.score - left.score;
         return left.lectureDate.localeCompare(right.lectureDate);
       })
-      .slice(0, 5);
+      .slice(0, 3);
   }, [filteredLectures]);
 
   async function handleExport() {
@@ -719,7 +748,8 @@ export function AdminDashboardClient({
               </div>
 
               <div className="mt-6 overflow-hidden rounded-[26px] border border-white/8 bg-[#0b1329]">
-                <table className="w-full border-separate border-spacing-0">
+                <div className="max-h-[620px] overflow-auto">
+                  <table className="w-full border-separate border-spacing-0">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-400">
                       <th className="px-4 py-4 font-medium">Batch</th>
@@ -739,7 +769,9 @@ export function AdminDashboardClient({
                           <td className="px-4 py-4">
                             <p className="font-semibold text-white">{batch.batchName}</p>
                           </td>
-                          <td className="px-4 py-4 text-slate-300">{batch.owner}</td>
+                          <td className="px-4 py-4 text-slate-300">
+                            <p className="font-medium text-slate-200">{batch.owner}</p>
+                          </td>
                           <td className="px-4 py-4 font-semibold text-white">{batch.lectureCount}</td>
                           <td className="px-4 py-4">
                             <div className="space-y-2">
@@ -769,7 +801,8 @@ export function AdminDashboardClient({
                       );
                     })}
                   </tbody>
-                </table>
+                  </table>
+                </div>
               </div>
             </section>
 
@@ -780,7 +813,10 @@ export function AdminDashboardClient({
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-white">Needs attention</p>
-                  <p className="mt-1 text-sm text-slate-400">Lectures with the highest unresolved pressure.</p>
+                  <p className="mt-1 text-sm text-slate-400">Only the most urgent unresolved lectures are shown here.</p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-2 text-sm text-slate-300">
+                  Top {attentionLectures.length}
                 </div>
               </div>
 
@@ -798,25 +834,24 @@ export function AdminDashboardClient({
                         </p>
                       </div>
                       <div className="rounded-full bg-white/6 px-3 py-1 text-xs text-slate-300">
-                        {lecture.userEmail}
+                        {formatOwnerLabel(lecture.userEmail)}
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {lecture.prereadStatus ? (
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.prereadStatus]}`}>
-                          Pre-read {lecture.prereadStatus}
-                        </span>
-                      ) : null}
-                      {lecture.notesStatus ? (
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.notesStatus]}`}>
-                          Notes {lecture.notesStatus}
-                        </span>
-                      ) : null}
-                      {lecture.assignmentStatus ? (
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[lecture.assignmentStatus]}`}>
-                          Assignment {lecture.assignmentStatus}
-                        </span>
-                      ) : null}
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap gap-2">
+                        {getOpenTaskStatuses(lecture).map((task) => (
+                          <span
+                            key={`${lecture.id}-${task.label}`}
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${STATUS_ACCENTS[task.status]}`}
+                          >
+                            {task.label} {task.status}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-semibold text-white">{lecture.score}</p>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">priority</p>
+                      </div>
                     </div>
                   </div>
                 ))}
