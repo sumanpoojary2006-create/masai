@@ -107,6 +107,7 @@ export interface ComplianceAlertEvent {
   alertType: AlertType;
   deadline: string;
   completedAt?: string | null;
+  statusAtSend?: TaskStatus;
 }
 
 export interface ComplianceRunSummary {

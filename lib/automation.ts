@@ -153,49 +153,47 @@ function nextStatus(
   };
 }
 
-function chooseAlertType(
+function chooseAlertTypes(
   task: TaskRecord,
   nextTaskStatus: TaskStatus,
   now: DateTime,
+  previousTaskStatus: TaskStatus | undefined,
   sentAlertTypes: Set<AlertType>
 ) {
   const deadline = DateTime.fromISO(task.deadline);
-  const reminderSchedule = [
-    { type: "reminder_10h" as AlertType, offsetMinutes: 10 * 60 },
-    { type: "reminder_6h" as AlertType, offsetMinutes: 6 * 60 },
-    { type: "reminder_2h" as AlertType, offsetMinutes: 2 * 60 },
-    // Kept historical key name for DB compatibility, but this now acts as
-    // a strict warning reminder at T-45m (2:15 PM for 3:00 PM deadlines).
-    { type: "reminder_30m" as AlertType, offsetMinutes: 45 }
-  ];
+  const alerts: AlertType[] = [];
+  const isDueToday = deadline.hasSame(now, "day");
+  const morningSnapshotAt = deadline.startOf("day").set({ hour: 11, minute: 0, second: 0, millisecond: 0 });
+  const strictWarningAt = deadline.startOf("day").set({ hour: 14, minute: 30, second: 0, millisecond: 0 });
+  const inMorningWindow = now >= morningSnapshotAt && now < morningSnapshotAt.plus({ minutes: 15 });
+  const inStrictWarningWindow = now >= strictWarningAt && now < strictWarningAt.plus({ minutes: 15 });
 
-  if (nextTaskStatus === "missed") {
-    return "missed" as AlertType;
+  if (isDueToday && inMorningWindow && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
+    alerts.push("reminder_10h");
   }
 
-  if (nextTaskStatus === "completed") {
-    return "completed" as AlertType;
+  if (
+    isDueToday &&
+    inStrictWarningWindow &&
+    nextTaskStatus === "pending" &&
+    !sentAlertTypes.has("reminder_30m")
+  ) {
+    alerts.push("reminder_30m");
   }
 
-  const eligibleReminder = reminderSchedule.reduce<AlertType | null>((current, reminder) => {
-    const target = deadline.minus({ minutes: reminder.offsetMinutes });
-    const inWindow =
-      reminder.type === "reminder_30m"
-        ? now >= target && now < target.plus({ minutes: 15 })
-        : now >= target && now < deadline;
-
-    if (inWindow && !sentAlertTypes.has(reminder.type)) {
-      return reminder.type;
-    }
-
-    return current;
-  }, null);
-
-  if (eligibleReminder) {
-    return eligibleReminder;
+  if (
+    nextTaskStatus === "completed" &&
+    previousTaskStatus !== "completed" &&
+    !(isDueToday && inMorningWindow)
+  ) {
+    alerts.push("completed");
   }
 
-  return null;
+  if (nextTaskStatus === "missed" && !sentAlertTypes.has("missed")) {
+    alerts.push("missed");
+  }
+
+  return alerts;
 }
 
 function describeRun(summary: ComplianceRunSummary) {
@@ -635,42 +633,38 @@ export async function runComplianceCheck(options?: {
           .filter((alert) => alert.task_id === task.id)
           .map((alert) => alert.alert_type as AlertType)
       );
-      const alertType = chooseAlertType(
+      const alertTypes = chooseAlertTypes(
         task as TaskRecord,
         task.status as TaskStatus,
         now,
+        previousTask?.status as TaskStatus | undefined,
         sentAlertTypes
       );
 
-      if (!alertType) {
+      if (alertTypes.length === 0) {
         return [];
       }
 
-      if (alertType === "completed" && previousTask?.status === "completed") {
-        return [];
-      }
-
-      return [
-        {
-          taskId: task.id,
-          lecture: {
-            id: lecture.id,
-            user_id: lecture.user_id,
-            batch_name: lecture.batch_name,
-            module_name: lecture.module_name,
-            lecture_name: lecture.lecture_name,
-            learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
-            session_link: (lecture as Record<string, unknown>).session_link as string ?? "",
-            lecture_date: lecture.lecture_date,
-            start_time: lecture.start_time,
-            end_time: lecture.end_time
-          },
-          taskType: task.type as TaskType,
-          alertType,
-          deadline: task.deadline,
-          completedAt: task.completed_at
-        }
-      ];
+      return alertTypes.map((alertType) => ({
+        taskId: task.id,
+        lecture: {
+          id: lecture.id,
+          user_id: lecture.user_id,
+          batch_name: lecture.batch_name,
+          module_name: lecture.module_name,
+          lecture_name: lecture.lecture_name,
+          learning_objective: (lecture as Record<string, unknown>).learning_objective as string ?? "",
+          session_link: (lecture as Record<string, unknown>).session_link as string ?? "",
+          lecture_date: lecture.lecture_date,
+          start_time: lecture.start_time,
+          end_time: lecture.end_time
+        },
+        taskType: task.type as TaskType,
+        alertType,
+        deadline: task.deadline,
+        completedAt: task.completed_at,
+        statusAtSend: task.status as TaskStatus
+      }));
     });
 
     const sentKeys = new Set(

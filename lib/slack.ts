@@ -99,6 +99,19 @@ function alertLine(event: ComplianceAlertEvent) {
   return `• ⏳ ${event.lecture.lecture_name} | ${label} ${deadlineLabel}`;
 }
 
+function morningStatusLine(event: ComplianceAlertEvent) {
+  const label = TASK_LABELS[event.taskType];
+  if (event.statusAtSend === "completed") {
+    return `• ✅ ${event.lecture.lecture_name} | ${label} completed`;
+  }
+  return `• ⏳ ${event.lecture.lecture_name} | ${label} pending`;
+}
+
+function strictWarningLine(event: ComplianceAlertEvent) {
+  const label = TASK_LABELS[event.taskType];
+  return `• 🚨 ${event.lecture.lecture_name} | ${label} still missing`;
+}
+
 function pendingLine(item: PendingDigestItem) {
   return `• 🕒 ${item.lecture.lecture_name} | ${TASK_LABELS[item.taskType]} pending`;
 }
@@ -162,12 +175,15 @@ function buildSlackDigest(
   timezone: string,
   mentionUserId?: string | null
 ) {
+  const morningSnapshotAlerts = alerts.filter((alert) => alert.alertType === "reminder_10h");
+  const strictWarningAlerts = alerts.filter((alert) => alert.alertType === "reminder_30m");
   const completedAlerts = alerts.filter((alert) => alert.alertType === "completed");
   const reminderAlerts = alerts.filter(
-    (alert) => alert.alertType.startsWith("reminder_")
+    (alert) => alert.alertType.startsWith("reminder_") && alert.alertType !== "reminder_10h" && alert.alertType !== "reminder_30m"
   );
   const missedAlerts = alerts.filter((alert) => alert.alertType === "missed");
-  const lectureDates = alerts
+  const dateSource = morningSnapshotAlerts.length > 0 ? morningSnapshotAlerts : strictWarningAlerts.length > 0 ? strictWarningAlerts : alerts;
+  const lectureDates = dateSource
     .map((alert) =>
       DateTime.fromISO(alert.lecture.lecture_date, { zone: timezone }).toFormat("dd LLL yyyy")
     )
@@ -180,6 +196,58 @@ function buildSlackDigest(
     .join(", ");
 
   const mention = mentionUserId ? `<@${mentionUserId}>` : null;
+
+  const groupedByBatch = <T extends ComplianceAlertEvent>(items: T[], lineBuilder: (item: T) => string) => {
+    const grouped = items
+      .sort(sortAlerts)
+      .reduce<Map<string, T[]>>((accumulator, item) => {
+        const current = accumulator.get(item.lecture.batch_name) ?? [];
+        current.push(item);
+        accumulator.set(item.lecture.batch_name, current);
+        return accumulator;
+      }, new Map());
+
+    const lines: string[] = [];
+    for (const [batchName, batchItems] of grouped.entries()) {
+      lines.push(batchName);
+      lines.push(...batchItems.map(lineBuilder));
+      lines.push("");
+    }
+    return lines;
+  };
+
+  if (morningSnapshotAlerts.length > 0) {
+    const completedToday = morningSnapshotAlerts.filter((alert) => alert.statusAtSend === "completed");
+    const pendingToday = morningSnapshotAlerts.filter((alert) => alert.statusAtSend === "pending");
+
+    return [
+      mention,
+      "🌤️ 11:00 AM Masai Resource Tracker Status",
+      lectureDates ? `🗓️ Due today: ${lectureDates}` : null,
+      "Compliance check completed. Here is today's completed and pending list.",
+      "",
+      ...(completedToday.length > 0 ? ["✅ Completed", ...groupedByBatch(completedToday, morningStatusLine)] : []),
+      ...(pendingToday.length > 0 ? ["⏳ Pending", ...groupedByBatch(pendingToday, morningStatusLine)] : []),
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n")
+      .trim();
+  }
+
+  if (strictWarningAlerts.length > 0) {
+    return [
+      mention,
+      "🚨 2:30 PM High Alert",
+      lectureDates ? `🗓️ Due today: ${lectureDates}` : null,
+      "Compliance check completed. These resources are still missing and need immediate action.",
+      "",
+      "🚨 Still missing",
+      ...groupedByBatch(strictWarningAlerts, strictWarningLine)
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n")
+      .trim();
+  }
 
   const message = [
     mention,
