@@ -98,19 +98,19 @@ function EventContent({ eventInfo }: { eventInfo: EventContentArg }) {
   return (
     <div
       style={{
-        padding: isMonth ? '5px 8px' : '8px 10px',
+        padding: isMonth ? '6px 9px' : '9px 11px',
         width: '100%',
         height: '100%',
         overflow: 'hidden',
-        borderRadius: '12px',
-        border: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: `0 0 10px ${glow}, inset 0 1px 0 rgba(255,255,255,0.06)`,
+        borderRadius: isMonth ? '16px' : '18px',
+        border: '1px solid rgba(255,255,255,0.16)',
+        boxShadow: `0 10px 24px rgba(15,23,42,0.36), 0 0 18px ${glow}, inset 0 1px 0 rgba(255,255,255,0.18)`,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
         gap: isMonth ? '2px' : '4px',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04))',
-        backdropFilter: 'blur(8px)',
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08))',
+        backdropFilter: 'blur(16px)',
       }}
     >
       {!isMonth && (
@@ -143,12 +143,13 @@ function EventContent({ eventInfo }: { eventInfo: EventContentArg }) {
       )}
       <div style={{
         fontSize: isMonth ? '11px' : '12px',
-        fontWeight: 700,
+        fontWeight: 800,
         color: 'white',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
         textOverflow: 'ellipsis',
         lineHeight: 1.3,
+        textShadow: '0 1px 8px rgba(15,23,42,0.45)',
       }}>
         {session.is_end_of_schedule && '🏁 '}
         {eventInfo.event.title}
