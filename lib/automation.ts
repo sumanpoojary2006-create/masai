@@ -163,18 +163,16 @@ function chooseAlertTypes(
   const deadline = DateTime.fromISO(task.deadline);
   const alerts: AlertType[] = [];
   const isDueToday = deadline.hasSame(now, "day");
-  const morningSnapshotAt = deadline.startOf("day").set({ hour: 11, minute: 0, second: 0, millisecond: 0 });
-  const strictWarningAt = deadline.startOf("day").set({ hour: 14, minute: 30, second: 0, millisecond: 0 });
-  const inMorningWindow = now >= morningSnapshotAt && now < morningSnapshotAt.plus({ minutes: 15 });
-  const inStrictWarningWindow = now >= strictWarningAt && now < strictWarningAt.plus({ minutes: 15 });
+  const isMorningSnapshotMinute = now.hour === 11 && now.minute === 0;
+  const isStrictWarningMinute = now.hour === 14 && now.minute === 30;
 
-  if (isDueToday && inMorningWindow && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
+  if (isDueToday && isMorningSnapshotMinute && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
     alerts.push("reminder_10h");
   }
 
   if (
     isDueToday &&
-    inStrictWarningWindow &&
+    isStrictWarningMinute &&
     nextTaskStatus === "pending" &&
     !sentAlertTypes.has("reminder_30m")
   ) {
@@ -184,7 +182,7 @@ function chooseAlertTypes(
   if (
     nextTaskStatus === "completed" &&
     previousTaskStatus !== "completed" &&
-    !(isDueToday && inMorningWindow)
+    !(isDueToday && isMorningSnapshotMinute)
   ) {
     alerts.push("completed");
   }
