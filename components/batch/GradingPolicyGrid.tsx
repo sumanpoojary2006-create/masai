@@ -44,7 +44,7 @@ export function GradingPolicyGrid({ batch, canEdit, onUpdate }: Props) {
       width: 50,
       editable: false,
       valueGetter: params => (params.node?.rowIndex ?? 0) + 1,
-      cellStyle: { color: '#9ca3af', textAlign: 'center' },
+      cellStyle: { color: '#64748b', textAlign: 'center' },
     },
     {
       field: 'component',
@@ -108,16 +108,16 @@ export function GradingPolicyGrid({ batch, canEdit, onUpdate }: Props) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Grading Policy</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Grading Policy</p>
         <div className="flex items-center gap-3">
-          {errMsg && <span className="rounded bg-red-50 px-2 py-0.5 text-xs text-red-600">{errMsg}</span>}
+          {errMsg && <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-xs text-rose-300">{errMsg}</span>}
           <span className="text-sm font-semibold" style={{ color: totalColor }}>
             Total: {totalWeightage}%
           </span>
           {canEdit && (
             <button
               onClick={addRow}
-              className="inline-flex items-center gap-1 rounded-full border border-blue-300 px-3 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+              className="inline-flex items-center gap-1 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/15"
             >
               + Add Component
             </button>
@@ -125,7 +125,7 @@ export function GradingPolicyGrid({ batch, canEdit, onUpdate }: Props) {
         </div>
       </div>
       <div
-        className="ag-theme-quartz overflow-hidden rounded-md border border-gray-200"
+        className="ag-theme-quartz overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70"
         style={{ height: rows.length > 0 ? `${rows.length * 38 + 44}px` : '82px' }}
       >
         <AgGridReact<GradingRow>

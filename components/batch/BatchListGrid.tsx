@@ -19,7 +19,7 @@ export function BatchListGrid({ batches }: Props) {
       field: 'batch_name',
       headerName: 'Batch Name',
       width: 220,
-      cellStyle: { fontWeight: 600, color: '#2563eb', cursor: 'pointer' },
+      cellStyle: { fontWeight: 700, color: '#67e8f9', cursor: 'pointer' },
       valueFormatter: params => params.value ?? '—',
     },
     {
@@ -52,7 +52,8 @@ export function BatchListGrid({ batches }: Props) {
             style={{
               background: STATUS_BG[params.value] ?? '#f3f4f6',
               color: STATUS_COLOR[params.value] ?? '#374151',
-              padding: '2px 8px',
+              border: '1px solid rgba(255,255,255,0.08)',
+              padding: '4px 10px',
               borderRadius: '9999px',
               fontSize: '11px',
               fontWeight: 600,
@@ -96,7 +97,7 @@ export function BatchListGrid({ batches }: Props) {
       headerHeight={40}
       rowHeight={42}
       rowClass="cursor-pointer"
-      overlayNoRowsTemplate="<span style='color:#9ca3af;font-size:13px'>No batches found. Create your first batch.</span>"
+      overlayNoRowsTemplate="<span style='color:#64748b;font-size:13px'>No batches found. Create your first batch.</span>"
     />
   )
 }

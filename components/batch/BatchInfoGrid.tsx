@@ -56,7 +56,7 @@ export function BatchInfoGrid({ batch, canEdit, onUpdate }: Props) {
       headerName: 'Field',
       width: 240,
       editable: false,
-      cellStyle: { fontWeight: 500, color: '#4b5563', background: '#f9fafb' },
+      cellStyle: { fontWeight: 600, color: '#cbd5e1', background: '#0f172a' },
     },
     {
       field: 'value',
@@ -86,7 +86,7 @@ export function BatchInfoGrid({ batch, canEdit, onUpdate }: Props) {
               href={val}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: '#2563eb', textDecoration: 'underline' }}
+              style={{ color: '#67e8f9', textDecoration: 'underline' }}
               onClick={e => e.stopPropagation()}
             >
               {val}
@@ -119,11 +119,11 @@ export function BatchInfoGrid({ batch, canEdit, onUpdate }: Props) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Batch Information</p>
-        {errMsg && <span className="rounded bg-red-50 px-2 py-0.5 text-xs text-red-600">{errMsg}</span>}
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Batch Information</p>
+        {errMsg && <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-xs text-rose-300">{errMsg}</span>}
       </div>
       <div
-        className="ag-theme-quartz overflow-hidden rounded-md border border-gray-200"
+        className="ag-theme-quartz overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70"
         style={{ height: `${rowData.length * 38 + 44}px` }}
       >
         <AgGridReact<BatchFieldRow>

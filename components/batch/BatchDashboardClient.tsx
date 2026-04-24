@@ -54,28 +54,28 @@ export function BatchDashboardClient() {
   }
 
   return (
-    <div>
+    <div className="space-y-5 text-slate-200">
       {/* Toolbar */}
       <div className="mb-5 flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-ink">Batches</h2>
-          <p className="mt-0.5 text-sm text-gray-500">
+          <h2 className="text-2xl font-bold text-white">Batches</h2>
+          <p className="mt-0.5 text-sm text-slate-400">
             {batches.length} batch{batches.length !== 1 ? 'es' : ''} total
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {errMsg && <span className="rounded bg-red-50 px-3 py-1 text-xs text-red-600">{errMsg}</span>}
+          {errMsg && <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1 text-xs text-rose-300">{errMsg}</span>}
           <button
             onClick={handleExport}
             disabled={exporting || batches.length === 0}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-gray-300 px-4 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            className="inline-flex h-10 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/80 px-4 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 disabled:opacity-40"
           >
             {exporting ? 'Exporting…' : '↓ Export'}
           </button>
           {isAdmin && (
             <a
               href="/batch-details/admin"
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-gray-300 px-4 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/80 px-4 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800"
             >
               ⚙ Users
             </a>
@@ -84,7 +84,7 @@ export function BatchDashboardClient() {
             <button
               onClick={handleCreateBatch}
               disabled={creating}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-ink px-5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(6,182,212,0.92),rgba(20,184,166,0.88))] px-5 text-sm font-semibold text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,0.2)] transition hover:translate-y-[-1px] hover:shadow-[0_16px_36px_rgba(34,211,238,0.28)] disabled:opacity-50"
             >
               {creating ? 'Creating…' : '+ New Batch'}
             </button>
@@ -99,17 +99,17 @@ export function BatchDashboardClient() {
           placeholder="Search by batch name, program, institute, domain…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full max-w-sm rounded-full border border-gray-300 bg-white px-4 py-2 text-sm focus:border-blue-400 focus:outline-none"
+          className="w-full max-w-sm rounded-full border border-slate-700 bg-slate-950/80 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
         />
       </div>
 
       {/* Grid */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
         </div>
       ) : (
-        <div className="ag-theme-quartz overflow-hidden rounded-md border border-gray-200 bg-white" style={{ height: '600px' }}>
+        <div className="ag-theme-quartz overflow-hidden rounded-[22px] border border-slate-800/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.96))]" style={{ height: '600px' }}>
           <BatchListGrid batches={filtered} />
         </div>
       )}

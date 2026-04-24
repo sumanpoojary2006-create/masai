@@ -150,15 +150,15 @@ export function SessionsGrid({ sessions, canEdit, isAdmin, onAdd, onUpdate, onDe
       cellRenderer: (params: { value: string | null }) => {
         if (!params.value) return <span style={{ color: '#9ca3af' }}>—</span>
         return (
-          <a
-            href={params.value}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: '#2563eb', textDecoration: 'underline' }}
-            onClick={e => e.stopPropagation()}
-          >
-            Join
-          </a>
+            <a
+              href={params.value}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#67e8f9', textDecoration: 'underline' }}
+              onClick={e => e.stopPropagation()}
+            >
+              Join
+            </a>
         )
       },
     },
@@ -263,31 +263,31 @@ export function SessionsGrid({ sessions, canEdit, isAdmin, onAdd, onUpdate, onDe
     <div>
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Sessions</p>
-          <span className="text-xs text-gray-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">Sessions</p>
+          <span className="text-xs text-slate-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
           {!hasEndOfSchedule && sessions.length > 0 && (
-            <span className="rounded-full bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-600">
+            <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-200">
               Incomplete Schedule
             </span>
           )}
           {hasEndOfSchedule && (
-            <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+            <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-200">
               Schedule Complete
             </span>
           )}
-          {errMsg && <span className="rounded bg-red-50 px-2 py-0.5 text-xs text-red-600">{errMsg}</span>}
+          {errMsg && <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-xs text-rose-300">{errMsg}</span>}
         </div>
         {canEdit && (
           <button
             onClick={handleAddSession}
             disabled={adding}
-            className="inline-flex items-center gap-1 rounded-full border border-blue-300 px-3 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/15 disabled:opacity-50"
           >
             {adding ? 'Adding…' : '+ Add Session'}
           </button>
         )}
       </div>
-      <div className="ag-theme-quartz overflow-hidden rounded-md border border-gray-200" style={{ height: '540px' }}>
+      <div className="ag-theme-quartz overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70" style={{ height: '540px' }}>
         <AgGridReact<Session>
           ref={gridRef}
           theme="legacy"
