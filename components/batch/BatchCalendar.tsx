@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
-import type { EventContentArg } from '@fullcalendar/core'
+import type { EventContentArg, EventHoveringArg, EventMountArg } from '@fullcalendar/core'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -9,6 +9,13 @@ import type { Session } from '@/lib/batch-types'
 
 interface Props {
   sessions: Session[]
+}
+
+interface HoverCardState {
+  session: Session
+  title: string
+  x: number
+  y: number
 }
 
 function getEventColors(session: Session): { bg: string; border: string; glow: string } {
@@ -21,15 +28,42 @@ function getEventColors(session: Session): { bg: string; border: string; glow: s
 }
 
 function buildEvents(sessions: Session[]) {
-  return sessions
+  const seen = new Set<string>()
+  const events: Array<{
+    id: string
+    title: string
+    start: string
+    end: string | undefined
+    backgroundColor: string
+    borderColor: string
+    textColor: string
+    classNames: string[]
+    extendedProps: { session: Session; glow: string }
+  }> = []
+
+  sessions
     .filter(s => s.date)
-    .map(s => {
+    .forEach(s => {
       const start = s.start_time ? `${s.date}T${s.start_time}` : s.date!
       const end = s.end_time ? `${s.date}T${s.end_time}` : undefined
       const colors = getEventColors(s)
-      return {
+      const eventTitle = s.session_title || 'Untitled Session'
+      const dedupeKey = [
+        s.date || '',
+        s.start_time || '',
+        s.end_time || '',
+        eventTitle.trim().toLowerCase(),
+        s.to_be_taken_by || '',
+        s.instructor_name || '',
+        s.is_end_of_schedule ? 'end' : 'normal',
+      ].join('|')
+
+      if (seen.has(dedupeKey)) return
+      seen.add(dedupeKey)
+
+      events.push({
         id: s.id,
-        title: s.session_title || 'Untitled Session',
+        title: eventTitle,
         start,
         end,
         backgroundColor: colors.bg,
@@ -40,8 +74,10 @@ function buildEvents(sessions: Session[]) {
           `batch-calendar-role-${s.to_be_taken_by || 'other'}`,
         ],
         extendedProps: { session: s, glow: colors.glow },
-      }
+      })
     })
+
+  return events
 }
 
 function EventContent({ eventInfo }: { eventInfo: EventContentArg }) {
@@ -141,6 +177,7 @@ export function BatchCalendar({ sessions }: Props) {
   const calendarRef = useRef<FullCalendar>(null)
   const [isCompact, setIsCompact] = useState(false)
   const [isTablet, setIsTablet] = useState(false)
+  const [hoverCard, setHoverCard] = useState<HoverCardState | null>(null)
   const events = buildEvents(sessions)
 
   useEffect(() => {
@@ -204,6 +241,69 @@ export function BatchCalendar({ sessions }: Props) {
   const professorCount = sessions.filter(s => s.to_be_taken_by === 'professor').length
   const mentorCount = sessions.filter(s => s.to_be_taken_by === 'industry-mentor').length
   const scheduledToday = sessions.filter(s => s.date === new Date().toISOString().slice(0, 10)).length
+
+  function getRoleLabel(session: Session) {
+    if (session.is_end_of_schedule) return 'End of schedule'
+    if (session.to_be_taken_by === 'industry-mentor') return 'Industry mentor'
+    if (session.to_be_taken_by === 'professor') return 'Professor'
+    if (session.to_be_taken_by === 'teaching-assistant') return 'Teaching assistant'
+    return 'Session'
+  }
+
+  function formatTimeRange(session: Session) {
+    if (!session.start_time) return 'Time not set'
+    const start = session.start_time.slice(0, 5)
+    const end = session.end_time ? session.end_time.slice(0, 5) : null
+    return end ? `${start} – ${end}` : start
+  }
+
+  function clampHoverPosition(x: number, y: number) {
+    if (typeof window === 'undefined') return { x, y }
+    const cardWidth = isCompact ? 260 : 320
+    const cardHeight = 300
+    const safeX = Math.min(Math.max(16, x + 18), window.innerWidth - cardWidth - 16)
+    const safeY = Math.min(Math.max(16, y - 16), window.innerHeight - cardHeight - 16)
+    return { x: safeX, y: safeY }
+  }
+
+  function handleEventMouseEnter(info: EventHoveringArg) {
+    const session = info.event.extendedProps.session as Session
+    if (!session) return
+    const rect = info.el.getBoundingClientRect()
+    const { x, y } = clampHoverPosition(rect.right, rect.top)
+    setHoverCard({
+      session,
+      title: info.event.title,
+      x,
+      y,
+    })
+  }
+
+  function handleEventMouseLeave() {
+    setHoverCard(null)
+  }
+
+  function buildNativeTooltip(info: EventMountArg) {
+    const session = info.event.extendedProps.session as Session
+    if (!session) return
+
+    const lines = [
+      info.event.title,
+      `Role: ${getRoleLabel(session)}`,
+      `Date: ${session.date || 'Not set'}`,
+      `Time: ${formatTimeRange(session)}`,
+      `Instructor: ${session.instructor_name || 'Not assigned'}`,
+      `Module: ${session.module_name || 'Not tagged'}`,
+      `Week: ${session.week_number ?? '—'}`,
+      `Session no: ${session.session_number ?? '—'}`,
+    ]
+
+    if (session.learning_objectives) {
+      lines.push(`Learning objective: ${session.learning_objectives}`)
+    }
+
+    info.el.setAttribute('title', lines.join('\n'))
+  }
 
   return (
     <div className="space-y-6">
@@ -313,6 +413,9 @@ export function BatchCalendar({ sessions }: Props) {
           timeZone="Asia/Kolkata"
           events={events}
           eventContent={eventInfo => <EventContent eventInfo={eventInfo} />}
+          eventMouseEnter={handleEventMouseEnter}
+          eventMouseLeave={handleEventMouseLeave}
+          eventDidMount={buildNativeTooltip}
           height={calendarConfig.height}
           contentHeight={isCompact ? 'auto' : undefined}
           dayMaxEvents={calendarConfig.dayMaxEvents}
@@ -325,6 +428,81 @@ export function BatchCalendar({ sessions }: Props) {
           navLinks={!isCompact}
           expandRows={calendarConfig.expandRows}
         />
+
+        {hoverCard && (
+          <div
+            className="pointer-events-none fixed z-[70] hidden w-[320px] rounded-[22px] border border-cyan-400/20 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-4 shadow-[0_24px_80px_rgba(2,6,23,0.65)] md:block"
+            style={{ left: hoverCard.x, top: hoverCard.y }}
+          >
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-200/75">
+                  {getRoleLabel(hoverCard.session)}
+                </p>
+                <h4 className="mt-1 text-base font-bold leading-snug text-white">
+                  {hoverCard.title}
+                </h4>
+              </div>
+              {hoverCard.session.is_end_of_schedule && (
+                <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-rose-200">
+                  Final
+                </span>
+              )}
+            </div>
+
+            <div className="grid gap-2">
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Schedule</p>
+                <p className="mt-1 text-sm font-semibold text-slate-100">
+                  {hoverCard.session.date || 'Date not set'} · {formatTimeRange(hoverCard.session)}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Instructor</p>
+                  <p className="mt-1 text-sm text-slate-200">
+                    {hoverCard.session.instructor_name || 'Not assigned'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Module</p>
+                  <p className="mt-1 text-sm text-slate-200">
+                    {hoverCard.session.module_name || 'Not tagged'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Learning objective</p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-200">
+                  {hoverCard.session.learning_objectives || 'Not added yet'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Week</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-200">
+                    {hoverCard.session.week_number ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Session</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-200">
+                    {hoverCard.session.session_number ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Rating</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-200">
+                    {hoverCard.session.rating ?? '—'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
