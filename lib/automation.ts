@@ -139,7 +139,7 @@ function nextStatus(
   }
 
   // Deadline passed and resource never uploaded — missed
-  if (DateTime.fromISO(task.deadline) <= now) {
+  if (DateTime.fromISO(task.deadline).setZone(now.zone) <= now) {
     return {
       status: "missed" as TaskStatus,
       completedAt: null
@@ -160,7 +160,7 @@ function chooseAlertTypes(
   previousTaskStatus: TaskStatus | undefined,
   sentAlertTypes: Set<AlertType>
 ) {
-  const deadline = DateTime.fromISO(task.deadline);
+  const deadline = DateTime.fromISO(task.deadline).setZone(now.zone);
   const alerts: AlertType[] = [];
   const isDueToday = deadline.hasSame(now, "day");
   // Dedicated reminder workflows set these env vars and sleep until the exact time
