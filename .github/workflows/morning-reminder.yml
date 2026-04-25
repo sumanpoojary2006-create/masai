@@ -1,0 +1,41 @@
+name: 11 AM Morning Reminder
+
+on:
+  schedule:
+    - cron: '15 5 * * 1-6' # 10:45 AM IST (Mon–Sat) — sleeps 15 min to hit 11:00 AM exactly
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Sleep until 11:00 AM IST
+        run: sleep 900
+
+      - name: Send 11 AM reminder
+        run: npm run compliance
+        env:
+          SEND_MORNING_REMINDER: 'true'
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LO_SLACK_WEBHOOK_URL: ${{ secrets.LO_SLACK_WEBHOOK_URL }}
+          APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
+          LMS_DB_HOST: ${{ secrets.LMS_DB_HOST }}
+          LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
+          LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
+          LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}

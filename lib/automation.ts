@@ -163,8 +163,9 @@ function chooseAlertTypes(
   const deadline = DateTime.fromISO(task.deadline);
   const alerts: AlertType[] = [];
   const isDueToday = deadline.hasSame(now, "day");
-  const isMorningSnapshotMinute = now.hour === 11 && now.minute === 0;
-  const isStrictWarningMinute = now.hour === 14 && now.minute === 30;
+  // Dedicated reminder workflows set these env vars and sleep until the exact time
+  const isMorningSnapshotMinute = process.env.SEND_MORNING_REMINDER === "true";
+  const isStrictWarningMinute   = process.env.SEND_AFTERNOON_REMINDER === "true";
 
   if (isDueToday && isMorningSnapshotMinute && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
     alerts.push("reminder_10h");
@@ -182,7 +183,7 @@ function chooseAlertTypes(
   if (
     nextTaskStatus === "completed" &&
     previousTaskStatus !== "completed" &&
-    !(isDueToday && isMorningSnapshotMinute)
+    !isMorningSnapshotMinute
   ) {
     alerts.push("completed");
   }
