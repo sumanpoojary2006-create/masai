@@ -165,10 +165,15 @@ function chooseAlertTypes(
   const isDueToday = deadline.hasSame(now, "day");
   // Dedicated reminder workflows set these env vars and sleep until the exact time
   const isMorningSnapshotMinute = process.env.SEND_MORNING_REMINDER === "true";
+  const isNoonReminderMinute    = process.env.SEND_NOON_REMINDER === "true";
   const isStrictWarningMinute   = process.env.SEND_AFTERNOON_REMINDER === "true";
 
   if (isDueToday && isMorningSnapshotMinute && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
     alerts.push("reminder_10h");
+  }
+
+  if (isDueToday && isNoonReminderMinute && nextTaskStatus === "pending" && !sentAlertTypes.has("reminder_2h")) {
+    alerts.push("reminder_2h");
   }
 
   if (

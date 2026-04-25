@@ -176,10 +176,11 @@ function buildSlackDigest(
   mentionUserId?: string | null
 ) {
   const morningSnapshotAlerts = alerts.filter((alert) => alert.alertType === "reminder_10h");
-  const strictWarningAlerts = alerts.filter((alert) => alert.alertType === "reminder_30m");
+  const noonReminderAlerts    = alerts.filter((alert) => alert.alertType === "reminder_2h");
+  const strictWarningAlerts   = alerts.filter((alert) => alert.alertType === "reminder_30m");
   const completedAlerts = alerts.filter((alert) => alert.alertType === "completed");
   const reminderAlerts = alerts.filter(
-    (alert) => alert.alertType.startsWith("reminder_") && alert.alertType !== "reminder_10h" && alert.alertType !== "reminder_30m"
+    (alert) => alert.alertType.startsWith("reminder_") && alert.alertType !== "reminder_10h" && alert.alertType !== "reminder_2h" && alert.alertType !== "reminder_30m"
   );
   const missedAlerts = alerts.filter((alert) => alert.alertType === "missed");
   const dateSource = morningSnapshotAlerts.length > 0 ? morningSnapshotAlerts : strictWarningAlerts.length > 0 ? strictWarningAlerts : alerts;
@@ -228,6 +229,28 @@ function buildSlackDigest(
       "",
       ...(completedToday.length > 0 ? ["✅ Completed", ...groupedByBatch(completedToday, morningStatusLine)] : []),
       ...(pendingToday.length > 0 ? ["⏳ Pending", ...groupedByBatch(pendingToday, morningStatusLine)] : []),
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n")
+      .trim();
+  }
+
+  if (noonReminderAlerts.length > 0) {
+    const lectureDatesNoon = noonReminderAlerts
+      .map((a) => DateTime.fromISO(a.lecture.lecture_date, { zone: timezone }).toFormat("dd LLL yyyy"))
+      .filter((v, i, arr) => arr.indexOf(v) === i)
+      .join(", ");
+    return [
+      mention,
+      "⏰ 1:00 PM Reminder — Resources Still Pending",
+      lectureDatesNoon ? `🗓️ Due today: ${lectureDatesNoon}` : null,
+      "The following resources have not been uploaded yet. Deadline is 3:00 PM.",
+      "",
+      "⏳ Still pending",
+      ...groupedByBatch(noonReminderAlerts, (a) => {
+        const label = TASK_LABELS[a.taskType];
+        return `• ⏳ ${a.lecture.lecture_name} | ${label} — upload before 03:00 PM`;
+      }),
     ]
       .filter((line): line is string => line !== null)
       .join("\n")
