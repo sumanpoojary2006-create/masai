@@ -303,11 +303,13 @@ function downloadCsv(filename: string, content: string) {
 export function AdminDashboardClient({
   userStats,
   batchStats,
-  lectureStats
+  lectureStats,
+  embedded = false,
 }: {
   userStats: AdminUserStats[];
   batchStats: AdminBatchStats[];
   lectureStats: AdminLectureStats[];
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const defaultWeek = useMemo(() => getWeekBounds(), []);
@@ -492,9 +494,8 @@ export function AdminDashboardClient({
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  return (
-    <div className="min-h-screen bg-[#0b1020] text-white">
-      <div className="mx-auto flex max-w-[1600px] gap-6 px-4 py-5 sm:px-6 xl:px-8">
+  const inner = (
+    <div className={embedded ? "flex gap-6" : "mx-auto flex max-w-[1600px] gap-6 px-4 py-5 sm:px-6 xl:px-8"}>
         <aside className="sticky top-5 hidden h-[calc(100vh-2.5rem)] w-72 flex-col justify-between rounded-[30px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] xl:flex">
           <div className="space-y-8">
             <div className="flex items-center gap-4">
@@ -1032,6 +1033,13 @@ export function AdminDashboardClient({
           </section>
         </main>
       </div>
+  );
+
+  if (embedded) return <div className="text-white">{inner}</div>;
+
+  return (
+    <div className="min-h-screen bg-[#0b1020] text-white">
+      {inner}
     </div>
   );
 }
