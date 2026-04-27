@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-
 import { createBrowserSupabase } from "@/lib/supabase-browser";
 
 export function BatchDetailsLoginForm() {
@@ -16,54 +15,87 @@ export function BatchDetailsLoginForm() {
     event.preventDefault();
     setIsPending(true);
     setMessage(null);
-
     const supabase = createBrowserSupabase();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      setMessage(error.message);
-      setIsPending(false);
-      return;
-    }
-
+    if (error) { setMessage(error.message); setIsPending(false); return; }
     router.push("/batch-details/dashboard");
   }
 
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    background: '#0d1117',
+    border: '1px solid #1f2937',
+    borderRadius: 12,
+    padding: '11px 14px',
+    fontSize: 14,
+    color: '#e2e8f0',
+    outline: 'none',
+    boxSizing: 'border-box',
+  }
+
+  const labelStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    fontSize: 13,
+    fontWeight: 600,
+    color: '#94a3b8',
+    marginBottom: 16,
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      <label style={labelStyle}>
         Email
         <input
           type="email"
           required
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          className="theme-input rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+          onChange={e => setEmail(e.target.value)}
+          placeholder="you@masaischool.com"
+          style={inputStyle}
         />
       </label>
 
-      <label className="flex flex-col gap-2 text-sm font-medium text-ink">
+      <label style={labelStyle}>
         Password
         <input
           type="password"
           required
           value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className="theme-input rounded-2xl px-4 py-3 text-sm text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
+          onChange={e => setPassword(e.target.value)}
+          placeholder="••••••••"
+          style={inputStyle}
         />
       </label>
 
-      {message ? <p className="theme-error rounded-2xl px-4 py-3 text-sm">{message}</p> : null}
+      {message && (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#fca5a5', marginBottom: 16 }}>
+          {message}
+        </div>
+      )}
 
       <button
         type="submit"
         disabled={isPending}
-        className="inline-flex h-11 w-full items-center justify-center rounded-full bg-ink px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+        style={{
+          width: '100%',
+          height: 44,
+          background: isPending ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#4f46e5)',
+          border: 'none',
+          borderRadius: 12,
+          color: '#fff',
+          fontSize: 14,
+          fontWeight: 700,
+          cursor: isPending ? 'not-allowed' : 'pointer',
+          marginTop: 4,
+          opacity: isPending ? 0.7 : 1,
+        }}
       >
-        {isPending ? "Signing in..." : "Sign in"}
+        {isPending ? "Signing in…" : "Sign in"}
       </button>
 
-      <p className="theme-muted text-sm">
+      <p style={{ color: '#334155', fontSize: 12, marginTop: 14, textAlign: 'center' }}>
         Use your MasaiLens credentials to access the Batch Details workspace.
       </p>
     </form>
