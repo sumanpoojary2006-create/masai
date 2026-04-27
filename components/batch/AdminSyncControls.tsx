@@ -44,8 +44,8 @@ export function AdminSyncControls() {
         state={sync.state}
         message={sync.message}
         onTrigger={sync.trigger}
-        accentClass="border-blue-200 bg-blue-50"
-        buttonClass="bg-blue-600 hover:bg-blue-700 text-white"
+        borderColor="#1d4ed8"
+        buttonStyle={{ background: '#1d4ed8', color: '#fff' }}
       />
       <ActionCard
         title="Sync Up — Compliance Check"
@@ -55,8 +55,8 @@ export function AdminSyncControls() {
         state={compliance.state}
         message={compliance.message}
         onTrigger={compliance.trigger}
-        accentClass="border-emerald-200 bg-emerald-50"
-        buttonClass="bg-emerald-600 hover:bg-emerald-700 text-white"
+        borderColor="#065f46"
+        buttonStyle={{ background: '#059669', color: '#fff' }}
       />
     </div>
   );
@@ -70,8 +70,8 @@ function ActionCard({
   state,
   message,
   onTrigger,
-  accentClass,
-  buttonClass
+  borderColor,
+  buttonStyle,
 }: {
   title: string;
   description: string;
@@ -80,35 +80,75 @@ function ActionCard({
   state: ActionState;
   message: string;
   onTrigger: () => void;
-  accentClass: string;
-  buttonClass: string;
+  borderColor: string;
+  buttonStyle: React.CSSProperties;
 }) {
   return (
-    <div className={`rounded-xl border p-5 ${accentClass}`}>
-      <h3 className="text-sm font-semibold text-ink">{title}</h3>
-      <p className="mt-1 text-xs text-gray-500">{description}</p>
+    <div
+      style={{
+        background: '#111827',
+        border: `1px solid ${borderColor}40`,
+        borderRadius: '12px',
+        padding: '20px',
+      }}
+    >
+      <h3 style={{ color: '#f1f5f9', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
+        {title}
+      </h3>
+      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: '1.5' }}>
+        {description}
+      </p>
 
       <button
         onClick={onTrigger}
         disabled={state === "loading"}
-        className={`mt-4 inline-flex h-9 items-center gap-2 rounded-full px-4 text-xs font-semibold transition disabled:opacity-60 ${buttonClass}`}
+        style={{
+          ...buttonStyle,
+          marginTop: '16px',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          borderRadius: '9999px',
+          padding: '6px 16px',
+          fontSize: '12px',
+          fontWeight: 600,
+          border: 'none',
+          cursor: state === "loading" ? 'not-allowed' : 'pointer',
+          opacity: state === "loading" ? 0.6 : 1,
+          transition: 'opacity 0.15s',
+        }}
       >
         {state === "loading" && (
-          <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          <span
+            style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              border: '2px solid rgba(255,255,255,0.3)',
+              borderTopColor: '#fff',
+              animation: 'spin 0.7s linear infinite',
+              display: 'inline-block',
+            }}
+          />
         )}
         {state === "loading" ? loadingLabel : buttonLabel}
       </button>
 
       {message && (
         <p
-          className={`mt-3 text-xs font-medium ${
-            state === "error" ? "text-red-600" : "text-emerald-700"
-          }`}
+          style={{
+            marginTop: '10px',
+            fontSize: '12px',
+            fontWeight: 500,
+            color: state === "error" ? '#f87171' : '#34d399',
+          }}
         >
           {state === "success" ? "✓ " : "✗ "}
           {message}
         </p>
       )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
