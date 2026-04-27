@@ -30,8 +30,8 @@ export function useBatch(id: string) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetch = useCallback(async () => {
-    setLoading(true)
+  const fetch = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     const supabase = createBrowserSupabase()
     const { data, error } = await supabase
       .from('batches')
@@ -39,11 +39,32 @@ export function useBatch(id: string) {
       .eq('id', id)
       .single()
     if (error) setError(error.message)
-    else setBatch(data)
-    setLoading(false)
+    else {
+      setError(null)
+      setBatch(data)
+    }
+    if (showLoading) setLoading(false)
   }, [id])
 
   useEffect(() => { fetch() }, [fetch])
+
+  useEffect(() => {
+    const supabase = createBrowserSupabase()
+    const channel = supabase
+      .channel(`batch-details-batch-${id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'batches', filter: `id=eq.${id}` },
+        () => {
+          void fetch(false)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [fetch, id])
 
   async function updateBatch(updates: Partial<Batch>): Promise<{ error: string | null }> {
     const supabase = createBrowserSupabase()

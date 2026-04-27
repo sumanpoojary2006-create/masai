@@ -8,8 +8,8 @@ export function useSessions(batchId: string) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetch = useCallback(async () => {
-    setLoading(true)
+  const fetch = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     const supabase = createBrowserSupabase()
     const { data, error } = await supabase
       .from('sessions')
@@ -17,11 +17,32 @@ export function useSessions(batchId: string) {
       .eq('batch_id', batchId)
       .order('date', { ascending: true, nullsFirst: false })
     if (error) setError(error.message)
-    else setSessions(data ?? [])
-    setLoading(false)
+    else {
+      setError(null)
+      setSessions(data ?? [])
+    }
+    if (showLoading) setLoading(false)
   }, [batchId])
 
   useEffect(() => { fetch() }, [fetch])
+
+  useEffect(() => {
+    const supabase = createBrowserSupabase()
+    const channel = supabase
+      .channel(`batch-details-sessions-${batchId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sessions', filter: `batch_id=eq.${batchId}` },
+        () => {
+          void fetch(false)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [batchId, fetch])
 
   async function addSession(): Promise<{ data: Session | null; error: string | null }> {
     const supabase = createBrowserSupabase()

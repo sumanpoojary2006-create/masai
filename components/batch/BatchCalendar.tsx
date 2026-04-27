@@ -1,10 +1,11 @@
 'use client'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
-import type { EventMountArg } from '@fullcalendar/core'
+import type { EventClickArg, EventMountArg } from '@fullcalendar/core'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
+import type { DateClickArg } from '@fullcalendar/interaction'
 import type { Session } from '@/lib/batch-types'
 
 interface Props { sessions: Session[] }
@@ -36,8 +37,25 @@ function onEventDidMount(info: EventMountArg) {
   info.el.style.cursor = 'pointer'
 }
 
+function formatDateLabel(date: string) {
+  return new Intl.DateTimeFormat('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata',
+  }).format(new Date(`${date}T00:00:00`))
+}
+
+function formatTimeRange(session: Session) {
+  if (!session.start_time) return 'Time not set'
+  return `${session.start_time.slice(0, 5)}${session.end_time ? ` - ${session.end_time.slice(0, 5)}` : ''}`
+}
+
 export function BatchCalendar({ sessions }: Props) {
   const calendarRef = useRef<FullCalendar>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null)
 
   const events = useMemo(() => {
     const seen = new Set<string>()
@@ -63,11 +81,50 @@ export function BatchCalendar({ sessions }: Props) {
       })
   }, [sessions])
 
+  const sessionsByDate = useMemo(() => {
+    const map = new Map<string, Session[]>()
+
+    for (const session of sessions) {
+      if (!session.date) continue
+      const current = map.get(session.date) ?? []
+      current.push(session)
+      map.set(session.date, current)
+    }
+
+    for (const [date, daySessions] of map.entries()) {
+      map.set(
+        date,
+        [...daySessions].sort((left, right) => (left.start_time ?? '').localeCompare(right.start_time ?? ''))
+      )
+    }
+
+    return map
+  }, [sessions])
+
+  const selectedSessions = selectedDate ? sessionsByDate.get(selectedDate) ?? [] : []
+
   const hasEnd      = sessions.some(s => s.is_end_of_schedule)
   const endSession  = sessions.find(s => s.is_end_of_schedule)
   const withDates   = events.length   // after dedup
   const profCount   = sessions.filter(s => s.to_be_taken_by === 'professor').length
   const mentorCount = sessions.filter(s => s.to_be_taken_by === 'industry-mentor').length
+
+  function openDayDetails(date: string, sessionId?: string) {
+    const daySessions = sessionsByDate.get(date) ?? []
+    if (daySessions.length === 0) return
+    setSelectedDate(date)
+    setHighlightedSessionId(sessionId ?? daySessions[0]?.id ?? null)
+  }
+
+  function handleDateClick(info: DateClickArg) {
+    openDayDetails(info.dateStr)
+  }
+
+  function handleEventClick(info: EventClickArg) {
+    const session = info.event.extendedProps.session as Session | undefined
+    if (!session?.date) return
+    openDayDetails(session.date, session.id)
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -136,9 +193,169 @@ export function BatchCalendar({ sessions }: Props) {
           slotMaxTime="23:00:00"
           allDaySlot={false}
           eventDisplay="block"
+          dateClick={handleDateClick}
+          eventClick={handleEventClick}
           navLinks={true}
         />
       </div>
+
+      {selectedDate && (
+        <div
+          onClick={() => setSelectedDate(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            zIndex: 60,
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: 'min(720px, 100%)',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              borderRadius: '22px',
+              border: '1px solid rgba(71, 85, 105, 0.9)',
+              background: 'linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))',
+              boxShadow: '0 24px 80px rgba(0, 0, 0, 0.45)',
+              padding: '24px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', marginBottom: '18px' }}>
+              <div>
+                <div style={{ color: '#f8fafc', fontSize: '22px', fontWeight: 800 }}>
+                  {formatDateLabel(selectedDate)}
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px' }}>
+                  {selectedSessions.length} session{selectedSessions.length !== 1 ? 's' : ''} scheduled
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedDate(null)}
+                style={{
+                  borderRadius: '9999px',
+                  border: '1px solid #334155',
+                  background: '#0f172a',
+                  color: '#cbd5e1',
+                  padding: '8px 12px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {selectedSessions.map((session) => {
+                const { bg, border } = getColors(session)
+                const isHighlighted = session.id === highlightedSessionId
+
+                return (
+                  <div
+                    key={session.id}
+                    style={{
+                      borderRadius: '18px',
+                      border: `1px solid ${isHighlighted ? border : 'rgba(51, 65, 85, 0.95)'}`,
+                      background: isHighlighted ? 'rgba(30, 41, 59, 0.95)' : '#0f172a',
+                      boxShadow: isHighlighted ? `0 0 0 1px ${border} inset` : 'none',
+                      padding: '18px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ color: '#f8fafc', fontSize: '18px', fontWeight: 700 }}>
+                          {session.session_title || 'Untitled Session'}
+                        </div>
+                        <div style={{ color: '#cbd5e1', fontSize: '14px', marginTop: '6px' }}>
+                          {formatTimeRange(session)}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          alignSelf: 'flex-start',
+                          borderRadius: '9999px',
+                          border: `1px solid ${border}`,
+                          background: bg,
+                          color: '#fff',
+                          padding: '5px 10px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {session.is_end_of_schedule ? 'End of Schedule' : session.to_be_taken_by?.replace(/-/g, ' ') || 'Session'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', marginTop: '16px' }}>
+                      {[
+                        { label: 'Instructor', value: session.instructor_name },
+                        { label: 'Module', value: session.module_name },
+                        { label: 'Module No.', value: session.module_number != null ? String(session.module_number) : null },
+                        { label: 'Week', value: session.week_number != null ? String(session.week_number) : null },
+                        { label: 'Session No.', value: session.session_number != null ? String(session.session_number) : null },
+                        { label: 'Day', value: session.day },
+                      ].map((item) => (
+                        <div key={item.label} style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: '14px', padding: '12px' }}>
+                          <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            {item.label}
+                          </div>
+                          <div style={{ color: '#e2e8f0', fontSize: '14px', fontWeight: 600, marginTop: '6px' }}>
+                            {item.value || '—'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {session.learning_objectives && (
+                      <div style={{ marginTop: '16px', background: '#111827', border: '1px solid #1f2937', borderRadius: '14px', padding: '14px' }}>
+                        <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>
+                          Learning Objectives
+                        </div>
+                        <div style={{ color: '#cbd5e1', fontSize: '14px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                          {session.learning_objectives}
+                        </div>
+                      </div>
+                    )}
+
+                    {session.zoom_link && (
+                      <div style={{ marginTop: '14px' }}>
+                        <a
+                          href={session.zoom_link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            borderRadius: '9999px',
+                            border: '1px solid rgba(103, 232, 249, 0.3)',
+                            background: 'rgba(34, 211, 238, 0.08)',
+                            color: '#67e8f9',
+                            padding: '8px 14px',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          Open Zoom Link
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
