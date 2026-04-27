@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 import { createAuthSupabase } from "@/lib/supabase-server";
+import { AdminSyncControls } from "@/components/batch/AdminSyncControls";
 import { UserRolesManager } from "@/components/batch/UserRolesManager";
 
 export default async function BatchDetailsAdminPage() {
@@ -15,7 +16,6 @@ export default async function BatchDetailsAdminPage() {
     redirect("/batch-details/login");
   }
 
-  // Check if this user is an admin in the batch user_roles table
   const supabase = await createAuthSupabase();
   const { data: roleData } = await supabase
     .from("user_roles")
@@ -28,26 +28,60 @@ export default async function BatchDetailsAdminPage() {
   }
 
   return (
-    <main className="grid gap-6">
-      <section className="rounded-[2rem] bg-white p-8 shadow-panel">
-        <div className="mb-6 flex items-center justify-between">
+    <div className="grid gap-6">
+      {/* Admin Controls */}
+      <div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            marginBottom: '20px',
+          }}
+        >
           <div>
-            <h2 className="font-[var(--font-heading)] text-2xl font-bold text-ink">
-              User Access Management
+            <h2 style={{ color: '#f1f5f9', fontSize: '18px', fontWeight: 700, marginBottom: '4px' }}>
+              Admin Controls
             </h2>
-            <p className="theme-muted mt-1 text-sm">
-              Manage roles for all Batch Wise users. Changes take effect immediately.
+            <p style={{ color: '#64748b', fontSize: '13px' }}>
+              Manually trigger syncs and compliance checks across all users.
             </p>
           </div>
           <a
             href="/batch-details/dashboard"
-            className="theme-button-secondary inline-flex h-10 items-center rounded-full px-4 text-sm font-semibold transition"
+            style={{
+              background: '#1e293b',
+              border: '1px solid #334155',
+              color: '#94a3b8',
+              borderRadius: '9999px',
+              padding: '6px 16px',
+              fontSize: '13px',
+              fontWeight: 500,
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+            }}
           >
             ← Dashboard
           </a>
         </div>
+        <AdminSyncControls />
+      </div>
+
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid #1f2937' }} />
+
+      {/* User Access Management */}
+      <div>
+        <div style={{ marginBottom: '20px' }}>
+          <h2 style={{ color: '#f1f5f9', fontSize: '18px', fontWeight: 700, marginBottom: '4px' }}>
+            User Access Management
+          </h2>
+          <p style={{ color: '#64748b', fontSize: '13px' }}>
+            Manage roles for all Batch Wise users. Changes take effect immediately.
+          </p>
+        </div>
         <UserRolesManager />
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }

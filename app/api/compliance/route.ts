@@ -70,7 +70,7 @@ export async function POST() {
       mentionUserId: userProfile?.slack_member_id
     });
 
-    const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
+    const githubToken = process.env.WORKFLOW_DISPATCH_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubWorkflowId = process.env.GITHUB_WORKFLOW_ID ?? "compliance-check.yml";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";

@@ -32,6 +32,11 @@ export async function getDashboardData(filters: {
   status?: TaskStatus | "all";
 }) {
   const supabase = createServerSupabase();
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+  const weekStart = now.startOf("week").toISODate()!;
+  const weekEnd = now.startOf("week").plus({ days: 7 }).toISODate()!;
+
   const { data, error } = await supabase
     .from("lectures")
     .select(
@@ -39,6 +44,8 @@ export async function getDashboardData(filters: {
     )
     .eq("user_id", filters.userId)
     .is("archived_at", null)
+    .gte("lecture_date", weekStart)
+    .lte("lecture_date", weekEnd)
     .order("lecture_date", { ascending: false })
     .order("start_time", { ascending: false });
 

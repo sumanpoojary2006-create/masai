@@ -12,6 +12,16 @@ export function useMyRole() {
       const supabase = createBrowserSupabase()
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setLoading(false); return }
+
+      // Env-var admin list takes precedence (mirrors MasaiLens isAdminUser)
+      const envAdminIds = (process.env.NEXT_PUBLIC_ADMIN_USER_IDS ?? '')
+        .split(',').map(s => s.trim()).filter(Boolean)
+      if (envAdminIds.includes(user.id)) {
+        setRole('admin')
+        setLoading(false)
+        return
+      }
+
       const { data } = await supabase
         .from('user_roles')
         .select('role')

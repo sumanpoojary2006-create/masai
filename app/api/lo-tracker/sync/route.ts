@@ -11,7 +11,7 @@ export async function POST() {
       return NextResponse.json({ message: "Please log in first." }, { status: 401 });
     }
 
-    const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
+    const githubToken = process.env.WORKFLOW_DISPATCH_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
 
@@ -19,7 +19,7 @@ export async function POST() {
       return NextResponse.json(
         {
           message:
-            "GITHUB_WORKFLOW_TOKEN is not set. Add it in Vercel environment variables to enable Sync Transcripts.",
+            "WORKFLOW_DISPATCH_TOKEN is not set. Add it in Vercel environment variables to enable Sync Transcripts.",
           results: []
         },
         { status: 400 }

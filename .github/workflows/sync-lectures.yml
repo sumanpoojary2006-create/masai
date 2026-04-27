@@ -4,6 +4,8 @@ on:
   schedule:
     # Daily morning sync at 08:00 AM IST (02:30 UTC)
     - cron: "30 2 * * *"
+    # Monday 11:00 AM IST sync — fresh pull for the new week before archive at 12:00 PM
+    - cron: "30 5 * * 1"
   workflow_dispatch:
     inputs:
       target_user_id:

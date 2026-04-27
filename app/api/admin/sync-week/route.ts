@@ -3,12 +3,26 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { createServerSupabase } from "@/lib/supabase";
+
+async function isAdmin(userId: string): Promise<boolean> {
+  const supabase = createServerSupabase();
+  const { data } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .single();
+  return data?.role === "admin";
+}
 
 export async function POST() {
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return NextResponse.json({ message: "Please log in first." }, { status: 401 });
+      return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
+    }
+    if (!(await isAdmin(user.id))) {
+      return NextResponse.json({ message: "Admin access required." }, { status: 403 });
     }
 
     const githubToken = process.env.WORKFLOW_DISPATCH_TOKEN;
@@ -17,7 +31,7 @@ export async function POST() {
 
     if (!githubToken) {
       return NextResponse.json(
-        { message: "WORKFLOW_DISPATCH_TOKEN is not set. Add it in Vercel environment variables." },
+        { message: "WORKFLOW_DISPATCH_TOKEN is not set." },
         { status: 400 }
       );
     }
@@ -33,23 +47,21 @@ export async function POST() {
           "Content-Type": "application/json",
           "X-GitHub-Api-Version": "2022-11-28"
         },
-        body: JSON.stringify({
-          ref: githubRef,
-          inputs: { target_user_id: user.id }
-        })
+        // No target_user_id → syncs all users
+        body: JSON.stringify({ ref: githubRef })
       }
     );
 
     if (!response.ok) {
       const failure = await response.text();
       return NextResponse.json(
-        { message: `Failed to dispatch sync workflow: ${failure || response.statusText}` },
+        { message: `Failed to dispatch sync: ${failure || response.statusText}` },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
-      message: "Lecture sync started. This week's live sessions will appear in ~2 minutes."
+      message: "This week's lecture sync started for all users. Sessions will update in ~2 minutes."
     });
   } catch (error) {
     return NextResponse.json(
