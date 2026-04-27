@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isAdminUser } from "@/lib/env";
+import { hasAdminAccess } from "@/lib/admin-access";
 import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const payload = JSON.parse(Buffer.from(supabaseJwt.split(".")[1]).toString());
     const userId = payload.sub;
 
-    if (!isAdminUser(userId)) {
+    if (!(await hasAdminAccess(userId))) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 

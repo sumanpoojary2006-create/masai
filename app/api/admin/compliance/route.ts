@@ -2,18 +2,8 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 
+import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
-import { createServerSupabase } from "@/lib/supabase";
-
-async function isAdmin(userId: string): Promise<boolean> {
-  const supabase = createServerSupabase();
-  const { data } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .single();
-  return data?.role === "admin";
-}
 
 export async function POST() {
   try {
@@ -21,7 +11,7 @@ export async function POST() {
     if (!user) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
     }
-    if (!(await isAdmin(user.id))) {
+    if (!(await hasAdminAccess(user.id))) {
       return NextResponse.json({ message: "Admin access required." }, { status: 403 });
     }
 
