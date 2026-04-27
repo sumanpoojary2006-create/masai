@@ -321,6 +321,45 @@ async function main() {
     }
   }
 
+  // Archive lectures from last week and older
+  console.log(`\n════════════════════════════════════`);
+  console.log(`Archiving old lectures...`);
+  console.log(`════════════════════════════════════`);
+
+  const { data: oldLectures, error: fetchOldError } = await supabase
+    .from("lectures")
+    .select("id, lecture_date")
+    .is("archived_at", null)
+    .lt("lecture_date", weekStartDate);
+
+  if (fetchOldError) {
+    console.error("[archive] Fetch error:", fetchOldError.message);
+  } else if (!oldLectures || oldLectures.length === 0) {
+    console.log("[archive] No old lectures to archive.");
+  } else {
+    console.log(`[archive] Found ${oldLectures.length} old lecture(s) to archive.`);
+
+    const archiveTime = now.toUTC().toISO();
+    let archivedCount = 0;
+
+    for (const lecture of oldLectures) {
+      const weekLabel = computeWeekLabel(lecture.lecture_date, timezone);
+
+      const { error: updateError } = await supabase
+        .from("lectures")
+        .update({ archived_at: archiveTime, week_label: weekLabel })
+        .eq("id", lecture.id);
+
+      if (updateError) {
+        console.error(`[archive] Failed to archive lecture ${lecture.id}:`, updateError.message);
+      } else {
+        archivedCount++;
+      }
+    }
+
+    console.log(`[archive] Archived ${archivedCount}/${oldLectures.length} old lectures.`);
+  }
+
   console.log("\nDone.");
   closeLmsDb();
 }

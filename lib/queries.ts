@@ -105,6 +105,12 @@ export async function getAutomationLectures(userId: string) {
 
 export async function getLoTrackerData(userId: string): Promise<LoTrackerRow[]> {
   const supabase = createServerSupabase();
+  const timezone = getAppTimezone();
+
+  // Current week: Monday to next Monday
+  const now = DateTime.now().setZone(timezone);
+  const currentMonday = now.startOf("week").toISODate()!;
+  const nextMonday = now.startOf("week").plus({ weeks: 1 }).toISODate()!;
 
   const { data: lectures, error: lectureError } = await supabase
     .from("lectures")
@@ -113,6 +119,8 @@ export async function getLoTrackerData(userId: string): Promise<LoTrackerRow[]> 
     )
     .eq("user_id", userId)
     .is("archived_at", null)
+    .gte("lecture_date", currentMonday)
+    .lt("lecture_date", nextMonday)
     .order("lecture_date", { ascending: false })
     .order("start_time", { ascending: false });
 
