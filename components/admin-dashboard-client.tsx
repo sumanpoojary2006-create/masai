@@ -16,14 +16,15 @@ type ExportedData = {
   error?: string;
 };
 
-type NavKey = "overview" | "health" | "batches" | "attention" | "exports";
+type NavKey = "overview" | "health" | "batches" | "attention" | "exports" | "batchwise";
 
 const NAV_ITEMS: Array<{ key: NavKey; label: string }> = [
   { key: "overview", label: "Dashboard" },
   { key: "health", label: "Task Health" },
   { key: "batches", label: "Batches" },
   { key: "attention", label: "Attention" },
-  { key: "exports", label: "Reports" }
+  { key: "exports", label: "Reports" },
+  { key: "batchwise", label: "Batch Wise" }
 ];
 
 const STATUS_ACCENTS: Record<TaskStatus, string> = {
@@ -315,6 +316,10 @@ export function AdminDashboardClient({
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [syncMsg, setSyncMsg] = useState("");
+  const [complianceState, setComplianceState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [complianceMsg, setComplianceMsg] = useState("");
 
   useEffect(() => {
     if (!autoRefresh) {
@@ -461,6 +466,26 @@ export function AdminDashboardClient({
     }
 
     setIsExporting(false);
+  }
+
+  async function handleSyncWeek() {
+    setSyncState("loading"); setSyncMsg("");
+    try {
+      const res = await fetch("/api/admin/sync-week", { method: "POST" });
+      const json = await res.json();
+      setSyncState(res.ok ? "success" : "error");
+      setSyncMsg(json.message ?? (res.ok ? "Done." : "Failed."));
+    } catch { setSyncState("error"); setSyncMsg("Network error."); }
+  }
+
+  async function handleCompliance() {
+    setComplianceState("loading"); setComplianceMsg("");
+    try {
+      const res = await fetch("/api/admin/compliance", { method: "POST" });
+      const json = await res.json();
+      setComplianceState(res.ok ? "success" : "error");
+      setComplianceMsg(json.message ?? (res.ok ? "Done." : "Failed."));
+    } catch { setComplianceState("error"); setComplianceMsg("Network error."); }
   }
 
   function scrollToSection(sectionId: NavKey) {
@@ -943,8 +968,135 @@ export function AdminDashboardClient({
               </table>
             </div>
           </section>
+          {/* ── Batch Wise ────────────────────────────────────────── */}
+          <section id="batchwise" className="scroll-mt-6 rounded-[26px] border border-white/8 bg-[#10162a] p-8">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">Batch Wise</h2>
+                <p className="mt-1 text-sm text-slate-400">Sync lectures, run compliance checks, manage user roles.</p>
+              </div>
+              <a
+                href="/batch-details/dashboard"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white"
+              >
+                Open Batch Portal ↗
+              </a>
+            </div>
+
+            {/* Sync Controls */}
+            <div className="mb-8 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-5">
+                <p className="text-sm font-semibold text-white">Sync This Week's Lectures</p>
+                <p className="mt-1 text-xs text-slate-400">Pull latest sessions from LMS for all users.</p>
+                <button
+                  onClick={handleSyncWeek}
+                  disabled={syncState === "loading"}
+                  className="mt-4 inline-flex h-8 items-center gap-2 rounded-full bg-blue-600 px-4 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {syncState === "loading" && <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+                  {syncState === "loading" ? "Syncing…" : "Sync Lectures"}
+                </button>
+                {syncMsg && (
+                  <p className={`mt-2 text-xs font-medium ${syncState === "error" ? "text-rose-400" : "text-emerald-400"}`}>
+                    {syncState === "success" ? "✓ " : "✗ "}{syncMsg}
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+                <p className="text-sm font-semibold text-white">Sync Up — Compliance Check</p>
+                <p className="mt-1 text-xs text-slate-400">Run compliance for all users & send Slack notifications.</p>
+                <button
+                  onClick={handleCompliance}
+                  disabled={complianceState === "loading"}
+                  className="mt-4 inline-flex h-8 items-center gap-2 rounded-full bg-emerald-600 px-4 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  {complianceState === "loading" && <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />}
+                  {complianceState === "loading" ? "Running…" : "Sync Up"}
+                </button>
+                {complianceMsg && (
+                  <p className={`mt-2 text-xs font-medium ${complianceState === "error" ? "text-rose-400" : "text-emerald-400"}`}>
+                    {complianceState === "success" ? "✓ " : "✗ "}{complianceMsg}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* User Roles */}
+            <div>
+              <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-500">User Access Management</p>
+              <BatchWiseUserRoles />
+            </div>
+          </section>
         </main>
       </div>
+    </div>
+  );
+}
+
+function BatchWiseUserRoles() {
+  const [users, setUsers] = useState<Array<{ id: string; user_id: string; role: string; created_at: string }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      // Dynamically import to avoid SSR issues with browser Supabase client
+      const { createBrowserSupabase } = await import("@/lib/supabase-browser");
+      const supabase = createBrowserSupabase();
+      const { data } = await supabase.from("user_roles").select("*").order("created_at", { ascending: true });
+      setUsers(data ?? []);
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  async function updateRole(userId: string, role: string) {
+    const { createBrowserSupabase } = await import("@/lib/supabase-browser");
+    const supabase = createBrowserSupabase();
+    await supabase.from("user_roles").update({ role }).eq("user_id", userId);
+    setUsers(prev => prev.map(u => u.user_id === userId ? { ...u, role } : u));
+  }
+
+  if (loading) return <div className="flex py-8"><span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-slate-300" /></div>;
+  if (users.length === 0) return <p className="py-6 text-sm text-slate-500">No users in the user_roles table yet.</p>;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/8">
+      <table className="w-full text-sm">
+        <thead className="bg-white/4">
+          <tr>
+            {["User ID", "Role", "Change Role", "Since"].map(h => (
+              <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/6">
+          {users.map(user => (
+            <tr key={user.id} className="text-slate-300 hover:bg-white/3">
+              <td className="px-4 py-3 font-mono text-xs text-slate-500">{user.user_id}</td>
+              <td className="px-4 py-3">
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
+                  user.role === "admin" ? "bg-rose-500/15 text-rose-300 ring-rose-400/20" :
+                  user.role === "editor" ? "bg-blue-500/15 text-blue-300 ring-blue-400/20" :
+                  "bg-slate-500/15 text-slate-300 ring-slate-400/20"
+                }`}>{user.role}</span>
+              </td>
+              <td className="px-4 py-3">
+                <select
+                  value={user.role}
+                  onChange={e => updateRole(user.user_id, e.target.value)}
+                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-300 focus:outline-none"
+                >
+                  {["admin", "editor", "viewer"].map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-500">{new Date(user.created_at).toLocaleDateString("en-IN")}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
