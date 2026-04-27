@@ -163,10 +163,25 @@ function chooseAlertTypes(
   const deadline = DateTime.fromISO(task.deadline).setZone(now.zone);
   const alerts: AlertType[] = [];
   const isDueToday = deadline.hasSame(now, "day");
-  // Dedicated reminder workflows set these env vars and sleep until the exact time
-  const isMorningSnapshotMinute = process.env.SEND_MORNING_REMINDER === "true";
-  const isNoonReminderMinute    = process.env.SEND_NOON_REMINDER === "true";
-  const isStrictWarningMinute   = process.env.SEND_AFTERNOON_REMINDER === "true";
+  // Dedicated reminder workflows set these env vars. We still verify the actual
+  // runtime window here so a delayed scheduler run cannot send stale reminders.
+  const isReminderWindowActive = (flag: string | undefined, hour: number, minute: number) => {
+    if (flag !== "true") {
+      return false;
+    }
+
+    const scheduledTime = now.set({ hour, minute, second: 0, millisecond: 0 });
+    const delayInMinutes = now.diff(scheduledTime, "minutes").minutes;
+    return delayInMinutes >= 0 && delayInMinutes < 20;
+  };
+
+  const isMorningSnapshotMinute = isReminderWindowActive(process.env.SEND_MORNING_REMINDER, 11, 0);
+  const isNoonReminderMinute = isReminderWindowActive(process.env.SEND_NOON_REMINDER, 14, 0);
+  const isStrictWarningMinute = isReminderWindowActive(process.env.SEND_AFTERNOON_REMINDER, 14, 30);
+  const isDedicatedReminderRun =
+    process.env.SEND_MORNING_REMINDER === "true" ||
+    process.env.SEND_NOON_REMINDER === "true" ||
+    process.env.SEND_AFTERNOON_REMINDER === "true";
 
   if (isDueToday && isMorningSnapshotMinute && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
     alerts.push("reminder_10h");
@@ -183,6 +198,10 @@ function chooseAlertTypes(
     !sentAlertTypes.has("reminder_30m")
   ) {
     alerts.push("reminder_30m");
+  }
+
+  if (isDedicatedReminderRun) {
+    return alerts;
   }
 
   if (

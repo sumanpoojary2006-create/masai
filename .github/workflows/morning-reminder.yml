@@ -2,7 +2,7 @@ name: 11 AM Morning Reminder
 
 on:
   schedule:
-    - cron: '15 5 * * 1-6' # 10:45 AM IST (Mon–Sat) — sleeps 15 min to hit 11:00 AM exactly
+    - cron: '30 5 * * 1-6' # 11:00 AM IST (Mon–Sat)
   workflow_dispatch:
 
 jobs:
@@ -20,9 +20,6 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-
-      - name: Sleep until 11:00 AM IST
-        run: sleep 900
 
       - name: Send 11 AM reminder
         run: npm run compliance

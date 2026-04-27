@@ -1,8 +1,8 @@
-name: 1 PM Noon Reminder
+name: 2 PM Pending Reminder
 
 on:
   schedule:
-    - cron: '15 7 * * 1-6' # 12:45 PM IST (Mon–Sat) — sleeps 15 min to hit 1:00 PM exactly
+    - cron: '30 8 * * 1-6' # 2:00 PM IST (Mon–Sat)
   workflow_dispatch:
 
 jobs:
@@ -21,10 +21,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Sleep until 1:00 PM IST
-        run: sleep 900
-
-      - name: Send 1 PM reminder (only if resources are still pending)
+      - name: Send 2 PM reminder (only if resources are still pending)
         run: npm run compliance
         env:
           SEND_NOON_REMINDER: 'true'

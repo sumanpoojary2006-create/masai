@@ -242,7 +242,7 @@ function buildSlackDigest(
       .join(", ");
     return [
       mention,
-      "⏰ 1:00 PM Reminder — Resources Still Pending",
+      "⏰ 2:00 PM Reminder — Resources Still Pending",
       lectureDatesNoon ? `🗓️ Due today: ${lectureDatesNoon}` : null,
       "The following resources have not been uploaded yet. Deadline is 3:00 PM.",
       "",
