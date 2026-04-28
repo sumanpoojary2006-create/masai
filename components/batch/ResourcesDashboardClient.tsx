@@ -52,8 +52,8 @@ function formatDateTime(iso: string | null | undefined) {
   return value.toFormat("dd LLL yyyy, hh:mm a");
 }
 
-function formatScore(score: number) {
-  return score > 0 ? `+${score}` : `${score}`;
+function formatPercent(value: number) {
+  return `${value}%`;
 }
 
 function rankTone(rank: number) {
@@ -176,17 +176,17 @@ function BarRow({
   );
 }
 
-function ScorePill({ score }: { score: number }) {
+function PercentagePill({ percentage }: { percentage: number }) {
   const tone =
-    score >= 40
+    percentage >= 80
       ? "border-emerald-400/30 bg-emerald-500/12 text-emerald-200"
-      : score >= 0
+      : percentage >= 50
         ? "border-amber-400/30 bg-amber-500/12 text-amber-100"
         : "border-rose-400/30 bg-rose-500/12 text-rose-200";
 
   return (
     <span className={clsx("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", tone)}>
-      {formatScore(score)}
+      {formatPercent(percentage)}
     </span>
   );
 }
@@ -227,7 +227,7 @@ function LeaderboardTable({
   if (rows.length === 0) {
     return (
       <EmptyState
-        title="No scored resources yet"
+        title="No leaderboard data yet"
         body="As MasaiLens receives tracked resource completions, the leaderboard will populate automatically."
       />
     );
@@ -240,8 +240,8 @@ function LeaderboardTable({
           <TableHeader
             columns={
               type === "cc"
-                ? ["Rank", "CC Name", "Assigned Batches", "On-time Releases", "Late Releases", "Final Score"]
-                : ["Rank", "Batch Name", "CC Name", "On-time Resources", "Late Resources", "Score"]
+                ? ["Rank", "CC Name", "Assigned Batches", "On-time Releases", "Late Releases", "On-time %"]
+                : ["Rank", "Batch Name", "CC Name", "On-time Resources", "Late Resources", "On-time %"]
             }
           />
           <tbody>
@@ -273,13 +273,13 @@ function LeaderboardTable({
                       <p className="mt-1 text-xs text-slate-500">
                         {isCcRow
                           ? ccRow.coordinatorEmail ?? "No email mapped"
-                          : `${batchRow.perfectRate}% perfect-release rate`}
+                          : `${batchRow.perfectRate}% on-time release rate`}
                       </p>
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     {isCcRow ? (
-                      <span className="text-sm text-slate-300">{ccRow.assignedBatches.length}</span>
+                      <span className="text-sm text-slate-300">{ccRow.assignedBatches.length} batches</span>
                     ) : (
                       <div className="max-w-[18rem] text-sm text-slate-300">
                         {batchRow.coordinatorNames.length > 0
@@ -296,11 +296,9 @@ function LeaderboardTable({
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <ScorePill score={isCcRow ? ccRow.score : batchRow.score} />
+                      <PercentagePill percentage={isCcRow ? ccRow.perfectRate : batchRow.perfectRate} />
                       <span className="text-xs text-slate-500">
-                        {isCcRow
-                          ? `${ccRow.perfectRate}% perfect`
-                          : `${batchRow.pendingResources} pending`}
+                        {(isCcRow ? ccRow.pendingResources : batchRow.pendingResources)} pending
                       </span>
                     </div>
                   </td>
@@ -339,7 +337,7 @@ function MappingRow({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-slate-700/80 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300">
-            {row.assignedBatches.length} batches
+            Assigned batches ({row.assignedBatches.length})
           </span>
           <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
             {row.onTimeReleases} on-time
@@ -347,12 +345,15 @@ function MappingRow({
           <span className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-200">
             {row.lateReleases} late
           </span>
-          <ScorePill score={row.score} />
+          <PercentagePill percentage={row.perfectRate} />
         </div>
       </div>
 
       {expanded ? (
         <div className="mt-4 rounded-[20px] border border-slate-800/80 bg-slate-900/70 p-4">
+          <p className="mb-3 text-sm font-semibold text-slate-200">
+            Assigned batch names ({row.assignedBatches.length})
+          </p>
           {row.assignedBatches.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {row.assignedBatches.map((batchName) => (
@@ -400,9 +401,9 @@ function DashboardOverview({ data }: { data: ResourcesDashboardData }) {
           accent="bg-amber-300"
         />
         <MetricCard
-          label="Overall Score"
-          value={`${data.summary.overallScore}%`}
-          note="Normalized from on-time wins and late penalties"
+          label="Overall Performance"
+          value={`${data.summary.overallPerformance}%`}
+          note="On-time release percentage across scored resources"
           accent="bg-rose-400"
         />
       </div>
@@ -482,7 +483,7 @@ function DashboardOverview({ data }: { data: ResourcesDashboardData }) {
                         {row.onTimeReleases} on-time • {row.lateReleases} late
                       </p>
                     </div>
-                    <ScorePill score={row.score} />
+                    <PercentagePill percentage={row.perfectRate} />
                   </div>
                 ))}
               </div>
@@ -619,8 +620,8 @@ export function ResourcesDashboardClient() {
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-400">
               A fresh MasaiLens-powered workspace for release discipline, coordinator rankings,
-              batch rankings, and CC-to-batch ownership. Late submissions reduce score, and
-              pending resources stay visible until they cross the deadline.
+              batch rankings, and CC-to-batch ownership. Ranking is driven by on-time release
+              percentage, while pending resources stay visible until they cross the deadline.
             </p>
           </div>
 
@@ -674,40 +675,6 @@ export function ResourcesDashboardClient() {
             </div>
           </div>
 
-          <Panel
-            title="Scoring Logic"
-            subtitle="Perfect releases add points; late releases create direct penalties."
-          >
-            <div className="space-y-3 text-sm text-slate-300">
-              <p>
-                <span className="font-semibold text-emerald-200">Perfect release:</span>{" "}
-                {data.scoring.perfectReleaseDefinition}
-              </p>
-              <p>
-                <span className="font-semibold text-rose-200">Late release:</span>{" "}
-                {data.scoring.lateReleaseDefinition}
-              </p>
-              <div className="rounded-[20px] border border-slate-800/80 bg-slate-900/75 px-4 py-3 text-sm text-slate-300">
-                Score = ({data.scoring.onTimePoints} × on-time) − ({data.scoring.latePenaltyPoints} × late)
-              </div>
-            </div>
-          </Panel>
-
-          <Panel
-            title="Data Quality"
-            subtitle="Graceful handling for missing or incomplete records."
-          >
-            <div className="space-y-3 text-sm text-slate-300">
-              <div className="flex items-center justify-between">
-                <span>Missing task slots</span>
-                <span className="font-semibold text-white">{data.dataQuality.missingTasks}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Batches without CC mapping</span>
-                <span className="font-semibold text-white">{data.dataQuality.batchesWithoutCoordinator}</span>
-              </div>
-            </div>
-          </Panel>
         </aside>
 
         <main className="min-w-0">
@@ -717,7 +684,7 @@ export function ResourcesDashboardClient() {
             <div className="space-y-4">
               <Panel
                 title="CC Leaderboard"
-                subtitle="Only perfect releases add points. Late submissions reduce score immediately."
+                subtitle="Ranked by on-time release percentage, with on-time release count used as the tie-breaker."
               >
                 <LeaderboardTable rows={data.ccLeaderboard} type="cc" />
               </Panel>
@@ -728,7 +695,7 @@ export function ResourcesDashboardClient() {
             <div className="space-y-4">
               <Panel
                 title="Batch Leaderboard"
-                subtitle="Batches are ranked by release discipline using the same positive and negative scoring model."
+                subtitle="Ranked by on-time release percentage, with on-time resource count used as the tie-breaker."
               >
                 <LeaderboardTable rows={data.batchLeaderboard} type="batch" />
               </Panel>

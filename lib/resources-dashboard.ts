@@ -6,16 +6,6 @@ import { TaskRecord, TaskType } from "@/lib/types";
 
 const RESOURCE_TYPES: TaskType[] = ["preread", "notes", "assignment"];
 
-export const RESOURCE_DASHBOARD_SCORING = {
-  onTimePoints: 10,
-  latePenaltyPoints: 4,
-  refreshIntervalMs: 60_000,
-  perfectReleaseDefinition:
-    "A perfect release is a resource marked completed on or before its MasaiLens deadline.",
-  lateReleaseDefinition:
-    "A late release is a resource completed after its deadline or still overdue after the deadline has passed."
-} as const;
-
 type ResourceOutcome = "on_time" | "late" | "pending" | "missing";
 
 type ResourceRollup = {
@@ -42,7 +32,7 @@ export interface ResourcesDashboardSummary {
   pendingCount: number;
   onTimeRate: number;
   lateRate: number;
-  overallScore: number;
+  overallPerformance: number;
   releasedByType: ResourceMetricBreakdown;
 }
 
@@ -56,7 +46,6 @@ export interface ResourceLeaderboardRow {
   pendingResources: number;
   trackedResources: number;
   perfectRate: number;
-  score: number;
 }
 
 export interface BatchLeaderboardRow {
@@ -67,7 +56,6 @@ export interface BatchLeaderboardRow {
   pendingResources: number;
   trackedResources: number;
   perfectRate: number;
-  score: number;
 }
 
 export interface CoordinatorMappingRow {
@@ -80,7 +68,6 @@ export interface CoordinatorMappingRow {
   pendingResources: number;
   trackedResources: number;
   perfectRate: number;
-  score: number;
 }
 
 export interface ResourcesDashboardData {
@@ -88,11 +75,6 @@ export interface ResourcesDashboardData {
   ccLeaderboard: ResourceLeaderboardRow[];
   batchLeaderboard: BatchLeaderboardRow[];
   ccMapping: CoordinatorMappingRow[];
-  scoring: typeof RESOURCE_DASHBOARD_SCORING;
-  dataQuality: {
-    missingTasks: number;
-    batchesWithoutCoordinator: number;
-  };
   lastUpdatedAt: string;
 }
 
@@ -112,24 +94,6 @@ function createTypeBreakdown(): ResourceMetricBreakdown {
     notes: 0,
     assignment: 0
   };
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function computeScore(onTimeCount: number, lateCount: number) {
-  return onTimeCount * RESOURCE_DASHBOARD_SCORING.onTimePoints -
-    lateCount * RESOURCE_DASHBOARD_SCORING.latePenaltyPoints;
-}
-
-function computeScorePercent(score: number, trackedResources: number) {
-  if (trackedResources === 0) {
-    return 0;
-  }
-
-  const maxPositive = trackedResources * RESOURCE_DASHBOARD_SCORING.onTimePoints;
-  return clamp(Math.round((score / maxPositive) * 100), 0, 100);
 }
 
 function computePerfectRate(onTimeCount: number, lateCount: number) {
@@ -165,7 +129,12 @@ function classifyTask(task: TaskRecord | null, now: DateTime): ResourceOutcome {
     : null;
 
   if (task.status === "completed") {
-    if (completedAt && completedAt.isValid && deadline.isValid && completedAt.toMillis() <= deadline.toMillis()) {
+    if (
+      completedAt &&
+      completedAt.isValid &&
+      deadline.isValid &&
+      completedAt.toMillis() <= deadline.toMillis()
+    ) {
       return "on_time";
     }
 
@@ -219,7 +188,7 @@ type BatchAccumulator = {
   rollup: ResourceRollup;
 };
 
-function sortByScore<T extends { score: number; perfectRate: number }>(
+function sortByPercentage<T extends { perfectRate: number }>(
   left: T,
   right: T,
   leftOnTime: number,
@@ -227,10 +196,6 @@ function sortByScore<T extends { score: number; perfectRate: number }>(
   leftLate: number,
   rightLate: number
 ) {
-  if (right.score !== left.score) {
-    return right.score - left.score;
-  }
-
   if (right.perfectRate !== left.perfectRate) {
     return right.perfectRate - left.perfectRate;
   }
@@ -314,7 +279,6 @@ export async function getResourcesDashboardData(): Promise<ResourcesDashboardDat
   const overallRollup = createRollup();
   const releasedByType = createTypeBreakdown();
   const allBatchNames = new Set<string>();
-  let missingTasks = 0;
 
   function ensureCoordinator(userId: string | null | undefined, fallbackBatchName?: string) {
     const key = userId ?? (fallbackBatchName ? `unassigned:${fallbackBatchName}` : "unassigned");
@@ -370,7 +334,6 @@ export async function getResourcesDashboardData(): Promise<ResourcesDashboardDat
     for (const type of RESOURCE_TYPES) {
       const task = taskMap.get(type) ?? null;
       if (!task) {
-        missingTasks += 1;
         continue;
       }
 
@@ -397,23 +360,19 @@ export async function getResourcesDashboardData(): Promise<ResourcesDashboardDat
   }
 
   const ccLeaderboard = Array.from(coordinatorAccumulators.values())
-    .map((coordinator) => {
-      const score = computeScore(coordinator.rollup.onTime, coordinator.rollup.late);
-      return {
-        coordinatorId: coordinator.coordinatorId,
-        coordinatorName: coordinator.coordinatorName,
-        coordinatorEmail: coordinator.coordinatorEmail,
-        assignedBatches: [...coordinator.assignedBatches].sort(),
-        onTimeReleases: coordinator.rollup.onTime,
-        lateReleases: coordinator.rollup.late,
-        pendingResources: coordinator.rollup.pending,
-        trackedResources: coordinator.rollup.tracked,
-        perfectRate: computePerfectRate(coordinator.rollup.onTime, coordinator.rollup.late),
-        score
-      };
-    })
+    .map((coordinator) => ({
+      coordinatorId: coordinator.coordinatorId,
+      coordinatorName: coordinator.coordinatorName,
+      coordinatorEmail: coordinator.coordinatorEmail,
+      assignedBatches: [...coordinator.assignedBatches].sort(),
+      onTimeReleases: coordinator.rollup.onTime,
+      lateReleases: coordinator.rollup.late,
+      pendingResources: coordinator.rollup.pending,
+      trackedResources: coordinator.rollup.tracked,
+      perfectRate: computePerfectRate(coordinator.rollup.onTime, coordinator.rollup.late)
+    }))
     .sort((left, right) =>
-      sortByScore(
+      sortByPercentage(
         left,
         right,
         left.onTimeReleases,
@@ -424,21 +383,17 @@ export async function getResourcesDashboardData(): Promise<ResourcesDashboardDat
     );
 
   const batchLeaderboard = Array.from(batchAccumulators.values())
-    .map((batch) => {
-      const score = computeScore(batch.rollup.onTime, batch.rollup.late);
-      return {
-        batchName: batch.batchName,
-        coordinatorNames: [...batch.coordinatorNames].filter(Boolean).sort(),
-        onTimeResources: batch.rollup.onTime,
-        lateResources: batch.rollup.late,
-        pendingResources: batch.rollup.pending,
-        trackedResources: batch.rollup.tracked,
-        perfectRate: computePerfectRate(batch.rollup.onTime, batch.rollup.late),
-        score
-      };
-    })
+    .map((batch) => ({
+      batchName: batch.batchName,
+      coordinatorNames: [...batch.coordinatorNames].filter(Boolean).sort(),
+      onTimeResources: batch.rollup.onTime,
+      lateResources: batch.rollup.late,
+      pendingResources: batch.rollup.pending,
+      trackedResources: batch.rollup.tracked,
+      perfectRate: computePerfectRate(batch.rollup.onTime, batch.rollup.late)
+    }))
     .sort((left, right) =>
-      sortByScore(
+      sortByPercentage(
         left,
         right,
         left.onTimeResources,
@@ -457,15 +412,12 @@ export async function getResourcesDashboardData(): Promise<ResourcesDashboardDat
     lateReleases: coordinator.lateReleases,
     pendingResources: coordinator.pendingResources,
     trackedResources: coordinator.trackedResources,
-    perfectRate: coordinator.perfectRate,
-    score: coordinator.score
+    perfectRate: coordinator.perfectRate
   }));
 
   const scoredResources = overallRollup.onTime + overallRollup.late;
-  const overallScore = computeScorePercent(
-    computeScore(overallRollup.onTime, overallRollup.late),
-    overallRollup.tracked
-  );
+  const overallPerformance =
+    scoredResources > 0 ? Math.round((overallRollup.onTime / scoredResources) * 100) : 0;
 
   return {
     summary: {
@@ -478,17 +430,12 @@ export async function getResourcesDashboardData(): Promise<ResourcesDashboardDat
       pendingCount: overallRollup.pending,
       onTimeRate: scoredResources > 0 ? Math.round((overallRollup.onTime / scoredResources) * 100) : 0,
       lateRate: scoredResources > 0 ? Math.round((overallRollup.late / scoredResources) * 100) : 0,
-      overallScore,
+      overallPerformance,
       releasedByType
     },
     ccLeaderboard,
     batchLeaderboard,
     ccMapping,
-    scoring: RESOURCE_DASHBOARD_SCORING,
-    dataQuality: {
-      missingTasks,
-      batchesWithoutCoordinator: batchLeaderboard.filter((batch) => batch.coordinatorNames.length === 0).length
-    },
     lastUpdatedAt: now.toISO() ?? new Date().toISOString()
   };
 }
