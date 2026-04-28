@@ -29,3 +29,4 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           LO_SLACK_WEBHOOK_URL: ${{ secrets.LO_SLACK_WEBHOOK_URL }}
           APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
+          LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}

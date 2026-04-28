@@ -41,4 +41,5 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+          LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}
 

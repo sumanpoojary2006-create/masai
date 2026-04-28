@@ -39,6 +39,7 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+          LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TARGET_USER_ID: ${{ inputs.target_user_id }}
@@ -53,6 +54,7 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+          LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}
           TARGET_USER_ID: ${{ inputs.target_user_id }}
 
       - name: Send compliance notifications to triggering user (manual sync only)
@@ -66,6 +68,7 @@ jobs:
           LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
           LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
           LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
+          LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
