@@ -242,14 +242,14 @@ function buildSlackDigest(
       .join(", ");
     return [
       mention,
-      "⏰ 2:00 PM Reminder — Resources Still Pending",
+      "⏰ 1:00 PM Reminder — Resources Still Pending",
       lectureDatesNoon ? `🗓️ Due today: ${lectureDatesNoon}` : null,
       "The following resources have not been uploaded yet. Deadline is 3:00 PM.",
       "",
       "⏳ Still pending",
       ...groupedByBatch(noonReminderAlerts, (a) => {
         const label = TASK_LABELS[a.taskType];
-        return `• ⏳ ${a.lecture.lecture_name} | ${label} — upload before 03:00 PM`;
+        return `• ⏳ ${a.lecture.lecture_name} | ${label} — upload before 03:00 PM today`;
       }),
     ]
       .filter((line): line is string => line !== null)

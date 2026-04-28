@@ -172,11 +172,12 @@ function chooseAlertTypes(
 
     const scheduledTime = now.set({ hour, minute, second: 0, millisecond: 0 });
     const delayInMinutes = now.diff(scheduledTime, "minutes").minutes;
-    return delayInMinutes >= 0 && delayInMinutes < 20;
+    // 60-minute window: GitHub Actions cron jobs can be delayed 20–45+ min under load
+    return delayInMinutes >= 0 && delayInMinutes < 60;
   };
 
   const isMorningSnapshotMinute = isReminderWindowActive(process.env.SEND_MORNING_REMINDER, 11, 0);
-  const isNoonReminderMinute = isReminderWindowActive(process.env.SEND_NOON_REMINDER, 14, 0);
+  const isNoonReminderMinute = isReminderWindowActive(process.env.SEND_NOON_REMINDER, 13, 0);
   const isStrictWarningMinute = isReminderWindowActive(process.env.SEND_AFTERNOON_REMINDER, 14, 30);
   const isDedicatedReminderRun =
     process.env.SEND_MORNING_REMINDER === "true" ||
