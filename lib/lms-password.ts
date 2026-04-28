@@ -41,8 +41,14 @@ export function decryptLmsPassword(value: string) {
   const encrypted = Buffer.from(encryptedText, "base64url");
 
   const key = getEncryptionKey();
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
-  decipher.setAuthTag(tag);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString("utf8");
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString("utf8");
+  } catch {
+    // Key mismatch — password was encrypted with a different key.
+    // Return empty string so callers can handle re-authentication gracefully.
+    return "";
+  }
 }
