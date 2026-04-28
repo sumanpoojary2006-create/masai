@@ -19,6 +19,7 @@ create table if not exists public.user_profiles (
   lecture_batch_url text,
   assignment_batch_url text,
   onboarding_complete boolean not null default false,
+  slack_member_id text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -58,6 +59,7 @@ alter table public.user_profiles add column if not exists assignment_batch_url t
 alter table public.user_profiles add column if not exists onboarding_complete boolean not null default false;
 alter table public.user_profiles add column if not exists created_at timestamptz not null default now();
 alter table public.user_profiles add column if not exists updated_at timestamptz not null default now();
+alter table public.user_profiles add column if not exists slack_member_id text;
 alter table public.user_batch_configs add column if not exists created_at timestamptz not null default now();
 alter table public.user_batch_configs add column if not exists updated_at timestamptz not null default now();
 

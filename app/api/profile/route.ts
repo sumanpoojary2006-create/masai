@@ -24,7 +24,6 @@ export async function PUT(request: Request) {
     }
 
     const formData = await request.formData();
-    const email = String(formData.get("email") ?? "");
     const lmsUsername = String(formData.get("lms_username") ?? "").trim();
     const lmsPassword = String(formData.get("lms_password") ?? "").trim();
     const slackMemberId = String(formData.get("slack_member_id") ?? "").trim() || null;
@@ -48,15 +47,12 @@ export async function PUT(request: Request) {
           const assignmentBatchUrl = String(
             config.assignment_batch_url || deriveAssignmentBatchUrl(lectureBatchUrl)
           ).trim();
-          const spreadsheetId = String(config.spreadsheet_id ?? "").trim() || null;
-
           const file = formData.get(`curriculum_file_${index}`);
 
           return {
             batch_name: batchName,
             lecture_batch_url: lectureBatchUrl,
             assignment_batch_url: assignmentBatchUrl,
-            spreadsheet_id: spreadsheetId,
             curriculum_file: file instanceof File ? file : null
           };
         })
@@ -159,8 +155,7 @@ export async function PUT(request: Request) {
         user_id: user.id,
         batch_name: config.batch_name,
         lecture_batch_url: config.lecture_batch_url,
-        assignment_batch_url: config.assignment_batch_url,
-        spreadsheet_id: config.spreadsheet_id
+        assignment_batch_url: config.assignment_batch_url
       }))
     );
 
