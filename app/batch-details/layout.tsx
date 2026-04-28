@@ -2,11 +2,16 @@ import { type ReactNode } from "react";
 import { LogoutButton } from "@/components/logout-button";
 import { AgGridSetup } from "@/components/batch/AgGridSetup";
 import { BatchDetailsHeaderNav } from "@/components/batch/BatchDetailsHeaderNav";
+import { hasAdminAccess } from "@/lib/admin-access";
+import { getCurrentUser } from "@/lib/auth";
 
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 
-export default function BatchDetailsLayout({ children }: { children: ReactNode }) {
+export default async function BatchDetailsLayout({ children }: { children: ReactNode }) {
+  const user = await getCurrentUser();
+  const canViewResources = user ? await hasAdminAccess(user.id) : false;
+
   return (
     <div className="batch-dark min-h-screen w-full" style={{ background: '#080b14' }}>
       {/* Header */}
@@ -30,7 +35,7 @@ export default function BatchDetailsLayout({ children }: { children: ReactNode }
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <BatchDetailsHeaderNav />
+            <BatchDetailsHeaderNav canViewResources={canViewResources} />
             <LogoutButton />
           </div>
         </div>
