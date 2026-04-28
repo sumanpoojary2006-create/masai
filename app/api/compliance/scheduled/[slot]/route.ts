@@ -4,11 +4,13 @@ import { DateTime } from "luxon";
 import { runComplianceCheck } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 
-type Slot = "11am" | "230pm";
+type Slot = "11am" | "1pm" | "230pm";
+type ReminderType = "morning" | "noon" | "afternoon";
 
-const SLOT_TIMES: Record<Slot, { hour: number; minute: number }> = {
-  "11am": { hour: 11, minute: 0 },
-  "230pm": { hour: 14, minute: 30 }
+const SLOT_CONFIG: Record<Slot, { hour: number; minute: number; reminderType: ReminderType }> = {
+  "11am":  { hour: 11, minute: 0,  reminderType: "morning" },
+  "1pm":   { hour: 13, minute: 0,  reminderType: "noon" },
+  "230pm": { hour: 14, minute: 30, reminderType: "afternoon" }
 };
 
 function isAuthorized(request: NextRequest) {
@@ -28,28 +30,31 @@ export async function GET(
   }
 
   const { slot } = await context.params;
-  if (slot !== "11am" && slot !== "230pm") {
+  if (!(slot in SLOT_CONFIG)) {
     return NextResponse.json({ message: "Invalid schedule slot" }, { status: 400 });
   }
 
+  const { hour, minute, reminderType } = SLOT_CONFIG[slot as Slot];
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
-  const scheduled = SLOT_TIMES[slot];
 
-  if (now.hour !== scheduled.hour || now.minute !== scheduled.minute) {
+  const scheduledTime = now.set({ hour, minute, second: 0, millisecond: 0 });
+  const delayMinutes = now.diff(scheduledTime, "minutes").minutes;
+
+  // Allow up to 30 min late — Vercel crons are reliable but not sub-minute precise
+  if (delayMinutes < 0 || delayMinutes >= 30) {
     return NextResponse.json({
-      message: `Skipped ${slot} scheduled compliance because the request arrived outside the exact ${scheduled.hour}:${scheduled.minute
-        .toString()
-        .padStart(2, "0")} ${timezone} minute.`,
+      message: `Skipped ${slot}: arrived ${Math.round(delayMinutes)}m from scheduled ${hour}:${String(minute).padStart(2, "0")} ${timezone}.`,
       now: now.toISO()
     });
   }
 
-  const result = await runComplianceCheck();
+  const result = await runComplianceCheck({ reminderType });
 
   return NextResponse.json({
     message: `Ran ${slot} scheduled compliance successfully.`,
     slot,
+    reminderType,
     now: now.toISO(),
     result
   });

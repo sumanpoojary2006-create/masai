@@ -158,31 +158,32 @@ function chooseAlertTypes(
   nextTaskStatus: TaskStatus,
   now: DateTime,
   previousTaskStatus: TaskStatus | undefined,
-  sentAlertTypes: Set<AlertType>
+  sentAlertTypes: Set<AlertType>,
+  reminderType?: "morning" | "noon" | "afternoon"
 ) {
   const deadline = DateTime.fromISO(task.deadline).setZone(now.zone);
   const alerts: AlertType[] = [];
   const isDueToday = deadline.hasSame(now, "day");
-  // Dedicated reminder workflows set these env vars. We still verify the actual
-  // runtime window here so a delayed scheduler run cannot send stale reminders.
-  const isReminderWindowActive = (flag: string | undefined, hour: number, minute: number) => {
-    if (flag !== "true") {
-      return false;
-    }
 
-    const scheduledTime = now.set({ hour, minute, second: 0, millisecond: 0 });
-    const delayInMinutes = now.diff(scheduledTime, "minutes").minutes;
-    // 60-minute window: GitHub Actions cron jobs can be delayed 20–45+ min under load
-    return delayInMinutes >= 0 && delayInMinutes < 60;
+  // Active when triggered by dedicated reminder (Vercel cron passes reminderType;
+  // GitHub Actions sets env vars). Both paths are supported so either can serve as
+  // the primary trigger and the other as fallback.
+  const isMorning   = reminderType === "morning"   || process.env.SEND_MORNING_REMINDER === "true";
+  const isNoon      = reminderType === "noon"       || process.env.SEND_NOON_REMINDER === "true";
+  const isAfternoon = reminderType === "afternoon"  || process.env.SEND_AFTERNOON_REMINDER === "true";
+  const isDedicatedReminderRun = isMorning || isNoon || isAfternoon;
+
+  // Guard against a heavily-delayed run sending a stale reminder.
+  // Vercel crons are reliable; GitHub Actions can lag 20-45 min under load → 60 min window.
+  const withinWindow = (hour: number, minute: number) => {
+    const scheduled = now.set({ hour, minute, second: 0, millisecond: 0 });
+    const lag = now.diff(scheduled, "minutes").minutes;
+    return lag >= 0 && lag < 60;
   };
 
-  const isMorningSnapshotMinute = isReminderWindowActive(process.env.SEND_MORNING_REMINDER, 11, 0);
-  const isNoonReminderMinute = isReminderWindowActive(process.env.SEND_NOON_REMINDER, 13, 0);
-  const isStrictWarningMinute = isReminderWindowActive(process.env.SEND_AFTERNOON_REMINDER, 14, 30);
-  const isDedicatedReminderRun =
-    process.env.SEND_MORNING_REMINDER === "true" ||
-    process.env.SEND_NOON_REMINDER === "true" ||
-    process.env.SEND_AFTERNOON_REMINDER === "true";
+  const isMorningSnapshotMinute = isMorning   && withinWindow(11, 0);
+  const isNoonReminderMinute    = isNoon       && withinWindow(13, 0);
+  const isStrictWarningMinute   = isAfternoon  && withinWindow(14, 30);
 
   if (isDueToday && isMorningSnapshotMinute && nextTaskStatus !== "missed" && !sentAlertTypes.has("reminder_10h")) {
     alerts.push("reminder_10h");
@@ -488,6 +489,7 @@ export async function analyzePendingLoReports(
 
 export async function runComplianceCheck(options?: {
   userId?: string;
+  reminderType?: "morning" | "noon" | "afternoon";
 }): Promise<ComplianceRunSummary> {
   const env = getAutomationEnv();
   const now = DateTime.now().setZone(env.timezone);
@@ -662,7 +664,8 @@ export async function runComplianceCheck(options?: {
         task.status as TaskStatus,
         now,
         previousTask?.status as TaskStatus | undefined,
-        sentAlertTypes
+        sentAlertTypes,
+        options?.reminderType
       );
 
       if (alertTypes.length === 0) {

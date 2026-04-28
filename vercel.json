@@ -5,6 +5,10 @@
       "schedule": "30 5 * * *"
     },
     {
+      "path": "/api/compliance/scheduled/1pm",
+      "schedule": "30 7 * * *"
+    },
+    {
       "path": "/api/compliance/scheduled/230pm",
       "schedule": "0 9 * * *"
     }
