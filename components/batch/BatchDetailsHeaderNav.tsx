@@ -14,6 +14,7 @@ export function BatchDetailsHeaderNav({ canViewResources }: { canViewResources: 
 
   const allBatchesActive = pathname === "/batch-details/dashboard" || pathname.startsWith("/batch-details/batch/");
   const resourcesActive = pathname.startsWith("/batch-details/resources-dashboard");
+  const instructorCalendarActive = pathname.startsWith("/batch-details/instructor-calendar");
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -26,6 +27,14 @@ export function BatchDetailsHeaderNav({ canViewResources }: { canViewResources: 
           className={getLinkClasses(resourcesActive)}
         >
           Resources Dashboard
+        </Link>
+      ) : null}
+      {canViewResources ? (
+        <Link
+          href="/batch-details/instructor-calendar"
+          className={getLinkClasses(instructorCalendarActive)}
+        >
+          Instructor Calendar
         </Link>
       ) : null}
     </div>

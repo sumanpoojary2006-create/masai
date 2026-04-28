@@ -1,7 +1,7 @@
 'use client'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import FullCalendar from '@fullcalendar/react'
-import type { EventClickArg, EventMountArg } from '@fullcalendar/core'
+import type { EventClickArg, EventContentArg, EventMountArg } from '@fullcalendar/core'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -9,6 +9,17 @@ import type { DateClickArg } from '@fullcalendar/interaction'
 import type { Session } from '@/lib/batch-types'
 
 interface Props { sessions: Session[] }
+type CalendarView = 'all' | 'faculty' | 'industry-mentor'
+
+function getRoleLabel(role: Session['to_be_taken_by']) {
+  if (role === 'professor') return 'Faculty Session'
+  if (role === 'industry-mentor') return 'Industry Mentor Session'
+  if (role === 'teaching-assistant') return 'Teaching Assistant Session'
+  if (role === 'program-coordinator') return 'Program Coordinator Session'
+  if (role === 'curriculum-coordinator') return 'Curriculum Coordinator Session'
+  if (role === 'guest-lecturer') return 'Guest Lecturer Session'
+  return 'Session'
+}
 
 function getColors(s: Session) {
   if (s.is_end_of_schedule)          return { bg: '#991b1b', border: '#ef4444' }
@@ -24,7 +35,7 @@ function onEventDidMount(info: EventMountArg) {
   if (!s) return
   const lines = [
     info.event.title,
-    s.to_be_taken_by ? `Role: ${s.to_be_taken_by}` : '',
+    `Type: ${getRoleLabel(s.to_be_taken_by)}`,
     s.date ? `Date: ${s.date}` : '',
     s.start_time ? `Time: ${s.start_time.slice(0,5)}${s.end_time ? ' – ' + s.end_time.slice(0,5) : ''}` : '',
     s.instructor_name ? `Instructor: ${s.instructor_name}` : '',
@@ -52,18 +63,43 @@ function formatTimeRange(session: Session) {
   return `${session.start_time.slice(0, 5)}${session.end_time ? ` - ${session.end_time.slice(0, 5)}` : ''}`
 }
 
+function renderEventContent(info: EventContentArg) {
+  const session = info.event.extendedProps.session as Session | undefined
+  const sessionType = getRoleLabel(session?.to_be_taken_by ?? null)
+
+  return (
+    <div style={{ display: 'grid', gap: '2px', padding: '1px 0' }}>
+      <div style={{ fontSize: '10px', fontWeight: 800, lineHeight: 1.2, opacity: 0.9 }}>
+        {sessionType}
+      </div>
+      <div style={{ fontSize: '12px', fontWeight: 700, lineHeight: 1.25, whiteSpace: 'normal' }}>
+        {info.event.title}
+      </div>
+    </div>
+  )
+}
+
 export function BatchCalendar({ sessions }: Props) {
   const calendarRef = useRef<FullCalendar>(null)
+  const [calendarView, setCalendarView] = useState<CalendarView>('all')
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null)
 
+  const filteredSessions = useMemo(() => {
+    if (calendarView === 'all') return sessions
+    if (calendarView === 'faculty') {
+      return sessions.filter((session) => session.to_be_taken_by === 'professor')
+    }
+    return sessions.filter((session) => session.to_be_taken_by === 'industry-mentor')
+  }, [calendarView, sessions])
+
   const events = useMemo(() => {
     const seen = new Set<string>()
-    return sessions
+    return filteredSessions
       .filter(s => s.date && s.start_time)
       .flatMap(s => {
-        // Dedup by date + title (case-insensitive) — catches multi-instructor duplicates
-        const key = `${s.date}|${(s.session_title ?? '').trim().toLowerCase()}`
+        // Dedup by schedule slot + role + title (case-insensitive) — keeps role-specific views accurate.
+        const key = `${s.date}|${s.start_time}|${s.to_be_taken_by ?? 'other'}|${(s.session_title ?? '').trim().toLowerCase()}`
         if (seen.has(key)) return []
         seen.add(key)
 
@@ -79,12 +115,12 @@ export function BatchCalendar({ sessions }: Props) {
           extendedProps: { session: s },
         }]
       })
-  }, [sessions])
+  }, [filteredSessions])
 
   const sessionsByDate = useMemo(() => {
     const map = new Map<string, Session[]>()
 
-    for (const session of sessions) {
+    for (const session of filteredSessions) {
       if (!session.date) continue
       const current = map.get(session.date) ?? []
       current.push(session)
@@ -99,15 +135,29 @@ export function BatchCalendar({ sessions }: Props) {
     }
 
     return map
-  }, [sessions])
+  }, [filteredSessions])
 
   const selectedSessions = selectedDate ? sessionsByDate.get(selectedDate) ?? [] : []
+
+  useEffect(() => {
+    if (!selectedDate) return
+    if (selectedSessions.length > 0) return
+    setSelectedDate(null)
+    setHighlightedSessionId(null)
+  }, [selectedDate, selectedSessions])
 
   const hasEnd      = sessions.some(s => s.is_end_of_schedule)
   const endSession  = sessions.find(s => s.is_end_of_schedule)
   const withDates   = events.length   // after dedup
   const profCount   = sessions.filter(s => s.to_be_taken_by === 'professor').length
   const mentorCount = sessions.filter(s => s.to_be_taken_by === 'industry-mentor').length
+  const activeCount = filteredSessions.length
+  const activeViewLabel =
+    calendarView === 'faculty'
+      ? 'Faculty blocked calendar'
+      : calendarView === 'industry-mentor'
+        ? 'Industry Mentor blocked calendar'
+        : 'Combined schedule calendar'
 
   function openDayDetails(date: string, sessionId?: string) {
     const daySessions = sessionsByDate.get(date) ?? []
@@ -133,6 +183,7 @@ export function BatchCalendar({ sessions }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
         {[
           { label: 'Total Sessions', value: sessions.length, accent: '#5b21b6' },
+          { label: 'Active View',    value: activeCount,     accent: '#0891b2' },
           { label: 'On Calendar',    value: withDates,       accent: '#065f46' },
           { label: 'Professor',      value: profCount,       accent: '#7c3aed' },
           { label: 'Ind. Mentor',    value: mentorCount,     accent: '#0f766e' },
@@ -145,6 +196,37 @@ export function BatchCalendar({ sessions }: Props) {
             <div style={{ fontSize: '24px', fontWeight: 800, color: '#f1f5f9', marginTop: '3px' }}>{c.value}</div>
           </div>
         ))}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+        {([
+          { id: 'all', label: 'All Sessions' },
+          { id: 'faculty', label: 'Faculty Calendar' },
+          { id: 'industry-mentor', label: 'Industry Mentor Calendar' },
+        ] as Array<{ id: CalendarView; label: string }>).map((view) => {
+          const active = calendarView === view.id
+          return (
+            <button
+              key={view.id}
+              onClick={() => setCalendarView(view.id)}
+              style={{
+                borderRadius: '9999px',
+                border: active ? '1px solid rgba(34, 211, 238, 0.4)' : '1px solid #334155',
+                background: active ? 'rgba(6, 182, 212, 0.14)' : '#0f172a',
+                color: active ? '#67e8f9' : '#cbd5e1',
+                padding: '9px 14px',
+                fontSize: '13px',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {view.label}
+            </button>
+          )
+        })}
+        <span style={{ color: '#94a3b8', fontSize: '13px' }}>
+          {activeViewLabel} showing when these sessions are blocked.
+        </span>
       </div>
 
       {/* Status + legend */}
@@ -186,6 +268,7 @@ export function BatchCalendar({ sessions }: Props) {
           timeZone="Asia/Kolkata"
           events={events}
           eventDidMount={onEventDidMount}
+          eventContent={renderEventContent}
           height={720}
           dayMaxEvents={4}
           eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
@@ -290,7 +373,7 @@ export function BatchCalendar({ sessions }: Props) {
                           textTransform: 'capitalize',
                         }}
                       >
-                        {session.is_end_of_schedule ? 'End of Schedule' : session.to_be_taken_by?.replace(/-/g, ' ') || 'Session'}
+                        {session.is_end_of_schedule ? 'End of Schedule' : getRoleLabel(session.to_be_taken_by)}
                       </span>
                     </div>
 
