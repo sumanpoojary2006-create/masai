@@ -104,12 +104,6 @@ export default async function HomePage() {
             LO Tracker
           </Link>
           <Link
-            href="/batch-details"
-            className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
-          >
-            Batch Details
-          </Link>
-          <Link
             href="/weekly-report"
             className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition"
           >
