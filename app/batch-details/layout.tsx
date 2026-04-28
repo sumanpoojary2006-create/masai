@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { LogoutButton } from "@/components/logout-button";
 import { AgGridSetup } from "@/components/batch/AgGridSetup";
+import { BatchDetailsHeaderNav } from "@/components/batch/BatchDetailsHeaderNav";
 
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
@@ -29,21 +30,7 @@ export default function BatchDetailsLayout({ children }: { children: ReactNode }
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <a
-              href="/batch-details/dashboard"
-              style={{
-                background: '#1e293b',
-                border: '1px solid #334155',
-                color: '#94a3b8',
-                borderRadius: '9999px',
-                padding: '6px 16px',
-                fontSize: '13px',
-                fontWeight: 500,
-              }}
-              className="hover:text-slate-200 transition-colors"
-            >
-              All Batches
-            </a>
+            <BatchDetailsHeaderNav />
             <LogoutButton />
           </div>
         </div>
