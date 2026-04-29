@@ -1,8 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Paths that never require authentication
 const PUBLIC_PATHS = ["/login", "/signup", "/batch-details/login", "/api/"];
-const ADMIN_PATHS = ["/admin"];
+
+// Paths under the batch-details portal
+const BATCH_DETAILS_PATHS = ["/batch-details"];
+
+// Paths for the new CC dashboard
 const CC_PATHS = ["/cc"];
 
 function isPublic(pathname: string) {
@@ -15,6 +20,7 @@ export async function middleware(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
+  // If Supabase isn't configured at all, just pass through
   if (!supabaseUrl || !supabaseKey) {
     return NextResponse.next({ request });
   }
@@ -38,22 +44,29 @@ export async function middleware(request: NextRequest) {
     }
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
   const { pathname } = request.nextUrl;
 
-  // Let public paths and API routes through without role checks
+  // Always allow public paths through
   if (isPublic(pathname)) {
     return response;
   }
 
-  // Unauthenticated users: redirect to login (except for static files)
+  // Unauthenticated: redirect to the right login page based on the portal
   if (!user) {
     const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
+    if (BATCH_DETAILS_PATHS.some((p) => pathname.startsWith(p))) {
+      loginUrl.pathname = "/batch-details/login";
+    } else {
+      loginUrl.pathname = "/login";
+    }
     return NextResponse.redirect(loginUrl);
   }
 
-  // For CC-specific paths: verify the user has at least one batch assignment
+  // CC-specific paths: verify the user has at least one batch assignment
   if (CC_PATHS.some((p) => pathname.startsWith(p))) {
     const { data: assignment } = await supabase
       .from("cc_batch_assignments")
@@ -63,7 +76,6 @@ export async function middleware(request: NextRequest) {
       .maybeSingle();
 
     if (!assignment) {
-      // Check if they are admin instead
       const adminIds = (process.env.ADMIN_USER_IDS ?? "")
         .split(",")
         .map((s) => s.trim())
@@ -71,15 +83,9 @@ export async function middleware(request: NextRequest) {
 
       if (adminIds.includes(user.id)) {
         const adminUrl = request.nextUrl.clone();
-        adminUrl.pathname = "/admin/dashboard";
+        adminUrl.pathname = "/batch-details/dashboard";
         return NextResponse.redirect(adminUrl);
       }
-
-      // Not a CC either — redirect to a holding page
-      const noAccessUrl = request.nextUrl.clone();
-      noAccessUrl.pathname = "/cc/dashboard";
-      // Let the page itself render the "no batches" message
-      return response;
     }
   }
 
