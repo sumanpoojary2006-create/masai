@@ -275,18 +275,24 @@ export async function importLectureSheet(
 
   const batchNamesInFile = [...new Set(lectures.map((l) => l.batch_name))];
 
-  // Fetch curriculums for these batches to auto-fill Learning Objectives
-  const { data: curriculums } = await supabase
+  // Fetch per-user curriculum rows for LO auto-fill
+  const { data: userCurriculums } = await supabase
     .from("batch_curriculums")
     .select("batch_name, lecture_name, learning_objective")
     .in("batch_name", batchNamesInFile)
     .eq("user_id", options.userId);
 
+  // Also fetch global (admin-uploaded) curriculum rows (user_id IS NULL)
+  const { data: globalCurriculums } = await supabase
+    .from("batch_curriculums")
+    .select("batch_name, lecture_name, learning_objective")
+    .in("batch_name", batchNamesInFile)
+    .is("user_id", null);
+
+  // Build map: global entries first, per-user entries take precedence
   const curriculumMap = new Map<string, string>();
-  if (curriculums) {
-    for (const c of curriculums) {
-      curriculumMap.set(`${c.batch_name}::${c.lecture_name.toLowerCase()}`, c.learning_objective);
-    }
+  for (const c of [...(globalCurriculums ?? []), ...(userCurriculums ?? [])]) {
+    curriculumMap.set(`${c.batch_name}::${c.lecture_name.toLowerCase()}`, c.learning_objective);
   }
 
   const { data: upsertedLectures, error: lectureError } = await supabase

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
 import { TaskStatus } from "@/lib/types";
+import { CCManagementTab } from "@/components/admin/CCManagementTab";
 
 type ExportedData = {
   leaderboardCsv?: string;
@@ -16,7 +17,7 @@ type ExportedData = {
   error?: string;
 };
 
-type NavKey = "overview" | "health" | "batches" | "attention" | "exports" | "batchwise";
+type NavKey = "overview" | "health" | "batches" | "attention" | "exports" | "batchwise" | "cc";
 
 const NAV_ITEMS: Array<{ key: NavKey; label: string }> = [
   { key: "overview", label: "Dashboard" },
@@ -24,7 +25,8 @@ const NAV_ITEMS: Array<{ key: NavKey; label: string }> = [
   { key: "batches", label: "Batches" },
   { key: "attention", label: "Attention" },
   { key: "exports", label: "Reports" },
-  { key: "batchwise", label: "Batch Wise" }
+  { key: "batchwise", label: "Batch Wise" },
+  { key: "cc", label: "CC Management" }
 ];
 
 const STATUS_ACCENTS: Record<TaskStatus, string> = {
@@ -969,6 +971,17 @@ export function AdminDashboardClient({
               </table>
             </div>
           </section>
+          {/* ── CC Management ─────────────────────────────────────── */}
+          <section id="cc" className="scroll-mt-6 rounded-[26px] border border-white/8 bg-[#10162a] p-8">
+            <div className="mb-6">
+              <h2 className="text-xl font-bold text-white">CC Management</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Assign Curriculum Coordinators to batches, sync LMS data, and upload curriculum files.
+              </p>
+            </div>
+            <CCManagementTab />
+          </section>
+
           {/* ── Batch Wise ────────────────────────────────────────── */}
           <section id="batchwise" className="scroll-mt-6 rounded-[26px] border border-white/8 bg-[#10162a] p-8">
             <div className="mb-6 flex items-center justify-between">
