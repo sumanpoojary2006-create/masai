@@ -1,9 +1,12 @@
 'use client'
 import { useRef, useCallback, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
+import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community'
 import type { CellValueChangedEvent, ColDef } from 'ag-grid-community'
 import { agDarkTheme } from '@/lib/ag-theme'
 import type { Batch, TeamMembers } from '@/lib/batch-types'
+
+ModuleRegistry.registerModules([AllCommunityModule])
 
 interface TeamRow {
   id: string

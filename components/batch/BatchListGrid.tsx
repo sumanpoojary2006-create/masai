@@ -2,10 +2,13 @@
 import { useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { AgGridReact } from 'ag-grid-react'
+import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community'
 import type { ColDef, RowClickedEvent } from 'ag-grid-community'
 import type { Batch } from '@/lib/batch-types'
 import { STATUS_COLOR, STATUS_BG } from '@/lib/batch-constants'
 import { agDarkTheme } from '@/lib/ag-theme'
+
+ModuleRegistry.registerModules([AllCommunityModule])
 
 interface Props {
   batches: Batch[]
@@ -87,18 +90,20 @@ export function BatchListGrid({ batches }: Props) {
   )
 
   return (
-    <AgGridReact<Batch>
-      ref={gridRef}
-      theme={agDarkTheme}
-      rowData={batches}
-      columnDefs={columnDefs}
-      onRowClicked={onRowClicked}
-      getRowId={p => p.data.id}
-      suppressMovableColumns={false}
-      headerHeight={40}
-      rowHeight={42}
-      rowClass="cursor-pointer"
-      overlayNoRowsTemplate="<span style='color:#64748b;font-size:13px'>No batches found. Create your first batch.</span>"
-    />
+    <div style={{ height: '100%', width: '100%' }}>
+      <AgGridReact<Batch>
+        ref={gridRef}
+        theme={agDarkTheme}
+        rowData={batches}
+        columnDefs={columnDefs}
+        onRowClicked={onRowClicked}
+        getRowId={p => p.data.id}
+        suppressMovableColumns={false}
+        headerHeight={40}
+        rowHeight={42}
+        rowClass="cursor-pointer"
+        overlayNoRowsTemplate="<span style='color:#64748b;font-size:13px'>No batches found. Create your first batch.</span>"
+      />
+    </div>
   )
 }

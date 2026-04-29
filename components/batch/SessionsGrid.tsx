@@ -1,11 +1,14 @@
 'use client'
 import { useRef, useCallback, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
+import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community'
 import type { CellValueChangedEvent, ColDef, RowClassParams } from 'ag-grid-community'
 import { agDarkTheme } from '@/lib/ag-theme'
 import { getDay } from 'date-fns'
 import type { Session } from '@/lib/batch-types'
 import { DAY_OPTIONS, SESSION_ROLE_OPTIONS } from '@/lib/batch-constants'
+
+ModuleRegistry.registerModules([AllCommunityModule])
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 

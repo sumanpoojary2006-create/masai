@@ -1,6 +1,7 @@
 'use client'
 import { useRef, useCallback, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
+import { AllCommunityModule, ModuleRegistry } from 'ag-grid-community'
 import type { CellValueChangedEvent, ColDef } from 'ag-grid-community'
 import { agDarkTheme } from '@/lib/ag-theme'
 import type { Batch } from '@/lib/batch-types'
@@ -10,6 +11,8 @@ import {
   LANGUAGE_OPTIONS,
   MODEL_NUMBER_OPTIONS,
 } from '@/lib/batch-constants'
+
+ModuleRegistry.registerModules([AllCommunityModule])
 
 interface BatchFieldRow {
   id: string
