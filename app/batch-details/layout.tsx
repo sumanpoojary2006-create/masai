@@ -10,7 +10,17 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 
 export default async function BatchDetailsLayout({ children }: { children: ReactNode }) {
   const user = await getCurrentUser();
-  const canViewResources = user ? await hasAdminAccess(user.id) : false;
+
+  // Don't render the portal shell on the login page (user not authenticated yet)
+  if (!user) {
+    return (
+      <div className="batch-dark min-h-screen w-full" style={{ background: '#080b14' }}>
+        {children}
+      </div>
+    );
+  }
+
+  const canViewResources = await hasAdminAccess(user.id);
 
   return (
     <div className="batch-dark min-h-screen w-full" style={{ background: '#080b14' }}>

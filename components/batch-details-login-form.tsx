@@ -15,10 +15,21 @@ export function BatchDetailsLoginForm() {
     event.preventDefault();
     setIsPending(true);
     setMessage(null);
-    const supabase = createBrowserSupabase();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) { setMessage(error.message); setIsPending(false); return; }
-    router.push("/batch-details/dashboard");
+    try {
+      const supabase = createBrowserSupabase();
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out. Check your Supabase configuration.")), 12000)
+      );
+      const { error } = await Promise.race([
+        supabase.auth.signInWithPassword({ email, password }),
+        timeout
+      ]);
+      if (error) { setMessage(error.message); setIsPending(false); return; }
+      router.push("/batch-details/dashboard");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Login failed. Please try again.");
+      setIsPending(false);
+    }
   }
 
   const inputStyle: React.CSSProperties = {
