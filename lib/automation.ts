@@ -751,3 +751,130 @@ export async function runComplianceCheck(options?: {
   console.log(describeRun(summary));
   return summary;
 }
+
+/**
+ * Syncs LMS resource status into the tasks table for all profiles (or a
+ * specific user). Does NOT send any Slack alerts — use this before sending
+ * a scheduled reminder so the DB reflects the latest LMS state.
+ */
+export async function syncTaskStatusesFromLms(userId?: string): Promise<{ updatedTasks: number; checkedLectures: number }> {
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+  const supabase = createServerSupabase();
+  const profiles = await getAutomationProfiles(userId);
+
+  let totalUpdated = 0;
+  let totalLectures = 0;
+
+  for (const profile of profiles) {
+    const lectures = await getAutomationLectures(profile.user_id);
+    if (lectures.length === 0) continue;
+
+    const batchUrlOverrides = Object.fromEntries(
+      profile.batch_configs.map((config) => [
+        config.batch_name,
+        {
+          lectures: config.lecture_batch_url,
+          assignments: config.assignment_batch_url || deriveAssignmentBatchUrl(config.lecture_batch_url)
+        }
+      ])
+    );
+
+    const trackingRecords = await checkResourcesFromDb(lectures, batchUrlOverrides, now);
+    const lectureIds = lectures.map((l) => l.id);
+
+    const { data: existingTrackingRows } = await supabase
+      .from("lms_tracking")
+      .select("lecture_id, resource_type, found, uploaded_at, raw_payload")
+      .in("lecture_id", lectureIds);
+
+    const { data: existingAlerts } = await supabase
+      .from("alert_events")
+      .select("task_id, alert_type")
+      .in("task_id", lectures.flatMap((l) => l.tasks.map((t) => t.id)));
+
+    const stickyCompletedTaskIds = new Set(
+      (existingAlerts ?? [])
+        .filter((a) => a.alert_type === "completed")
+        .map((a) => a.task_id)
+    );
+
+    const existingTrackingMap = new Map(
+      (existingTrackingRows ?? []).map((row) => [
+        trackingKey(row.lecture_id, row.resource_type as TaskType),
+        row
+      ])
+    );
+
+    const scrapedTrackingMap = new Map(
+      trackingRecords.map((r) => [trackingKey(r.lectureId, r.resourceType), r])
+    );
+
+    const mergedTrackingRecords = lectures.flatMap((lecture) =>
+      lecture.tasks.map((task) => {
+        const key = trackingKey(lecture.id, task.type);
+        const record = scrapedTrackingMap.get(key);
+        const existingRow = existingTrackingMap.get(key);
+        const stickyCompleted = task.status === "completed" || stickyCompletedTaskIds.has(task.id);
+
+        return {
+          lectureId: lecture.id,
+          resourceType: task.type,
+          found: Boolean(record?.found || existingRow?.found || stickyCompleted),
+          uploadedAt:
+            earliestTimestamp([
+              record?.uploadedAt ?? null,
+              existingRow?.uploaded_at ?? null,
+              task.completed_at ?? null
+            ]) ?? null,
+          rawPayload: record?.rawPayload ?? ((existingRow?.raw_payload as Record<string, unknown> | null) ?? { scraperMissed: true })
+        };
+      })
+    );
+
+    const trackingMap = new Map<string, LmsTrackingRecord>();
+    for (const r of mergedTrackingRecords) {
+      trackingMap.set(trackingKey(r.lectureId, r.resourceType), r);
+    }
+
+    await supabase.from("lms_tracking").upsert(
+      mergedTrackingRecords.map((r) => ({
+        lecture_id: r.lectureId,
+        resource_type: r.resourceType,
+        found: r.found,
+        uploaded_at: r.uploadedAt,
+        checked_at: now.toUTC().toISO(),
+        raw_payload: r.rawPayload ?? {}
+      })),
+      { onConflict: "lecture_id,resource_type" }
+    );
+
+    const taskUpdates = lectures.flatMap((lecture) =>
+      lecture.tasks.map((task) => {
+        const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
+        const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
+        return {
+          id: task.id,
+          lecture_id: task.lecture_id,
+          type: task.type,
+          deadline: task.deadline,
+          status: resolved.status,
+          completed_at: resolved.completedAt,
+          last_checked_at: now.toUTC().toISO()
+        };
+      })
+    );
+
+    const { data: updated } = await supabase
+      .from("tasks")
+      .upsert(taskUpdates, { onConflict: "id" })
+      .select("id");
+
+    totalUpdated += updated?.length ?? 0;
+    totalLectures += lectures.length;
+
+    console.log(`[lms-sync] ${profile.email}: synced ${lectures.length} lectures, updated ${updated?.length ?? 0} tasks`);
+  }
+
+  return { updatedTasks: totalUpdated, checkedLectures: totalLectures };
+}

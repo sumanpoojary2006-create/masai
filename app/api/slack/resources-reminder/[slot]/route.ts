@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
+import { syncTaskStatusesFromLms } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -129,6 +130,15 @@ export async function GET(
   const dateLabel = DateTime.fromISO(today, { zone: timezone }).toFormat("dd LLL yyyy, cccc");
 
   const supabase = createServerSupabase();
+
+  // Sync latest LMS resource status into the tasks table before reading
+  console.log(`[slack-reminder] Running LMS sync before ${slot} digest`);
+  try {
+    const syncResult = await syncTaskStatusesFromLms();
+    console.log(`[slack-reminder] LMS sync complete — ${syncResult.updatedTasks} tasks updated across ${syncResult.checkedLectures} lectures`);
+  } catch (err) {
+    console.error("[slack-reminder] LMS sync failed, proceeding with last known status:", err);
+  }
 
   // Fetch today's lectures with user_id and tasks
   const { data: lectures, error: lectureError } = await supabase
