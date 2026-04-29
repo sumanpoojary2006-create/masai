@@ -578,9 +578,12 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
-  const weekStart = now.startOf("week").toISO()!;
-  // Include through end of next Monday so CCs see pre-read deadlines for upcoming Monday sessions
-  const weekEnd = now.startOf("week").plus({ days: 8 }).toISO()!;
+  // LMS stores IST wall-clock times labeled as +00:00 (no UTC conversion done by LMS).
+  // Use IST date strings directly as range boundaries to avoid off-by-5:30h errors.
+  const weekStartDate = now.startOf("week").toISODate()!; // "2026-04-27"
+  const weekEndDate = now.startOf("week").plus({ days: 8 }).toISODate()!; // "2026-05-05"
+  const weekStart = `${weekStartDate}T00:00:00+00:00`;
+  const weekEnd = `${weekEndDate}T00:00:00+00:00`;
 
   const { data: assignments } = await supabase
     .from("cc_batch_assignments")
@@ -605,8 +608,10 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
   if (error) throw new Error(error.message);
 
   return (data ?? []).map((row) => {
-    const dt = DateTime.fromISO(row.schedule).setZone(timezone);
-    const end = DateTime.fromISO(row.concludes).setZone(timezone);
+    // Strip the +00:00 offset and parse wall-clock string as IST
+    // (LMS stores IST times mislabeled as UTC)
+    const dt = DateTime.fromISO((row.schedule as string).slice(0, 19), { zone: timezone });
+    const end = DateTime.fromISO((row.concludes as string).slice(0, 19), { zone: timezone });
     const lectureId = row.lecture_id.toString();
     const lectureDate = dt.toISODate()!;
     const startTime = dt.toFormat("HH:mm:ss");

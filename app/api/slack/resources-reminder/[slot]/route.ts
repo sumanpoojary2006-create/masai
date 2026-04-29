@@ -171,9 +171,11 @@ export async function GET(
     ])
   );
 
-  // Load lectures in current Mon→next-Mon window
-  const weekStart = today.startOf("week").toISO()!;
-  const weekEnd = today.startOf("week").plus({ days: 8 }).toISO()!;
+  // LMS stores IST wall-clock times labeled as +00:00; use IST dates directly as boundaries
+  const weekStartDate = today.startOf("week").toISODate()!;
+  const weekEndDate = today.startOf("week").plus({ days: 8 }).toISODate()!;
+  const weekStart = `${weekStartDate}T00:00:00+00:00`;
+  const weekEnd = `${weekEndDate}T00:00:00+00:00`;
   const batchIds = [...new Set(assignments.map((a) => a.batch_id as number))];
 
   const { data: lectures, error: lectureError } = await supabase
@@ -211,10 +213,11 @@ export async function GET(
   const buckets = new Map<string, CoordinatorBucket>();
 
   for (const lecture of lectures) {
-    const dt = DateTime.fromISO(lecture.schedule as string).setZone(timezone);
+    // LMS stores IST wall-clock times mislabeled as UTC; parse wall-clock as IST directly
+    const dt = DateTime.fromISO((lecture.schedule as string).slice(0, 19), { zone: timezone });
     const lectureDate = dt.toISODate()!;
     const startTime = dt.toFormat("HH:mm:ss");
-    const endTime = DateTime.fromISO(lecture.concludes as string).setZone(timezone).toFormat("HH:mm:ss");
+    const endTime = DateTime.fromISO((lecture.concludes as string).slice(0, 19), { zone: timezone }).toFormat("HH:mm:ss");
     const batchId = lecture.batch_id as number;
     const batchName = batchNameMap.get(batchId) ?? `Batch ${batchId}`;
     const ccIds = batchToCCs.get(batchId) ?? [];
