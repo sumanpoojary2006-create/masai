@@ -140,26 +140,31 @@ export async function GET(
     console.error("[slack-reminder] LMS sync failed, proceeding with last known status:", err);
   }
 
-  // Fetch today's lectures with user_id and tasks
-  const { data: lectures, error: lectureError } = await supabase
-    .from("lectures")
-    .select("id, user_id, batch_name, lecture_name, tasks(id, type, status, deadline, completed_at)")
-    .eq("lecture_date", today)
-    .is("archived_at", null)
-    .order("batch_name", { ascending: true })
-    .order("lecture_name", { ascending: true });
+  // Compute today's UTC boundaries (IST day = UTC-5:30 offset)
+  const todayStart = DateTime.fromISO(today, { zone: timezone }).startOf("day").toUTC().toISO()!;
+  const todayEnd   = DateTime.fromISO(today, { zone: timezone }).endOf("day").toUTC().toISO()!;
 
-  if (lectureError) {
-    console.error("[slack-reminder] Supabase lectures error:", lectureError.message);
-    return NextResponse.json({ message: lectureError.message }, { status: 500 });
+  // Fetch tasks whose deadline falls TODAY (IST), joined with their lectures
+  const { data: tasks, error: taskError } = await supabase
+    .from("tasks")
+    .select("id, type, status, deadline, completed_at, lecture_id, lectures!inner(id, user_id, batch_name, lecture_name, archived_at)")
+    .gte("deadline", todayStart)
+    .lte("deadline", todayEnd)
+    .is("lectures.archived_at", null);
+
+  if (taskError) {
+    console.error("[slack-reminder] Supabase tasks error:", taskError.message);
+    return NextResponse.json({ message: taskError.message }, { status: 500 });
   }
 
-  if (!lectures || lectures.length === 0) {
-    return NextResponse.json({ message: "No lectures for today", today, slot });
+  if (!tasks || tasks.length === 0) {
+    return NextResponse.json({ message: "No tasks with deadlines today", today, slot });
   }
 
   // Fetch coordinator profiles (email + slack_member_id)
-  const userIds = [...new Set(lectures.map((l) => l.user_id).filter(Boolean))];
+  type LectureJoin = { id: string; user_id: string; batch_name: string; lecture_name: string; archived_at: string | null };
+  const userIds = [...new Set(tasks.map((t) => (t.lectures as unknown as LectureJoin).user_id).filter(Boolean))];
+
   const { data: profiles, error: profileError } = await supabase
     .from("user_profiles")
     .select("user_id, email, slack_member_id")
@@ -177,7 +182,8 @@ export async function GET(
   // Group completed/pending items by coordinator (user_id)
   const buckets = new Map<string, CoordinatorBucket>();
 
-  for (const lecture of lectures) {
+  for (const task of tasks) {
+    const lecture = task.lectures as unknown as LectureJoin;
     const userId = lecture.user_id;
     const profile = profileMap.get(userId);
     if (!profile) continue;
@@ -192,20 +198,12 @@ export async function GET(
     }
 
     const bucket = buckets.get(userId)!;
-    const taskMap = new Map<string, TaskRow>(
-      ((lecture.tasks ?? []) as TaskRow[]).map((t) => [t.type, t])
-    );
+    const item: ResourceItem = { batch: lecture.batch_name, lecture: lecture.lecture_name, type: task.type };
 
-    for (const type of TASK_TYPES) {
-      const task = taskMap.get(type);
-      if (!task) continue;
-
-      const item: ResourceItem = { batch: lecture.batch_name, lecture: lecture.lecture_name, type };
-      if (task.status === "completed") {
-        bucket.completed.push(item);
-      } else {
-        bucket.pending.push(item);
-      }
+    if ((task as unknown as TaskRow).status === "completed") {
+      bucket.completed.push(item);
+    } else {
+      bucket.pending.push(item);
     }
   }
 
