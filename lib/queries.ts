@@ -10,6 +10,7 @@ import {
   LoTrackerRow,
   TaskRecord,
   TaskStatus,
+  TaskType,
   UserBatchConfigRecord,
   UserProfileRecord,
   WeeklyReportLecture,
@@ -568,5 +569,67 @@ export async function getAdminLectureStats(): Promise<AdminLectureStats[]> {
       notesStatus: (notes?.status ?? null) as TaskStatus | null,
       assignmentStatus: (assignment?.status ?? null) as TaskStatus | null
     };
+  });
+}
+
+/** Fetch this week's lectures for a CC from lms_lecture_cache via cc_batch_assignments */
+export async function getCCLectures(userId: string): Promise<DashboardLecture[]> {
+  const supabase = createServerSupabase();
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+  const weekStart = now.startOf("week").toISO()!;
+  const weekEnd = now.startOf("week").plus({ days: 7 }).toISO()!;
+
+  const { data: assignments } = await supabase
+    .from("cc_batch_assignments")
+    .select("batch_id, batch_name")
+    .eq("cc_user_id", userId);
+
+  if (!assignments || assignments.length === 0) return [];
+
+  const batchIds = assignments.map((a) => a.batch_id);
+  const batchNameMap = Object.fromEntries(assignments.map((a) => [a.batch_id, a.batch_name]));
+
+  const { data, error } = await supabase
+    .from("lms_lecture_cache")
+    .select("id, batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
+    .in("batch_id", batchIds)
+    .gte("schedule", weekStart)
+    .lte("schedule", weekEnd)
+    .order("schedule", { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => {
+    const dt = DateTime.fromISO(row.schedule).setZone(timezone);
+    const end = DateTime.fromISO(row.concludes).setZone(timezone);
+    const lectureId = row.lecture_id.toString();
+
+    const makeTask = (type: TaskType, uploaded: boolean): TaskRecord => ({
+      id: `${lectureId}-${type}`,
+      lecture_id: lectureId,
+      type,
+      deadline: "",
+      status: uploaded ? "completed" : "pending",
+      completed_at: null,
+    });
+
+    return {
+      id: lectureId,
+      user_id: userId,
+      batch_name: batchNameMap[row.batch_id] ?? `Batch ${row.batch_id}`,
+      module_name: row.module ?? "",
+      lecture_name: row.title,
+      learning_objective: "",
+      session_link: "",
+      lecture_date: dt.toISODate()!,
+      start_time: dt.toFormat("HH:mm:ss"),
+      end_time: end.toFormat("HH:mm:ss"),
+      tasks: {
+        preread: makeTask("preread", row.preread_uploaded),
+        notes: makeTask("notes", row.notes_uploaded),
+        assignment: makeTask("assignment", row.assignment_uploaded),
+      },
+    } satisfies DashboardLecture;
   });
 }
