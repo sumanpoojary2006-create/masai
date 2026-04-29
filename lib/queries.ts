@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 
 import { TASK_TYPES } from "@/lib/constants";
+import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone } from "@/lib/env";
 import { decryptLmsPassword } from "@/lib/lms-password";
 import { createServerSupabase } from "@/lib/supabase";
@@ -595,6 +596,7 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
     .select("id, batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
     .in("batch_id", batchIds)
     .neq("module", "general")
+    .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd)
     .order("schedule", { ascending: false });
@@ -605,12 +607,15 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
     const dt = DateTime.fromISO(row.schedule).setZone(timezone);
     const end = DateTime.fromISO(row.concludes).setZone(timezone);
     const lectureId = row.lecture_id.toString();
+    const lectureDate = dt.toISODate()!;
+    const startTime = dt.toFormat("HH:mm:ss");
+    const endTime = end.toFormat("HH:mm:ss");
 
     const makeTask = (type: TaskType, uploaded: boolean): TaskRecord => ({
       id: `${lectureId}-${type}`,
       lecture_id: lectureId,
       type,
-      deadline: "",
+      deadline: computeDeadline(type, lectureDate, startTime, endTime),
       status: uploaded ? "completed" : "pending",
       completed_at: null,
     });
@@ -623,9 +628,9 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
       lecture_name: row.title,
       learning_objective: "",
       session_link: "",
-      lecture_date: dt.toISODate()!,
-      start_time: dt.toFormat("HH:mm:ss"),
-      end_time: end.toFormat("HH:mm:ss"),
+      lecture_date: lectureDate,
+      start_time: startTime,
+      end_time: endTime,
       tasks: {
         preread: makeTask("preread", row.preread_uploaded),
         notes: makeTask("notes", row.notes_uploaded),
