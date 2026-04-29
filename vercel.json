@@ -1,16 +1,16 @@
 {
   "crons": [
     {
-      "path": "/api/compliance/scheduled/11am",
-      "schedule": "30 5 * * *"
+      "path": "/api/slack/resources-reminder/11am",
+      "schedule": "30 5 * * 1-5"
     },
     {
-      "path": "/api/compliance/scheduled/1pm",
-      "schedule": "30 7 * * *"
+      "path": "/api/slack/resources-reminder/1pm",
+      "schedule": "30 7 * * 1-5"
     },
     {
-      "path": "/api/compliance/scheduled/230pm",
-      "schedule": "0 9 * * *"
+      "path": "/api/slack/resources-reminder/230pm",
+      "schedule": "0 9 * * 1-5"
     }
   ]
 }
