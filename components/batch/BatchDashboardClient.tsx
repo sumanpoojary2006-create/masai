@@ -109,7 +109,7 @@ export function BatchDashboardClient() {
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
         </div>
       ) : (
-        <div className="ag-theme-quartz overflow-hidden rounded-[22px] border border-slate-800/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.96))]" style={{ height: '600px' }}>
+        <div className="overflow-hidden rounded-[22px] border border-slate-800/90" style={{ height: '600px' }}>
           <BatchListGrid batches={filtered} />
         </div>
       )}

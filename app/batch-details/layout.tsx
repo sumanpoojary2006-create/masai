@@ -5,8 +5,6 @@ import { BatchDetailsHeaderNav } from "@/components/batch/BatchDetailsHeaderNav"
 import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
 
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-quartz.css";
 
 export default async function BatchDetailsLayout({ children }: { children: ReactNode }) {
   const user = await getCurrentUser();

@@ -2,6 +2,7 @@
 import { useRef, useCallback, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import type { CellValueChangedEvent, ColDef } from 'ag-grid-community'
+import { agDarkTheme } from '@/lib/ag-theme'
 import type { Batch, GradingComponent } from '@/lib/batch-types'
 
 interface GradingRow extends GradingComponent {
@@ -125,12 +126,12 @@ export function GradingPolicyGrid({ batch, canEdit, onUpdate }: Props) {
         </div>
       </div>
       <div
-        className="ag-theme-quartz overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70"
+        className="overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70"
         style={{ height: rows.length > 0 ? `${rows.length * 38 + 44}px` : '82px' }}
       >
         <AgGridReact<GradingRow>
           ref={gridRef}
-          theme="legacy"
+          theme={agDarkTheme}
           rowData={rows}
           columnDefs={columnDefs}
           singleClickEdit={true}

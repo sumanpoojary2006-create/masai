@@ -2,6 +2,7 @@
 import { useRef, useCallback, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import type { CellValueChangedEvent, ColDef, RowClassParams } from 'ag-grid-community'
+import { agDarkTheme } from '@/lib/ag-theme'
 import { getDay } from 'date-fns'
 import type { Session } from '@/lib/batch-types'
 import { DAY_OPTIONS, SESSION_ROLE_OPTIONS } from '@/lib/batch-constants'
@@ -287,10 +288,10 @@ export function SessionsGrid({ sessions, canEdit, isAdmin, onAdd, onUpdate, onDe
           </button>
         )}
       </div>
-      <div className="ag-theme-quartz overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70" style={{ height: '540px' }}>
+      <div className="overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70" style={{ height: '540px' }}>
         <AgGridReact<Session>
           ref={gridRef}
-          theme="legacy"
+          theme={agDarkTheme}
           rowData={sessions}
           columnDefs={columnDefs}
           singleClickEdit={true}

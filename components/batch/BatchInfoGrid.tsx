@@ -2,6 +2,7 @@
 import { useRef, useCallback, useState } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import type { CellValueChangedEvent, ColDef } from 'ag-grid-community'
+import { agDarkTheme } from '@/lib/ag-theme'
 import type { Batch } from '@/lib/batch-types'
 import {
   BATCH_STATUS_OPTIONS,
@@ -123,12 +124,12 @@ export function BatchInfoGrid({ batch, canEdit, onUpdate }: Props) {
         {errMsg && <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-xs text-rose-300">{errMsg}</span>}
       </div>
       <div
-        className="ag-theme-quartz overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70"
+        className="overflow-hidden rounded-[18px] border border-slate-800/90 bg-slate-950/70"
         style={{ height: `${rowData.length * 38 + 44}px` }}
       >
         <AgGridReact<BatchFieldRow>
           ref={gridRef}
-          theme="legacy"
+          theme={agDarkTheme}
           rowData={rowData}
           columnDefs={columnDefs}
           singleClickEdit={true}

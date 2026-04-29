@@ -5,6 +5,7 @@ import { AgGridReact } from 'ag-grid-react'
 import type { ColDef, RowClickedEvent } from 'ag-grid-community'
 import type { Batch } from '@/lib/batch-types'
 import { STATUS_COLOR, STATUS_BG } from '@/lib/batch-constants'
+import { agDarkTheme } from '@/lib/ag-theme'
 
 interface Props {
   batches: Batch[]
@@ -88,7 +89,7 @@ export function BatchListGrid({ batches }: Props) {
   return (
     <AgGridReact<Batch>
       ref={gridRef}
-      theme="legacy"
+      theme={agDarkTheme}
       rowData={batches}
       columnDefs={columnDefs}
       onRowClicked={onRowClicked}
