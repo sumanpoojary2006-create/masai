@@ -9,31 +9,13 @@ jobs:
   remind:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Send 1 PM reminder (only if resources are still pending)
-        run: npm run compliance
-        env:
-          SEND_NOON_REMINDER: 'true'
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          LO_SLACK_WEBHOOK_URL: ${{ secrets.LO_SLACK_WEBHOOK_URL }}
-          APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
-          LMS_DB_HOST: ${{ secrets.LMS_DB_HOST }}
-          LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
-          LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
-          LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}
-          LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}
+      - name: Send 1 PM reminder
+        run: |
+          STATUS=$(curl -s -o /tmp/slack_response.txt -w "%{http_code}" \
+            -X GET "${{ secrets.APP_URL }}/api/slack/resources-reminder/1pm" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          cat /tmp/slack_response.txt
+          if [ "$STATUS" != "200" ]; then
+            echo "Request failed with status $STATUS"
+            exit 1
+          fi
