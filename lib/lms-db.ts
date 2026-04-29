@@ -164,19 +164,28 @@ function normalize(s: string) {
     .trim();
 }
 
+const STOPWORDS = new Set([
+  "and", "the", "with", "for", "from", "into", "using", "via",
+  "its", "are", "was", "has", "have", "had", "that", "this",
+  "data", "session", "lecture", "introduction", "intro", "basics",
+  "advanced", "overview", "part", "workshop"
+]);
+
 /**
  * Returns true if `readingTitle` is semantically close to the live
- * session `topic`.  Uses substring + 60 % keyword-overlap fallback.
+ * session `topic`. Uses strict substring match first, then a 70%
+ * keyword-overlap on meaningful (non-stopword) words only.
  */
 function titleMatches(readingTitle: string, topic: string): boolean {
   if (!topic) return false;
   const r = normalize(readingTitle);
   const t = normalize(topic);
   if (r.includes(t) || t.includes(r)) return true;
-  const words = t.split(" ").filter((w) => w.length >= 3);
+  // Only match on meaningful words (length >= 4, not a stopword)
+  const words = t.split(" ").filter((w) => w.length >= 4 && !STOPWORDS.has(w));
   if (words.length === 0) return false;
   const hit = words.filter((w) => r.includes(w)).length;
-  return hit / words.length >= 0.6;
+  return hit / words.length >= 0.7;
 }
 
 /**

@@ -123,10 +123,13 @@ function nextStatus(
   now: DateTime,
   stickyCompletedTaskIds: Set<string>
 ) {
-  const resourceFound =
-    Boolean(tracking?.found) ||
-    task.status === "completed" ||
-    stickyCompletedTaskIds.has(task.id);
+  // Fresh LMS check takes precedence. Fall back to sticky only when the LMS
+  // check was skipped (no batch_id) — indicated by tracking being absent or
+  // having a skipped/error payload. Never trust stale DB status alone.
+  const lmsChecked = tracking && !(tracking.rawPayload as Record<string, unknown>)?.skipped && !(tracking.rawPayload as Record<string, unknown>)?.error;
+  const resourceFound = lmsChecked
+    ? Boolean(tracking!.found)
+    : (task.status === "completed" || stickyCompletedTaskIds.has(task.id));
 
   // Resource was uploaded — completed regardless of when (before or after deadline)
   if (resourceFound) {
