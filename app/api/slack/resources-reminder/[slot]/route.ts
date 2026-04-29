@@ -26,20 +26,30 @@ function isAuthorized(request: NextRequest) {
 }
 
 type TaskRow = { type: string; status: string; deadline: string | null; completed_at: string | null };
-type ResourceItem = { batch: string; lecture: string; type: string };
 
-function groupByBatch(items: ResourceItem[]): Map<string, ResourceItem[]> {
-  return items.reduce((map, item) => {
+type ResourceItem = {
+  batch: string;
+  lecture: string;
+  type: string;
+};
+
+type CoordinatorBucket = {
+  slackMemberId: string | null;
+  email: string;
+  completed: ResourceItem[];
+  pending: ResourceItem[];
+};
+
+function renderBatchGroup(items: ResourceItem[], bullet: string): string[] {
+  const byBatch = items.reduce((map, item) => {
     const list = map.get(item.batch) ?? [];
     list.push(item);
     map.set(item.batch, list);
     return map;
   }, new Map<string, ResourceItem[]>());
-}
 
-function renderGroup(items: ResourceItem[], bullet: string): string[] {
   const lines: string[] = [];
-  for (const [batch, batchItems] of groupByBatch(items)) {
+  for (const [batch, batchItems] of byBatch) {
     lines.push(`*${batch}*`);
     for (const item of batchItems) {
       lines.push(`${bullet} ${item.lecture} | ${TASK_LABELS[item.type] ?? item.type}`);
@@ -47,6 +57,53 @@ function renderGroup(items: ResourceItem[], bullet: string): string[] {
     lines.push("");
   }
   return lines;
+}
+
+function buildMessage(
+  slot: string,
+  dateLabel: string,
+  bucket: CoordinatorBucket
+): string | null {
+  const mention = bucket.slackMemberId ? `<@${bucket.slackMemberId}>` : `*${bucket.email}*`;
+  const header = SLOT_HEADERS[slot];
+  const lines: string[] = [mention, header, `🗓️ ${dateLabel}`, ""];
+
+  if (slot === "11am") {
+    if (bucket.completed.length > 0) {
+      lines.push("✅ *Completed*");
+      lines.push(...renderBatchGroup(bucket.completed, "• ✅"));
+    }
+    if (bucket.pending.length > 0) {
+      lines.push("⏳ *Pending — upload before 3:00 PM today*");
+      lines.push(...renderBatchGroup(bucket.pending, "• ⏳"));
+    }
+    if (bucket.completed.length === 0 && bucket.pending.length === 0) {
+      return null; // nothing to report for this coordinator
+    }
+  } else {
+    // 1pm / 2:30pm — only pending
+    if (bucket.pending.length === 0) return null;
+    const bullet = slot === "230pm" ? "• 🚨" : "• ⏳";
+    const sectionHeader = slot === "230pm"
+      ? "🚨 *Still missing — immediate action required*"
+      : "⏳ *Still pending — upload before 3:00 PM today*";
+    lines.push(sectionHeader);
+    lines.push(...renderBatchGroup(bucket.pending, bullet));
+  }
+
+  return lines.join("\n").trim();
+}
+
+async function postToSlack(webhookUrl: string, text: string) {
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Slack webhook failed: ${res.status} — ${body}`);
+  }
 }
 
 export async function GET(
@@ -73,23 +130,58 @@ export async function GET(
 
   const supabase = createServerSupabase();
 
-  const { data: lectures, error } = await supabase
+  // Fetch today's lectures with user_id and tasks
+  const { data: lectures, error: lectureError } = await supabase
     .from("lectures")
-    .select("id, batch_name, lecture_name, tasks(id, type, status, deadline, completed_at)")
+    .select("id, user_id, batch_name, lecture_name, tasks(id, type, status, deadline, completed_at)")
     .eq("lecture_date", today)
     .is("archived_at", null)
     .order("batch_name", { ascending: true })
     .order("lecture_name", { ascending: true });
 
-  if (error) {
-    console.error("[slack-reminder] Supabase error:", error.message);
-    return NextResponse.json({ message: error.message }, { status: 500 });
+  if (lectureError) {
+    console.error("[slack-reminder] Supabase lectures error:", lectureError.message);
+    return NextResponse.json({ message: lectureError.message }, { status: 500 });
   }
 
-  const completed: ResourceItem[] = [];
-  const pending: ResourceItem[] = [];
+  if (!lectures || lectures.length === 0) {
+    return NextResponse.json({ message: "No lectures for today", today, slot });
+  }
 
-  for (const lecture of lectures ?? []) {
+  // Fetch coordinator profiles (email + slack_member_id)
+  const userIds = [...new Set(lectures.map((l) => l.user_id).filter(Boolean))];
+  const { data: profiles, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id, email, slack_member_id")
+    .in("user_id", userIds);
+
+  if (profileError) {
+    console.error("[slack-reminder] Supabase profiles error:", profileError.message);
+    return NextResponse.json({ message: profileError.message }, { status: 500 });
+  }
+
+  const profileMap = new Map(
+    (profiles ?? []).map((p) => [p.user_id, { email: p.email as string, slackMemberId: p.slack_member_id as string | null }])
+  );
+
+  // Group completed/pending items by coordinator (user_id)
+  const buckets = new Map<string, CoordinatorBucket>();
+
+  for (const lecture of lectures) {
+    const userId = lecture.user_id;
+    const profile = profileMap.get(userId);
+    if (!profile) continue;
+
+    if (!buckets.has(userId)) {
+      buckets.set(userId, {
+        slackMemberId: profile.slackMemberId,
+        email: profile.email,
+        completed: [],
+        pending: []
+      });
+    }
+
+    const bucket = buckets.get(userId)!;
     const taskMap = new Map<string, TaskRow>(
       ((lecture.tasks ?? []) as TaskRow[]).map((t) => [t.type, t])
     );
@@ -98,64 +190,41 @@ export async function GET(
       const task = taskMap.get(type);
       if (!task) continue;
 
+      const item: ResourceItem = { batch: lecture.batch_name, lecture: lecture.lecture_name, type };
       if (task.status === "completed") {
-        completed.push({ batch: lecture.batch_name, lecture: lecture.lecture_name, type });
+        bucket.completed.push(item);
       } else {
-        pending.push({ batch: lecture.batch_name, lecture: lecture.lecture_name, type });
+        bucket.pending.push(item);
       }
     }
   }
 
-  const lines: string[] = [SLOT_HEADERS[slot], `🗓️ ${dateLabel}`, ""];
+  // Send one Slack message per coordinator
+  let sent = 0;
+  let skipped = 0;
+  const errors: string[] = [];
 
-  if (slot === "11am") {
-    // Show both completed and pending
-    if (completed.length > 0) {
-      lines.push("✅ *Completed*");
-      lines.push(...renderGroup(completed, "• ✅"));
+  for (const [userId, bucket] of buckets) {
+    const message = buildMessage(slot, dateLabel, bucket);
+    if (!message) {
+      skipped++;
+      continue;
     }
-    if (pending.length > 0) {
-      lines.push("⏳ *Pending — upload before 3:00 PM today*");
-      lines.push(...renderGroup(pending, "• ⏳"));
-    }
-    if (completed.length === 0 && pending.length === 0) {
-      lines.push("ℹ️ No lectures are tracked for today.");
-    }
-  } else {
-    // 1pm and 2:30pm — only show pending
-    if (pending.length === 0) {
-      lines.push("✅ *All resources uploaded! Nothing is pending.*");
-    } else {
-      const bullet = slot === "230pm" ? "• 🚨" : "• ⏳";
-      const sectionHeader = slot === "230pm"
-        ? "🚨 *Still missing — immediate action required*"
-        : "⏳ *Still pending — upload before 3:00 PM today*";
-      lines.push(sectionHeader);
-      lines.push(...renderGroup(pending, bullet));
+
+    try {
+      await postToSlack(webhookUrl, message);
+      console.log(`[slack-reminder] Sent ${slot} to ${bucket.email} (${bucket.completed.length} completed, ${bucket.pending.length} pending)`);
+      sent++;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[slack-reminder] Failed for ${bucket.email}: ${reason}`);
+      errors.push(`${bucket.email}: ${reason}`);
     }
   }
 
-  const message = lines.join("\n").trim();
-
-  console.log(`[slack-reminder] Posting ${slot} digest — ${completed.length} completed, ${pending.length} pending`);
-
-  const slackRes = await fetch(webhookUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: message })
-  });
-
-  if (!slackRes.ok) {
-    const body = await slackRes.text();
-    console.error(`[slack-reminder] Slack webhook failed: ${slackRes.status} — ${body}`);
-    return NextResponse.json({ message: `Slack webhook failed: ${slackRes.status}` }, { status: 502 });
+  if (errors.length > 0 && sent === 0) {
+    return NextResponse.json({ message: "All Slack posts failed", errors }, { status: 502 });
   }
 
-  return NextResponse.json({
-    message: "Slack notification sent",
-    slot,
-    today,
-    completed: completed.length,
-    pending: pending.length
-  });
+  return NextResponse.json({ message: "Done", slot, today, sent, skipped, errors });
 }
