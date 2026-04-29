@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 
 import { syncTaskStatusesFromLms } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
+import { evaluateScheduledRunWindow } from "@/lib/scheduled-run";
 import { createServerSupabase } from "@/lib/supabase";
 
 const TASK_LABELS: Record<string, string> = {
@@ -19,11 +20,21 @@ const SLOT_HEADERS: Record<string, string> = {
   "230pm": "🚨 *2:30 PM — Final Alert: Missing Resources*"
 };
 
+const SLOT_WINDOWS: Record<string, { hour: number; minute: number }> = {
+  "11am": { hour: 11, minute: 0 },
+  "1pm": { hour: 13, minute: 0 },
+  "230pm": { hour: 14, minute: 30 }
+};
+
 function isAuthorized(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return true;
   const auth = request.headers.get("authorization") ?? "";
   return auth === `Bearer ${secret}`;
+}
+
+function isForceRun(request: NextRequest) {
+  return request.nextUrl.searchParams.get("force") === "1";
 }
 
 type TaskRow = { type: string; status: string; deadline: string | null; completed_at: string | null };
@@ -126,6 +137,25 @@ export async function GET(
   }
 
   const timezone = getAppTimezone();
+  if (!isForceRun(request)) {
+    const slotWindow = SLOT_WINDOWS[slot];
+    const schedule = evaluateScheduledRunWindow({
+      timezone,
+      hour: slotWindow.hour,
+      minute: slotWindow.minute,
+      maxDelayMinutes: 30,
+      allowedWeekdays: [1, 2, 3, 4, 5, 6]
+    });
+
+    if (!schedule.shouldRun) {
+      return NextResponse.json({
+        message: schedule.reason,
+        slot,
+        now: schedule.now.toISO()
+      });
+    }
+  }
+
   const today = DateTime.now().setZone(timezone).toISODate()!;
   const dateLabel = DateTime.fromISO(today, { zone: timezone }).toFormat("dd LLL yyyy, cccc");
 
