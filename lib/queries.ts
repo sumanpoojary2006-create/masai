@@ -594,6 +594,7 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
     .from("lms_lecture_cache")
     .select("id, batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
     .in("batch_id", batchIds)
+    .neq("module", "general")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd)
     .order("schedule", { ascending: false });
