@@ -579,7 +579,8 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const weekStart = now.startOf("week").toISO()!;
-  const weekEnd = now.startOf("week").plus({ days: 7 }).toISO()!;
+  // Include through end of next Monday so CCs see pre-read deadlines for upcoming Monday sessions
+  const weekEnd = now.startOf("week").plus({ days: 8 }).toISO()!;
 
   const { data: assignments } = await supabase
     .from("cc_batch_assignments")

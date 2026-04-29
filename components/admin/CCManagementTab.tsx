@@ -30,6 +30,7 @@ export function CCManagementTab() {
 
   const [loading, setLoading] = useState(true);
   const [syncingBatches, setSyncingBatches] = useState(false);
+  const [syncingAllLectures, setSyncingAllLectures] = useState(false);
   const [syncingLecture, setSyncingLecture] = useState<number | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [removing, setRemoving] = useState<number | null>(null);
@@ -91,6 +92,17 @@ export function CCManagementTab() {
       flash(json.message ?? "Synced.", res.ok);
     } finally {
       setSyncingLecture(null);
+    }
+  }
+
+  async function syncAllLectures() {
+    setSyncingAllLectures(true);
+    try {
+      const res = await fetch("/api/admin/cc-management/sync-all-lectures", { method: "POST" });
+      const json = await res.json() as { message?: string };
+      flash(json.message ?? "Synced.", res.ok);
+    } finally {
+      setSyncingAllLectures(false);
     }
   }
 
@@ -190,26 +202,35 @@ export function CCManagementTab() {
         </div>
       )}
 
-      {/* ── Sync Batches ── */}
+      {/* ── Sync Batches + Sync All Lectures ── */}
       <section className="rounded-2xl border border-white/8 bg-[#10162a] p-6">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold text-white">LMS Batch Cache</h3>
+            <h3 className="text-base font-semibold text-white">LMS Sync</h3>
             <p className="mt-0.5 text-xs text-slate-400">
-              Pull the latest active batches from LMS MySQL into the cache.
+              Pull latest batches and sync lecture compliance data for all assigned batches.
             </p>
           </div>
-          <button
-            onClick={syncBatches}
-            disabled={syncingBatches}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            {syncingBatches ? "Syncing…" : "Sync Batches from LMS"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={syncBatches}
+              disabled={syncingBatches}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              {syncingBatches ? "Syncing…" : "Sync Batches"}
+            </button>
+            <button
+              onClick={syncAllLectures}
+              disabled={syncingAllLectures}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {syncingAllLectures ? "Syncing…" : "Sync All Lectures"}
+            </button>
+          </div>
         </div>
         <p className="text-xs text-slate-500">
           {allBatches.length} batch{allBatches.length !== 1 ? "es" : ""} in cache ·{" "}
-          {unassigned.length} unassigned
+          {unassigned.length} unassigned · auto-syncs every Sunday at 2 AM IST
         </p>
       </section>
 

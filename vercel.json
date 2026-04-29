@@ -11,6 +11,10 @@
     {
       "path": "/api/slack/resources-reminder/230pm",
       "schedule": "0 9 * * 1-6"
+    },
+    {
+      "path": "/api/admin/cc-management/sync-all-lectures",
+      "schedule": "30 20 * * 6"
     }
   ]
 }
