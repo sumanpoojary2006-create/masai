@@ -722,17 +722,6 @@ export async function runComplianceCheck(options?: {
       }
     }
 
-    // Auto-fetch LMS summaries + run LO analysis for concluded lectures
-    try {
-      const summaryResults = await fetchAndAnalyzePendingSummaries(profile);
-      const fetched = summaryResults.filter((r) => r.status === "fetched").length;
-      const errors = summaryResults.filter((r) => r.status === "error");
-      if (fetched > 0) console.log(`[lo-auto] Auto-fetched ${fetched} summary(s) for ${profile.email}`);
-      errors.forEach((r) => console.error(`[lo-auto] Error for "${r.lectureName}": ${r.reason}`));
-    } catch (err) {
-      console.error("[lo-auto] Summary fetch step failed:", err);
-    }
-
     summary.checkedLectures += lectures.length;
     summary.trackedResources += mergedTrackingRecords.length;
     summary.updatedTasks += updatedTasks.length;
