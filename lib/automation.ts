@@ -85,26 +85,41 @@ async function checkResourcesFromDb(
       return dt.isValid ? dt.toISO() : null;
     };
 
+    // Extract LMS lecture id from session_link so we can keep lms_lecture_cache in sync
+    let lmsLectureId: number | undefined;
+    if (check.session_link) {
+      try {
+        const lmsIdStr = new URL(check.session_link).searchParams.get("id");
+        const parsed = lmsIdStr ? parseInt(lmsIdStr, 10) : NaN;
+        if (!isNaN(parsed)) lmsLectureId = parsed;
+      } catch { /* ignore malformed URLs */ }
+    }
+
+    const baseRecord = { lmsBatchId: batchId, lmsLectureId };
+
     records.push({
       lectureId: lecture.id,
       resourceType: "preread",
       found: check.preread,
       uploadedAt: check.preread ? toIso(check.preread_at) : null,
-      rawPayload: { source: "lms-db" }
+      rawPayload: { source: "lms-db" },
+      ...baseRecord
     });
     records.push({
       lectureId: lecture.id,
       resourceType: "notes",
       found: check.notes,
       uploadedAt: check.notes ? toIso(check.notes_at) : null,
-      rawPayload: { source: "lms-db" }
+      rawPayload: { source: "lms-db" },
+      ...baseRecord
     });
     records.push({
       lectureId: lecture.id,
       resourceType: "assignment",
       found: check.assignment,
       uploadedAt: check.assignment ? toIso(check.assignment_at) : null,
-      rawPayload: { source: "lms-db" }
+      rawPayload: { source: "lms-db" },
+      ...baseRecord
     });
   }
 
@@ -115,6 +130,47 @@ function earliestTimestamp(values: Array<string | null | undefined>) {
   return values
     .filter((value): value is string => Boolean(value))
     .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
+}
+
+/**
+ * Flush any "found" results from a fresh LMS check back into lms_lecture_cache
+ * so the dashboard stays consistent with what the compliance check knows.
+ * Only sets fields to true — never overrides an existing true with false.
+ */
+async function syncFoundResourcesToCache(
+  supabase: ReturnType<typeof import("@/lib/supabase").createServerSupabase>,
+  trackingRecords: LmsTrackingRecord[]
+): Promise<void> {
+  // Group records by (lmsBatchId, lmsLectureId)
+  const byLecture = new Map<string, { batchId: number; lectureId: number; preread: boolean; notes: boolean; assignment: boolean }>();
+
+  for (const r of trackingRecords) {
+    if (!r.found || !r.lmsBatchId || !r.lmsLectureId) continue;
+    const key = `${r.lmsBatchId}:${r.lmsLectureId}`;
+    const entry = byLecture.get(key) ?? { batchId: r.lmsBatchId, lectureId: r.lmsLectureId, preread: false, notes: false, assignment: false };
+    if (r.resourceType === "preread") entry.preread = true;
+    if (r.resourceType === "notes") entry.notes = true;
+    if (r.resourceType === "assignment") entry.assignment = true;
+    byLecture.set(key, entry);
+  }
+
+  for (const entry of byLecture.values()) {
+    const patch: Record<string, boolean> = {};
+    if (entry.preread) patch.preread_uploaded = true;
+    if (entry.notes) patch.notes_uploaded = true;
+    if (entry.assignment) patch.assignment_uploaded = true;
+    if (Object.keys(patch).length === 0) continue;
+
+    const { error } = await supabase
+      .from("lms_lecture_cache")
+      .update(patch)
+      .eq("batch_id", entry.batchId)
+      .eq("lecture_id", entry.lectureId);
+
+    if (error) {
+      console.warn(`[cache-sync] Failed to update lms_lecture_cache for batch=${entry.batchId} lecture=${entry.lectureId}: ${error.message}`);
+    }
+  }
 }
 
 function nextStatus(
@@ -526,6 +582,10 @@ export async function runComplianceCheck(options?: {
 
     const trackingRecords = await checkResourcesFromDb(lectures, batchUrlOverrides, now);
 
+    // Keep lms_lecture_cache consistent with fresh LMS findings so the dashboard
+    // reflects the same state as the Slack "completed" notification.
+    await syncFoundResourcesToCache(supabase, trackingRecords);
+
     const lectureIds = lectures.map((lecture) => lecture.id);
     const taskIds = lectures.flatMap((lecture) => lecture.tasks.map((task) => task.id));
 
@@ -773,6 +833,7 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     );
 
     const trackingRecords = await checkResourcesFromDb(lectures, batchUrlOverrides, now);
+    await syncFoundResourcesToCache(supabase, trackingRecords);
     const lectureIds = lectures.map((l) => l.id);
 
     const { data: existingTrackingRows } = await supabase
