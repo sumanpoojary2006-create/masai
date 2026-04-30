@@ -6,6 +6,7 @@ import { getAppTimezone } from "@/lib/env";
 import { decryptLmsPassword } from "@/lib/lms-password";
 import { createServerSupabase } from "@/lib/supabase";
 import {
+  CacheLecture,
   DashboardLecture,
   LoReport,
   LoTrackerRow,
@@ -643,5 +644,69 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
         assignment: makeTask("assignment", row.assignment_uploaded),
       },
     } satisfies DashboardLecture;
+  });
+}
+
+/**
+ * Fetch all admin-configured batch lectures from lms_lecture_cache for a given CC.
+ * Used by runComplianceCheck() to bridge admin-batch lectures into the task-update pipeline.
+ */
+export async function getCacheLecturesForProfile(userId: string): Promise<CacheLecture[]> {
+  const supabase = createServerSupabase();
+  const timezone = getAppTimezone();
+
+  // 1. Get batch assignments for this CC
+  const { data: assignments, error: assignErr } = await supabase
+    .from("cc_batch_assignments")
+    .select("batch_id, batch_name")
+    .eq("cc_user_id", userId);
+
+  if (assignErr) throw new Error(assignErr.message);
+  if (!assignments?.length) return [];
+
+  const batchIds = assignments.map((a) => a.batch_id as number);
+  const batchNameById = Object.fromEntries(
+    assignments.map((a) => [a.batch_id, a.batch_name])
+  );
+
+  // 2. Fetch cache rows for all assigned batches
+  const { data: rows, error: cacheErr } = await supabase
+    .from("lms_lecture_cache")
+    .select(
+      "batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded"
+    )
+    .in("batch_id", batchIds)
+    .order("schedule", { ascending: false });
+
+  if (cacheErr) throw new Error(cacheErr.message);
+  if (!rows?.length) return [];
+
+  return rows.map((row) => {
+    const batchId = row.batch_id as number;
+    const lmsLectureId = row.lecture_id as number;
+    const lectureId = lmsLectureId.toString();
+
+    // Strip the +00:00 offset and parse wall-clock string as IST
+    // (LMS stores IST times mislabeled as UTC)
+    const dt = DateTime.fromISO((row.schedule as string).slice(0, 19), { zone: timezone });
+    const end = DateTime.fromISO((row.concludes as string).slice(0, 19), { zone: timezone });
+    const lectureDate = dt.toISODate()!;
+    const startTime = dt.toFormat("HH:mm:ss");
+    const endTime = end.toFormat("HH:mm:ss");
+
+    return {
+      lectureId,
+      lmsBatchId: batchId,
+      ccUserId: userId,
+      batch_name: batchNameById[batchId] ?? `Batch ${batchId}`,
+      module_name: (row.module as string) ?? "",
+      lecture_name: row.title as string,
+      lecture_date: lectureDate,
+      start_time: startTime,
+      end_time: endTime,
+      preread_uploaded: Boolean(row.preread_uploaded),
+      notes_uploaded: Boolean(row.notes_uploaded),
+      assignment_uploaded: Boolean(row.assignment_uploaded),
+    } satisfies CacheLecture;
   });
 }

@@ -1,18 +1,20 @@
 import { DateTime } from "luxon";
 
 import { TASK_LABELS } from "@/lib/constants";
+import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone, getAutomationEnv, nowIST } from "@/lib/env";
 import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { checkLmsTasksForLecture } from "@/lib/lms-db";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
-import { getAutomationLectures, getAutomationProfiles } from "@/lib/queries";
+import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
 import { sendSlackAlerts } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   AlertType,
   AutomationLecture,
   AutomationProfile,
+  CacheLecture,
   ComplianceAlertEvent,
   ComplianceRunSummary,
   LmsTrackingRecord,
@@ -171,6 +173,27 @@ async function syncFoundResourcesToCache(
       console.warn(`[cache-sync] Failed to update lms_lecture_cache for batch=${entry.batchId} lecture=${entry.lectureId}: ${error.message}`);
     }
   }
+}
+
+/**
+ * Build synthetic task records from a CacheLecture's upload flags.
+ * Used when an admin-configured batch lecture has no existing row in the tasks table.
+ * Task IDs use the same format as getCCLectures(): "{lectureId}-{type}".
+ */
+function buildTaskRecordsFromCacheLecture(cl: CacheLecture): TaskRecord[] {
+  const makeTask = (type: TaskType, uploaded: boolean): TaskRecord => ({
+    id: `${cl.lectureId}-${type}`,
+    lecture_id: cl.lectureId,
+    type,
+    deadline: computeDeadline(type, cl.lecture_date, cl.start_time, cl.end_time),
+    status: uploaded ? "completed" : "pending",
+    completed_at: null,
+  });
+  return [
+    makeTask("preread", cl.preread_uploaded),
+    makeTask("notes", cl.notes_uploaded),
+    makeTask("assignment", cl.assignment_uploaded),
+  ];
 }
 
 function nextStatus(
@@ -582,12 +605,76 @@ export async function runComplianceCheck(options?: {
 
     const trackingRecords = await checkResourcesFromDb(lectures, batchUrlOverrides, now);
 
+    // === PATH B: Admin-configured batch lectures from lms_lecture_cache ===
+    const cacheLectures = await getCacheLecturesForProfile(profile.user_id);
+
+    // Deduplicate: skip cache lectures whose lectureId already appears in Path A
+    const pathALectureIds = new Set(lectures.map((l) => l.id));
+    const uniqueCacheLectures = cacheLectures.filter((cl) => !pathALectureIds.has(cl.lectureId));
+
+    const pathBTracking: LmsTrackingRecord[] = [];
+    for (const cl of uniqueCacheLectures) {
+      let check;
+      try {
+        check = await checkLmsTasksForLecture(cl.lmsBatchId, cl.lecture_name, cl.lecture_date);
+      } catch (err) {
+        console.error(`[db-check] Cache lecture "${cl.lecture_name}" failed:`, err instanceof Error ? err.message : err);
+        pathBTracking.push(
+          { lectureId: cl.lectureId, resourceType: "preread", found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } },
+          { lectureId: cl.lectureId, resourceType: "notes", found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } },
+          { lectureId: cl.lectureId, resourceType: "assignment", found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } }
+        );
+        continue;
+      }
+
+      const timezone = getAppTimezone();
+      const toIso = (dtStr: string | null | undefined) => {
+        if (!dtStr) return null;
+        const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+        return dt.isValid ? dt.toISO() : null;
+      };
+
+      let lmsLectureId: number | undefined;
+      if (check.session_link) {
+        try {
+          const lmsIdStr = new URL(check.session_link).searchParams.get("id");
+          const parsed = lmsIdStr ? parseInt(lmsIdStr, 10) : NaN;
+          if (!isNaN(parsed)) lmsLectureId = parsed;
+        } catch { /* ignore */ }
+      }
+      const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId };
+
+      pathBTracking.push(
+        { lectureId: cl.lectureId, resourceType: "preread", found: check.preread, uploadedAt: check.preread ? toIso(check.preread_at) : null, rawPayload: { source: "lms-db" }, ...base },
+        { lectureId: cl.lectureId, resourceType: "notes", found: check.notes, uploadedAt: check.notes ? toIso(check.notes_at) : null, rawPayload: { source: "lms-db" }, ...base },
+        { lectureId: cl.lectureId, resourceType: "assignment", found: check.assignment, uploadedAt: check.assignment ? toIso(check.assignment_at) : null, rawPayload: { source: "lms-db" }, ...base }
+      );
+    }
+
+    // Build AutomationLecture-shaped records for Path B (with synthetic tasks)
+    const pathBLectures: AutomationLecture[] = uniqueCacheLectures.map((cl) => ({
+      id: cl.lectureId,
+      user_id: cl.ccUserId,
+      batch_name: cl.batch_name,
+      module_name: cl.module_name,
+      lecture_name: cl.lecture_name,
+      learning_objective: "",
+      session_link: "",
+      lecture_date: cl.lecture_date,
+      start_time: cl.start_time,
+      end_time: cl.end_time,
+      tasks: buildTaskRecordsFromCacheLecture(cl),
+    }));
+
+    const allLectures = [...lectures, ...pathBLectures];
+    const allTrackingRecords = [...trackingRecords, ...pathBTracking];
+
     // Keep lms_lecture_cache consistent with fresh LMS findings so the dashboard
     // reflects the same state as the Slack "completed" notification.
-    await syncFoundResourcesToCache(supabase, trackingRecords);
+    await syncFoundResourcesToCache(supabase, allTrackingRecords);
 
-    const lectureIds = lectures.map((lecture) => lecture.id);
-    const taskIds = lectures.flatMap((lecture) => lecture.tasks.map((task) => task.id));
+    const lectureIds = allLectures.map((lecture) => lecture.id);
+    const taskIds = allLectures.flatMap((lecture) => lecture.tasks.map((task) => task.id));
 
     const [
       { data: existingTrackingRows, error: existingTrackingError },
@@ -622,13 +709,13 @@ export async function runComplianceCheck(options?: {
     );
 
     const scrapedTrackingMap = new Map(
-      trackingRecords.map((record) => [
+      allTrackingRecords.map((record) => [
         trackingKey(record.lectureId, record.resourceType),
         record
       ])
     );
 
-    const mergedTrackingRecords = lectures.flatMap((lecture) =>
+    const mergedTrackingRecords = allLectures.flatMap((lecture) =>
       lecture.tasks.map((task) => {
         const key = trackingKey(lecture.id, task.type);
         const record = scrapedTrackingMap.get(key);
@@ -678,7 +765,7 @@ export async function runComplianceCheck(options?: {
       throw new Error(trackingError.message);
     }
 
-    const taskUpdates = lectures.flatMap((lecture) =>
+    const taskUpdates = allLectures.flatMap((lecture) =>
       lecture.tasks.map((task) => {
         const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
         const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
@@ -696,7 +783,7 @@ export async function runComplianceCheck(options?: {
     );
 
     const previousTaskMap = new Map(
-      lectures.flatMap((lecture) => lecture.tasks.map((task) => [task.id, task] as const))
+      allLectures.flatMap((lecture) => lecture.tasks.map((task) => [task.id, task] as const))
     );
 
     const { data: updatedTasks, error: taskError } = await supabase
@@ -711,7 +798,7 @@ export async function runComplianceCheck(options?: {
     }
 
     const candidateAlerts: ComplianceAlertEvent[] = updatedTasks.flatMap((task) => {
-      const lecture = lectures.find((item) => item.id === task.lecture_id);
+      const lecture = allLectures.find((item) => item.id === task.lecture_id);
       if (!lecture) {
         return [];
       }
@@ -782,14 +869,14 @@ export async function runComplianceCheck(options?: {
       }
     }
 
-    summary.checkedLectures += lectures.length;
+    summary.checkedLectures += allLectures.length;
     summary.trackedResources += mergedTrackingRecords.length;
     summary.updatedTasks += updatedTasks.length;
     summary.alertsSent += alertsSent;
 
     console.log(
-      `${profile.email} (${profile.batch_configs.map((config) => config.batch_name).join(", ")}) => ${describeRun({
-        checkedLectures: lectures.length,
+      `${profile.email} (CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}) => ${describeRun({
+        checkedLectures: allLectures.length,
         trackedResources: mergedTrackingRecords.length,
         updatedTasks: updatedTasks.length,
         alertsSent
@@ -833,8 +920,70 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     );
 
     const trackingRecords = await checkResourcesFromDb(lectures, batchUrlOverrides, now);
-    await syncFoundResourcesToCache(supabase, trackingRecords);
-    const lectureIds = lectures.map((l) => l.id);
+
+    // === PATH B: Admin-configured batch lectures from lms_lecture_cache ===
+    const cacheLectures = await getCacheLecturesForProfile(profile.user_id);
+    const pathALectureIds = new Set(lectures.map((l) => l.id));
+    const uniqueCacheLectures = cacheLectures.filter((cl) => !pathALectureIds.has(cl.lectureId));
+
+    const pathBTracking: LmsTrackingRecord[] = [];
+    for (const cl of uniqueCacheLectures) {
+      let check;
+      try {
+        check = await checkLmsTasksForLecture(cl.lmsBatchId, cl.lecture_name, cl.lecture_date);
+      } catch (err) {
+        console.error(`[db-check] Cache lecture "${cl.lecture_name}" failed:`, err instanceof Error ? err.message : err);
+        pathBTracking.push(
+          { lectureId: cl.lectureId, resourceType: "preread", found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } },
+          { lectureId: cl.lectureId, resourceType: "notes", found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } },
+          { lectureId: cl.lectureId, resourceType: "assignment", found: false, uploadedAt: null, rawPayload: { source: "lms-db", error: true } }
+        );
+        continue;
+      }
+
+      const timezone = getAppTimezone();
+      const toIso = (dtStr: string | null | undefined) => {
+        if (!dtStr) return null;
+        const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+        return dt.isValid ? dt.toISO() : null;
+      };
+
+      let lmsLectureId: number | undefined;
+      if (check.session_link) {
+        try {
+          const lmsIdStr = new URL(check.session_link).searchParams.get("id");
+          const parsed = lmsIdStr ? parseInt(lmsIdStr, 10) : NaN;
+          if (!isNaN(parsed)) lmsLectureId = parsed;
+        } catch { /* ignore */ }
+      }
+      const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId };
+
+      pathBTracking.push(
+        { lectureId: cl.lectureId, resourceType: "preread", found: check.preread, uploadedAt: check.preread ? toIso(check.preread_at) : null, rawPayload: { source: "lms-db" }, ...base },
+        { lectureId: cl.lectureId, resourceType: "notes", found: check.notes, uploadedAt: check.notes ? toIso(check.notes_at) : null, rawPayload: { source: "lms-db" }, ...base },
+        { lectureId: cl.lectureId, resourceType: "assignment", found: check.assignment, uploadedAt: check.assignment ? toIso(check.assignment_at) : null, rawPayload: { source: "lms-db" }, ...base }
+      );
+    }
+
+    const pathBLectures: AutomationLecture[] = uniqueCacheLectures.map((cl) => ({
+      id: cl.lectureId,
+      user_id: cl.ccUserId,
+      batch_name: cl.batch_name,
+      module_name: cl.module_name,
+      lecture_name: cl.lecture_name,
+      learning_objective: "",
+      session_link: "",
+      lecture_date: cl.lecture_date,
+      start_time: cl.start_time,
+      end_time: cl.end_time,
+      tasks: buildTaskRecordsFromCacheLecture(cl),
+    }));
+
+    const allLectures = [...lectures, ...pathBLectures];
+    const allTrackingRecords = [...trackingRecords, ...pathBTracking];
+
+    await syncFoundResourcesToCache(supabase, allTrackingRecords);
+    const lectureIds = allLectures.map((l) => l.id);
 
     const { data: existingTrackingRows } = await supabase
       .from("lms_tracking")
@@ -844,7 +993,7 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     const { data: existingAlerts } = await supabase
       .from("alert_events")
       .select("task_id, alert_type")
-      .in("task_id", lectures.flatMap((l) => l.tasks.map((t) => t.id)));
+      .in("task_id", allLectures.flatMap((l) => l.tasks.map((t) => t.id)));
 
     const stickyCompletedTaskIds = new Set(
       (existingAlerts ?? [])
@@ -860,10 +1009,10 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     );
 
     const scrapedTrackingMap = new Map(
-      trackingRecords.map((r) => [trackingKey(r.lectureId, r.resourceType), r])
+      allTrackingRecords.map((r) => [trackingKey(r.lectureId, r.resourceType), r])
     );
 
-    const mergedTrackingRecords = lectures.flatMap((lecture) =>
+    const mergedTrackingRecords = allLectures.flatMap((lecture) =>
       lecture.tasks.map((task) => {
         const key = trackingKey(lecture.id, task.type);
         const record = scrapedTrackingMap.get(key);
@@ -902,7 +1051,7 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
       { onConflict: "lecture_id,resource_type" }
     );
 
-    const taskUpdates = lectures.flatMap((lecture) =>
+    const taskUpdates = allLectures.flatMap((lecture) =>
       lecture.tasks.map((task) => {
         const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
         const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
@@ -924,9 +1073,9 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
       .select("id");
 
     totalUpdated += updated?.length ?? 0;
-    totalLectures += lectures.length;
+    totalLectures += allLectures.length;
 
-    console.log(`[lms-sync] ${profile.email}: synced ${lectures.length} lectures, updated ${updated?.length ?? 0} tasks`);
+    console.log(`[lms-sync] ${profile.email}: CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}, total lectures: ${allLectures.length}, updated ${updated?.length ?? 0} tasks`);
   }
 
   return { updatedTasks: totalUpdated, checkedLectures: totalLectures };

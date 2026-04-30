@@ -104,6 +104,21 @@ export interface AutomationProfile extends UserProfileRecord {
   batch_configs: UserBatchConfigRecord[];
 }
 
+export interface CacheLecture {
+  lectureId: string;
+  lmsBatchId: number;
+  ccUserId: string;
+  batch_name: string;
+  module_name: string;
+  lecture_name: string;
+  lecture_date: string;
+  start_time: string;
+  end_time: string;
+  preread_uploaded: boolean;
+  notes_uploaded: boolean;
+  assignment_uploaded: boolean;
+}
+
 export interface ComplianceAlertEvent {
   taskId: string;
   lecture: LectureRecord;
