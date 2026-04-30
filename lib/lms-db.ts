@@ -211,18 +211,24 @@ export async function checkLmsTasksForLecture(
   const conn = await getConn();
 
   // ── Step 1: resolve the live lecture's LMS id ────────────────────────────
+  // Use a ±1-day window to absorb IST→UTC date drift (lecture stored as Apr 29
+  // in LMS but synced as Apr 30 in Supabase). Filter to tracked academic
+  // categories so non-academic sessions (LEAP, PM Connect, etc.) are excluded.
+  // Order by closest date first, then closest to 20:00 IST within that day.
+  const categoryPlaceholders = TRACKED_LMS_CATEGORIES.map(() => "?").join(", ");
   const [liveRows] = await conn.query<RowDataPacket[]>(
     `
     SELECT id
     FROM lectures
     WHERE batch_id   = ?
       AND type       = 'live'
-      AND start_date = ?
+      AND start_date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND DATE_ADD(?, INTERVAL 1 DAY)
+      AND category   IN (${categoryPlaceholders})
       AND deleted_at IS NULL
-    ORDER BY ABS(start_time - 2000) ASC
+    ORDER BY ABS(DATEDIFF(start_date, ?)) ASC, ABS(start_time - 2000) ASC
     LIMIT 1
     `,
-    [batchId, lectureDate]
+    [batchId, lectureDate, lectureDate, ...TRACKED_LMS_CATEGORIES, lectureDate]
   );
 
   const lmsId = (liveRows[0] as { id?: number } | undefined)?.id ?? null;
