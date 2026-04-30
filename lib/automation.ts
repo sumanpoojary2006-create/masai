@@ -585,11 +585,8 @@ export async function runComplianceCheck(options?: {
   };
 
   for (const profile of profiles) {
+    // === PATH A: CC self-configured lectures ===
     const lectures = await getAutomationLectures(profile.user_id);
-
-    if (lectures.length === 0) {
-      continue;
-    }
 
     const batchUrlOverrides = Object.fromEntries(
       profile.batch_configs.map((config) => [
@@ -611,6 +608,11 @@ export async function runComplianceCheck(options?: {
     // Deduplicate: skip cache lectures whose lectureId already appears in Path A
     const pathALectureIds = new Set(lectures.map((l) => l.id));
     const uniqueCacheLectures = cacheLectures.filter((cl) => !pathALectureIds.has(cl.lectureId));
+
+    // Skip only if both paths are empty
+    if (lectures.length === 0 && uniqueCacheLectures.length === 0) {
+      continue;
+    }
 
     const pathBTracking: LmsTrackingRecord[] = [];
     for (const cl of uniqueCacheLectures) {
@@ -906,8 +908,8 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
   let totalLectures = 0;
 
   for (const profile of profiles) {
+    // === PATH A: CC self-configured lectures ===
     const lectures = await getAutomationLectures(profile.user_id);
-    if (lectures.length === 0) continue;
 
     const batchUrlOverrides = Object.fromEntries(
       profile.batch_configs.map((config) => [
@@ -925,6 +927,11 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     const cacheLectures = await getCacheLecturesForProfile(profile.user_id);
     const pathALectureIds = new Set(lectures.map((l) => l.id));
     const uniqueCacheLectures = cacheLectures.filter((cl) => !pathALectureIds.has(cl.lectureId));
+
+    // Skip only if both paths are empty
+    if (lectures.length === 0 && uniqueCacheLectures.length === 0) {
+      continue;
+    }
 
     const pathBTracking: LmsTrackingRecord[] = [];
     for (const cl of uniqueCacheLectures) {
