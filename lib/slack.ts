@@ -260,7 +260,7 @@ function buildSlackDigest(
   if (strictWarningAlerts.length > 0) {
     return [
       mention,
-      "🚨 2:30 PM High Alert",
+      "🚨 Final Alert: Missing Resources",
       lectureDates ? `🗓️ Due today: ${lectureDates}` : null,
       "Compliance check completed. These resources are still missing and need immediate action.",
       "",

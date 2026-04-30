@@ -150,7 +150,7 @@ export interface LmsTaskCheck {
 function extractTopic(name: string): string {
   return name
     .replace(
-      /^(faculty\s+session\s*[-–]?\s*\d+\s*[-–]\s*|im\s+session\s+\d+\s*[-–]\s*|academic\s+session\s*\d*\s*[-–]\s*|tutorial\s+session\s*[-–]?\s*\d*\s*[-–]\s*)/i,
+      /^(faculty\s+session\s*[-–]?\s*\d+\s*(?:[-–]\s*)?|im\s+session\s+\d+\s*(?:[-–]\s*)?|academic\s+session\s*\d*\s*(?:[-–]\s*)?|tutorial\s+session\s*[-–]?\s*\d*\s*(?:[-–]\s*)?)/i,
       ""
     )
     .trim();

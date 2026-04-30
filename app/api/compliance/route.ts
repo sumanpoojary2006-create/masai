@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
 import { getCurrentUser, getUserProfile } from "@/lib/auth";
-import { runComplianceCheck } from "@/lib/automation";
+import { runComplianceCheck, syncTaskStatusesFromLms } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
 import { sendManualPendingDigest } from "@/lib/slack";
@@ -27,6 +27,11 @@ export async function POST() {
 
     const timezone = getAppTimezone();
     const today = DateTime.now().setZone(timezone).toISODate();
+
+    // Sync LMS state into the DB before reading pending items so the digest
+    // reflects what is actually still missing (not stale cached status).
+    await syncTaskStatusesFromLms(user.id);
+
     const [lectures, userProfile] = await Promise.all([
       getDashboardData({ userId: user.id }),
       getUserProfile(user.id)
