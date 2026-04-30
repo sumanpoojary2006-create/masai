@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { hasAdminAccess } from "@/lib/admin-access";
+import { nowIST } from "@/lib/env";
 import { getAdminBatchStats, getAdminDashboardData, getAdminLectureStats } from "@/lib/queries";
+import { nowIST } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +72,7 @@ export async function GET(request: NextRequest) {
       }));
 
     return NextResponse.json({
-      generatedAt: new Date().toISOString(),
+      generatedAt: nowIST(),
       overall: overallStats,
       leaderboard,
       batches: batchStats.map((batch) => ({

@@ -721,14 +721,14 @@ function toIsoTimestamp(text: string) {
     });
 
     if (parsed.isValid) {
-      return parsed.toUTC().toISO();
+      return parsed.toISO();
     }
   }
 
   const fallback = DateTime.fromJSDate(new Date(text), {
     zone: timezone
   });
-  return fallback.isValid ? fallback.toUTC().toISO() : null;
+  return fallback.isValid ? fallback.toISO() : null;
 }
 
 function latestTimestamp(values: Array<string | null | undefined>) {

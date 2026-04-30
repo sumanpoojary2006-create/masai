@@ -2,14 +2,22 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { getCurrentUser, getUserBatchConfigs } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { TASK_TYPES } from "@/lib/constants";
+import { nowIST } from "@/lib/env";
 import { computeDeadline } from "@/lib/deadlines";
+import { nowIST } from "@/lib/env";
 import { toIsoDate, toSqlTime } from "@/lib/importer";
+import { nowIST } from "@/lib/env";
 import { getDashboardData } from "@/lib/queries";
+import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
+import { nowIST } from "@/lib/env";
 import { TaskRecord, TaskStatus } from "@/lib/types";
+import { nowIST } from "@/lib/env";
 
 export async function POST(request: NextRequest) {
   try {
@@ -78,7 +86,7 @@ export async function POST(request: NextRequest) {
     const taskMap = new Map(
       ((existingTasks ?? []) as TaskRecord[]).map((t) => [t.type, t])
     );
-    const now = new Date().toISOString();
+    const now = nowIST();
 
     const taskPayload = TASK_TYPES.map((type) => {
       const existing = taskMap.get(type);

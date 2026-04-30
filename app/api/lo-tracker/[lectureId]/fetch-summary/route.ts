@@ -2,10 +2,14 @@ export const runtime = "nodejs";
 export const maxDuration = 120; // Playwright needs up to 2 min
 
 import { NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { getCurrentUser, getUserProfile } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { scrapeLectureSummary } from "@/lib/lms-scraper";
+import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
+import { nowIST } from "@/lib/env";
 
 export async function POST(
   _request: Request,
@@ -76,7 +80,7 @@ export async function POST(
         covered_los: [],
         missing_los: [],
         generated_at: null,
-        updated_at: new Date().toISOString()
+        updated_at: nowIST()
       },
       { onConflict: "lecture_id" }
     );

@@ -10,7 +10,7 @@ function parseLocalDateTime(date: string, time: string) {
 }
 
 function toIsoOrThrow(dateTime: DateTime) {
-  const iso = dateTime.toUTC().toISO();
+  const iso = dateTime.toISO();
 
   if (!iso) {
     throw new Error("Unable to generate an ISO deadline from the lecture schedule.");

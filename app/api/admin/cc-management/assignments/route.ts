@@ -1,10 +1,14 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
+import { nowIST } from "@/lib/env";
 
 /** GET — list all CC→batch assignments */
 export async function GET() {
@@ -85,7 +89,7 @@ export async function POST(request: Request) {
         batch_name: body.batch_name,
         batch_program: body.batch_program ?? null,
         assigned_by: user.id,
-        updated_at: new Date().toISOString()
+        updated_at: nowIST()
       },
       { onConflict: "batch_id" }
     );

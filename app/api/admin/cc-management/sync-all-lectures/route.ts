@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { mysqlDateToIST, nowIST } from "@/lib/env";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -33,12 +34,12 @@ async function syncAll() {
         section_id: l.section_id,
         title: l.lecture_title,
         module: l.module,
-        schedule: l.schedule?.toISOString() ?? null,
-        concludes: l.concludes?.toISOString() ?? null,
+        schedule: l.schedule ? mysqlDateToIST(l.schedule) : null,
+        concludes: l.concludes ? mysqlDateToIST(l.concludes) : null,
         preread_uploaded: l.preread_uploaded,
         notes_uploaded: l.notes_uploaded,
         assignment_uploaded: l.assignment_uploaded,
-        synced_at: new Date().toISOString()
+        synced_at: nowIST()
       })),
       { onConflict: "batch_id,lecture_id" }
     );

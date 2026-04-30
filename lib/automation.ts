@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 
 import { TASK_LABELS } from "@/lib/constants";
-import { getAppTimezone, getAutomationEnv } from "@/lib/env";
+import { getAppTimezone, getAutomationEnv, nowIST } from "@/lib/env";
 import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { checkLmsTasksForLecture } from "@/lib/lms-db";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
@@ -82,7 +82,7 @@ async function checkResourcesFromDb(
       if (!dtStr) return null;
       // LMS DB timestamps (created_at) are stored in IST (Asia/Kolkata)
       const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
-      return dt.isValid ? dt.toUTC().toISO() : null;
+      return dt.isValid ? dt.toISO() : null;
     };
 
     records.push({
@@ -331,7 +331,7 @@ export async function fetchAndAnalyzePendingSummaries(
           missing_los: [],
           status: "pending",
           generated_at: null,
-          updated_at: new Date().toISOString()
+          updated_at: nowIST()
         },
         { onConflict: "lecture_id" }
       );
@@ -353,8 +353,8 @@ export async function fetchAndAnalyzePendingSummaries(
               missing_los: result.missing_los,
               status: "completed",
               fallback: result.fallback ?? false,
-              generated_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
+              generated_at: nowIST(),
+              updated_at: nowIST()
             },
             { onConflict: "lecture_id" }
           );
@@ -451,7 +451,7 @@ export async function analyzePendingLoReports(
     try {
       await supabase
         .from("lo_reports")
-        .update({ status: "analyzing", updated_at: new Date().toISOString() })
+        .update({ status: "analyzing", updated_at: nowIST() })
         .eq("lecture_id", report.lecture_id)
         .eq("user_id", userId);
 
@@ -466,8 +466,8 @@ export async function analyzePendingLoReports(
           missing_los: analysis.missing_los,
           status: "completed",
           fallback: analysis.fallback ?? false,
-          generated_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          generated_at: nowIST(),
+          updated_at: nowIST()
         },
         { onConflict: "lecture_id" }
       );
@@ -480,7 +480,7 @@ export async function analyzePendingLoReports(
       console.error(`[lo-analyze] Failed for "${lectureName}": ${reason}`);
       await supabase
         .from("lo_reports")
-        .update({ status: "pending", updated_at: new Date().toISOString() })
+        .update({ status: "pending", updated_at: nowIST() })
         .eq("lecture_id", report.lecture_id)
         .eq("user_id", userId);
       results.push({ lectureId: report.lecture_id, lectureName, status: "error", reason });
@@ -606,7 +606,7 @@ export async function runComplianceCheck(options?: {
         resource_type: record.resourceType,
         found: record.found,
         uploaded_at: record.uploadedAt,
-        checked_at: now.toUTC().toISO(),
+        checked_at: now.toISO(),
         raw_payload: record.rawPayload ?? {}
       })),
       {
@@ -630,7 +630,7 @@ export async function runComplianceCheck(options?: {
           deadline: task.deadline,
           status: resolved.status,
           completed_at: resolved.completedAt,
-          last_checked_at: now.toUTC().toISO()
+          last_checked_at: now.toISO()
         };
       })
     );
@@ -846,7 +846,7 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
         resource_type: r.resourceType,
         found: r.found,
         uploaded_at: r.uploadedAt,
-        checked_at: now.toUTC().toISO(),
+        checked_at: now.toISO(),
         raw_payload: r.rawPayload ?? {}
       })),
       { onConflict: "lecture_id,resource_type" }
@@ -863,7 +863,7 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
           deadline: task.deadline,
           status: resolved.status,
           completed_at: resolved.completedAt,
-          last_checked_at: now.toUTC().toISO()
+          last_checked_at: now.toISO()
         };
       })
     );

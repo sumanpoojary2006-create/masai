@@ -1,13 +1,20 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { TASK_TYPES } from "@/lib/constants";
+import { nowIST } from "@/lib/env";
 import { computeDeadline } from "@/lib/deadlines";
+import { nowIST } from "@/lib/env";
 import { toIsoDate, toSqlTime } from "@/lib/importer";
+import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
+import { nowIST } from "@/lib/env";
 import { TaskRecord } from "@/lib/types";
+import { nowIST } from "@/lib/env";
 
 async function resolveParams(context: {
   params: Promise<{
@@ -108,7 +115,7 @@ export async function PATCH(
       throw new Error(taskError.message);
     }
 
-    const now = new Date().toISOString();
+    const now = nowIST();
     const taskMap = new Map(
       ((existingTasks ?? []) as TaskRecord[]).map((task) => [task.type, task] as const)
     );

@@ -1,3 +1,5 @@
+import { DateTime } from "luxon";
+
 const REQUIRED_SUPABASE_VARS = ["SUPABASE_URL", "SUPABASE_KEY"] as const;
 const REQUIRED_AUTOMATION_VARS = ["SLACK_WEBHOOK_URL", "SUPABASE_URL", "SUPABASE_KEY"] as const;
 
@@ -21,6 +23,21 @@ export function hasPublicSupabaseConfig() {
 
 export function getAppTimezone() {
   return process.env.APP_TIMEZONE ?? "Asia/Kolkata";
+}
+
+/** Current timestamp as an IST ISO-8601 string (e.g. "2026-04-30T20:00:00.000+05:30"). */
+export function nowIST(): string {
+  return DateTime.now().setZone(getAppTimezone()).toISO()!;
+}
+
+/**
+ * Convert a JS Date that mysql2 mis-parsed as UTC (because the DB stores IST
+ * wall-clock times without a timezone marker) back to a correct IST ISO string.
+ */
+export function mysqlDateToIST(date: Date): string {
+  return DateTime.fromJSDate(date, { zone: "UTC" })
+    .setZone(getAppTimezone(), { keepLocalTime: true })
+    .toISO()!;
 }
 
 export function getSupabaseEnv() {

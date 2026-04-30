@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
 import { getCurrentUser } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { getAppTimezone } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { sendLoSyncSlackNotification } from "@/lib/slack";
@@ -109,7 +110,7 @@ export async function POST(
       covered_los: [],
       missing_los: [],
       generated_at: null,
-      updated_at: new Date().toISOString()
+      updated_at: nowIST()
     };
 
     await supabase.from("lo_reports").upsert(reportBase, { onConflict: "lecture_id" });
@@ -128,8 +129,8 @@ export async function POST(
           covered_los: result.covered_los,
           missing_los: result.missing_los,
           status: "completed",
-          generated_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          generated_at: nowIST(),
+          updated_at: nowIST()
         },
         { onConflict: "lecture_id" }
       )
@@ -176,7 +177,7 @@ export async function POST(
         const supabase = createServerSupabase();
         await supabase
           .from("lo_reports")
-          .update({ status: "pending", updated_at: new Date().toISOString() })
+          .update({ status: "pending", updated_at: nowIST() })
           .eq("lecture_id", lectureId)
           .eq("user_id", user.id);
       }

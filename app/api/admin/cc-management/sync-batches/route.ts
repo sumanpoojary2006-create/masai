@@ -1,11 +1,16 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { nowIST } from "@/lib/env";
 import { fetchActiveBatches } from "@/lib/lms-mysql";
+import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
+import { nowIST } from "@/lib/env";
 
 export async function POST() {
   try {
@@ -30,7 +35,7 @@ export async function POST() {
         starting: b.starting,
         ending: b.ending,
         active: Boolean(b.active),
-        synced_at: new Date().toISOString()
+        synced_at: nowIST()
       })),
       { onConflict: "batch_id" }
     );

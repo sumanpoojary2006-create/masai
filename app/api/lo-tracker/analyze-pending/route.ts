@@ -1,11 +1,16 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
+import { nowIST } from "@/lib/env";
 import { sendLoSyncSlackNotification } from "@/lib/slack";
+import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
+import { nowIST } from "@/lib/env";
 
 export interface AnalyzePendingResult {
   lectureId: string;
@@ -85,7 +90,7 @@ export async function POST() {
         // Mark as analyzing
         await supabase
           .from("lo_reports")
-          .update({ status: "analyzing", updated_at: new Date().toISOString() })
+          .update({ status: "analyzing", updated_at: nowIST() })
           .eq("lecture_id", report.lecture_id)
           .eq("user_id", user.id);
 
@@ -100,8 +105,8 @@ export async function POST() {
             missing_los: analysis.missing_los,
             status: "completed",
             fallback: analysis.fallback ?? false,
-            generated_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            generated_at: nowIST(),
+            updated_at: nowIST()
           },
           { onConflict: "lecture_id" }
         );
@@ -121,7 +126,7 @@ export async function POST() {
         // Only overwrite back from "analyzing" — don't touch if already something else.
         await supabase
           .from("lo_reports")
-          .update({ status: "pending", updated_at: new Date().toISOString() })
+          .update({ status: "pending", updated_at: nowIST() })
           .eq("lecture_id", report.lecture_id)
           .eq("user_id", user.id);
 
