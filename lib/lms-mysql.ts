@@ -80,22 +80,31 @@ export async function fetchBatchCompliance(batchId: number): Promise<LmsLectureC
 
         EXISTS (
           SELECT 1 FROM lectures pr
-          WHERE pr.category  = 'pre-reads'
-            AND JSON_EXTRACT(pr.data, '$.associatedLecture.id') = l.id
+          WHERE pr.category IN ('pre-reads', 'Pre Reads')
+            AND (
+              JSON_EXTRACT(pr.data, '$.associatedLecture.id') = l.id
+              OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(pr.data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(l.id))
+            )
             AND pr.deleted_at IS NULL
         ) AS preread_uploaded,
 
         EXISTS (
           SELECT 1 FROM lectures nt
           WHERE nt.category  = 'notes'
-            AND JSON_EXTRACT(nt.data, '$.associatedLecture.id') = l.id
+            AND (
+              JSON_EXTRACT(nt.data, '$.associatedLecture.id') = l.id
+              OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(nt.data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(l.id))
+            )
             AND nt.deleted_at IS NULL
         ) AS notes_uploaded,
 
         EXISTS (
           SELECT 1 FROM assignments a
           WHERE a.batch_id   = l.batch_id
-            AND JSON_EXTRACT(a.data, '$.associatedLecture[0].id') = l.id
+            AND (
+              JSON_EXTRACT(a.data, '$.associatedLecture[0].id') = l.id
+              OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(a.data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(l.id))
+            )
             AND a.deleted_at IS NULL
         ) AS assignment_uploaded
 

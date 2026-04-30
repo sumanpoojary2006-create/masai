@@ -89,6 +89,10 @@ export interface LmsTrackingRecord {
   found: boolean;
   uploadedAt: string | null;
   rawPayload?: Record<string, unknown>;
+  /** LMS numeric batch id — set when we resolved the lecture via LMS DB */
+  lmsBatchId?: number;
+  /** LMS numeric lecture id — set when we resolved the lecture via LMS DB */
+  lmsLectureId?: number;
 }
 
 export interface AutomationLecture extends LectureRecord {
