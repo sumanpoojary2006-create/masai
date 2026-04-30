@@ -20,7 +20,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Archive lectures older than current week
         run: npx tsx scripts/archive-lectures.ts
