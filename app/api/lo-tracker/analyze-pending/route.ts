@@ -4,13 +4,9 @@ import { NextResponse } from "next/server";
 import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
-import { nowIST } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { nowIST } from "@/lib/env";
 import { sendLoSyncSlackNotification } from "@/lib/slack";
-import { nowIST } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
-import { nowIST } from "@/lib/env";
 
 export interface AnalyzePendingResult {
   lectureId: string;
