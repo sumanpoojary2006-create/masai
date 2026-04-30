@@ -192,12 +192,19 @@ function titleMatches(readingTitle: string, topic: string): boolean {
  * Check whether the LMS DB already has pre-read, lecture notes, and/or an
  * assignment for the given live lecture, and return the zoom/session link.
  *
- * Primary:  resources whose data.associatedLecture.id (object) or
- *           data.associatedLecture[*].id (array) matches the live lecture's
- *           LMS id — title-independent, immune to renames.
- * Fallback: fuzzy title match (suffix after "Faculty Session N –" stripped)
- *           used only when the live lecture id cannot be determined or when
- *           no resource carries an associatedLecture link.
+ * Live lecture resolution (in priority order):
+ *   1. Exact title match — most reliable when titles are in sync
+ *   2. Session-number match — handles lectures renamed in LMS after sync
+ *      (e.g. Supabase: "IM Session 33 - Topic A", LMS: "IM Session 33 - Topic B")
+ *   3. Date proximity ±1 day + tracked category — absorbs IST→UTC date drift
+ *
+ * Resource lookup (in priority order):
+ *   1. data.associatedLecture.id — direct link set by faculty, immune to renames
+ *   2. Fuzzy title match in a ±14/+7 day window — fallback for resources
+ *      uploaded without an associatedLecture link
+ *
+ * Both lookups run independently per resource type so a partial association
+ * result never blocks the title fallback for the remaining missing types.
  *
  * @param batchId      LMS numeric batch id
  * @param lectureName  Name as stored in our Supabase lectures table
@@ -211,25 +218,44 @@ export async function checkLmsTasksForLecture(
   const conn = await getConn();
 
   // ── Step 1: resolve the live lecture's LMS id ────────────────────────────
-  // Use a ±1-day window to absorb IST→UTC date drift (lecture stored as Apr 29
-  // in LMS but synced as Apr 30 in Supabase). Filter to tracked academic
-  // categories so non-academic sessions (LEAP, PM Connect, etc.) are excluded.
-  // Order by closest date first, then closest to 20:00 IST within that day.
   const categoryPlaceholders = TRACKED_LMS_CATEGORIES.map(() => "?").join(", ");
-  const [liveRows] = await conn.query<RowDataPacket[]>(
-    `
-    SELECT id
-    FROM lectures
-    WHERE batch_id   = ?
-      AND type       = 'live'
-      AND start_date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND DATE_ADD(?, INTERVAL 1 DAY)
-      AND category   IN (${categoryPlaceholders})
-      AND deleted_at IS NULL
-    ORDER BY ABS(DATEDIFF(start_date, ?)) ASC, ABS(start_time - 2000) ASC
-    LIMIT 1
-    `,
-    [batchId, lectureDate, lectureDate, ...TRACKED_LMS_CATEGORIES, lectureDate]
+
+  // Extract "33" from "IM Session 33 - …" for session-number fallback.
+  const sessionNumber = lectureName.match(/\bsession\s+(\d+)\b/i)?.[1] ?? null;
+
+  // Priority 1: exact title match (no date constraint needed).
+  let [liveRows] = await conn.query<RowDataPacket[]>(
+    `SELECT id FROM lectures
+     WHERE batch_id = ? AND type = 'live' AND title = ? AND deleted_at IS NULL
+     LIMIT 1`,
+    [batchId, lectureName]
   );
+
+  // Priority 2: same session number, category-filtered (lecture may be renamed in LMS).
+  if (!(liveRows as RowDataPacket[]).length && sessionNumber) {
+    [liveRows] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM lectures
+       WHERE batch_id = ? AND type = 'live' AND deleted_at IS NULL
+         AND category IN (${categoryPlaceholders})
+         AND REGEXP_LIKE(title, CONCAT('session[[:space:]]+', ?, '([^[:digit:]]|$)'), 'i')
+       ORDER BY ABS(DATEDIFF(start_date, ?)) ASC, ABS(start_time - 2000) ASC
+       LIMIT 1`,
+      [batchId, ...TRACKED_LMS_CATEGORIES, sessionNumber, lectureDate]
+    );
+  }
+
+  // Priority 3: date proximity ±1 day, category-filtered (absorbs IST→UTC drift).
+  if (!(liveRows as RowDataPacket[]).length) {
+    [liveRows] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM lectures
+       WHERE batch_id = ? AND type = 'live' AND deleted_at IS NULL
+         AND start_date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND DATE_ADD(?, INTERVAL 1 DAY)
+         AND category IN (${categoryPlaceholders})
+       ORDER BY ABS(DATEDIFF(start_date, ?)) ASC, ABS(start_time - 2000) ASC
+       LIMIT 1`,
+      [batchId, lectureDate, lectureDate, ...TRACKED_LMS_CATEGORIES, lectureDate]
+    );
+  }
 
   const lmsId = (liveRows[0] as { id?: number } | undefined)?.id ?? null;
   const session_link = lmsId
@@ -243,51 +269,33 @@ export async function checkLmsTasksForLecture(
   let assignment = false;
   let assignment_at: string | null = null;
 
-  // ── Step 2: association-based lookup (primary) ───────────────────────────
+  // ── Step 2: association-based lookup (primary per resource type) ─────────
+  // data.associatedLecture is an object {id,title} on readings and an array
+  // [{id,title}] on assignments — handle both formats.
   if (lmsId) {
-    // data.associatedLecture is an object {id, title} on readings and an array
-    // [{id, title}] on assignments — handle both with a two-clause OR.
-    const assocClause = `
-      (
-        JSON_EXTRACT(data, '$.associatedLecture.id') = ?
-        OR JSON_OVERLAPS(JSON_EXTRACT(data, '$.associatedLecture[*].id'), JSON_ARRAY(?))
-      )
-    `;
+    const assocClause = `(
+      JSON_EXTRACT(data, '$.associatedLecture.id') = ?
+      OR JSON_OVERLAPS(JSON_EXTRACT(data, '$.associatedLecture[*].id'), JSON_ARRAY(?))
+    )`;
 
     const [assocReadings] = await conn.query<RowDataPacket[]>(
-      `
-      SELECT title, category, created_at
-      FROM lectures
-      WHERE batch_id  = ?
-        AND type      = 'reading'
-        AND category  IN ('pre-reads', 'Pre Reads', 'notes')
-        AND deleted_at IS NULL
-        AND ${assocClause}
-      `,
+      `SELECT title, category, created_at FROM lectures
+       WHERE batch_id = ? AND type = 'reading'
+         AND category IN ('pre-reads', 'Pre Reads', 'notes')
+         AND deleted_at IS NULL AND ${assocClause}`,
       [batchId, lmsId, lmsId]
     );
 
     for (const row of assocReadings as Array<{ title: string; category: string; created_at: string }>) {
       const cat = row.category.toLowerCase();
-      if (cat.includes("pre")) {
-        preread = true;
-        preread_at = row.created_at;
-      } else if (cat === "notes") {
-        notes = true;
-        notes_at = row.created_at;
-      }
+      if (cat.includes("pre")) { preread = true; preread_at = row.created_at; }
+      else if (cat === "notes") { notes = true; notes_at = row.created_at; }
     }
 
     const [assocAssigns] = await conn.query<RowDataPacket[]>(
-      `
-      SELECT title, created_at
-      FROM assignments
-      WHERE batch_id  = ?
-        AND deleted_at IS NULL
-        AND ${assocClause}
-      ORDER BY created_at ASC
-      LIMIT 1
-      `,
+      `SELECT created_at FROM assignments
+       WHERE batch_id = ? AND deleted_at IS NULL AND ${assocClause}
+       ORDER BY created_at ASC LIMIT 1`,
       [batchId, lmsId, lmsId]
     );
 
@@ -295,68 +303,51 @@ export async function checkLmsTasksForLecture(
       assignment = true;
       assignment_at = (assocAssigns as Array<{ created_at: string }>)[0].created_at;
     }
-
-    // If any resource was found via association, trust that result completely —
-    // no need for title matching which could pick up unrelated resources.
-    if (preread || notes || assignment) {
-      return { preread, preread_at, notes, notes_at, assignment, assignment_at, session_link };
-    }
   }
 
-  // ── Step 3: title-based fallback ─────────────────────────────────────────
-  // Used when: (a) lmsId could not be resolved, or (b) no resource carries an
-  // associatedLecture link yet (older uploads before the feature was available).
-  const topic = extractTopic(lectureName);
+  // ── Step 3: title-based fallback for any type still not found ────────────
+  // Runs for resources uploaded without an associatedLecture link, or when the
+  // lmsId could not be resolved.
+  if (!preread || !notes || !assignment) {
+    const topic = extractTopic(lectureName);
 
-  const base = new Date(lectureDate);
-  const windowStart = new Date(base);
-  windowStart.setDate(windowStart.getDate() - 14);
-  const windowEnd = new Date(base);
-  windowEnd.setDate(windowEnd.getDate() + 7);
-  const startStr = windowStart.toISOString().slice(0, 10);
-  const endStr   = windowEnd.toISOString().slice(0, 10);
+    const base = new Date(lectureDate);
+    const windowStart = new Date(base);
+    windowStart.setDate(windowStart.getDate() - 14);
+    const windowEnd = new Date(base);
+    windowEnd.setDate(windowEnd.getDate() + 7);
+    const startStr = windowStart.toISOString().slice(0, 10);
+    const endStr   = windowEnd.toISOString().slice(0, 10);
 
-  const [readingRows] = await conn.query<RowDataPacket[]>(
-    `
-    SELECT title, category, created_at
-    FROM lectures
-    WHERE batch_id  = ?
-      AND type      = 'reading'
-      AND category  IN ('pre-reads', 'Pre Reads', 'notes')
-      AND start_date BETWEEN ? AND ?
-      AND deleted_at IS NULL
-    `,
-    [batchId, startStr, endStr]
-  );
+    const [readingRows] = await conn.query<RowDataPacket[]>(
+      `SELECT title, category, created_at FROM lectures
+       WHERE batch_id = ? AND type = 'reading'
+         AND category IN ('pre-reads', 'Pre Reads', 'notes')
+         AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
+      [batchId, startStr, endStr]
+    );
 
-  const [assignRows] = await conn.query<RowDataPacket[]>(
-    `
-    SELECT title, created_at
-    FROM assignments
-    WHERE batch_id  = ?
-      AND start_date BETWEEN ? AND ?
-      AND deleted_at IS NULL
-    `,
-    [batchId, startStr, endStr]
-  );
+    const [assignRows] = await conn.query<RowDataPacket[]>(
+      `SELECT title, created_at FROM assignments
+       WHERE batch_id = ? AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
+      [batchId, startStr, endStr]
+    );
 
-  for (const row of readingRows as Array<{ title: string; category: string; created_at: string }>) {
-    if (!titleMatches(row.title, topic)) continue;
-    const cat = row.category.toLowerCase();
-    if (cat.includes("pre")) {
-      preread = true;
-      preread_at = row.created_at;
-    } else if (cat === "notes") {
-      notes = true;
-      notes_at = row.created_at;
+    for (const row of readingRows as Array<{ title: string; category: string; created_at: string }>) {
+      if (!titleMatches(row.title, topic)) continue;
+      const cat = row.category.toLowerCase();
+      if (cat.includes("pre") && !preread) { preread = true; preread_at = row.created_at; }
+      else if (cat === "notes" && !notes) { notes = true; notes_at = row.created_at; }
     }
-  }
 
-  for (const row of assignRows as Array<{ title: string; created_at: string }>) {
-    if (titleMatches(row.title, topic)) {
-      assignment = true;
-      assignment_at = row.created_at;
-      break;
+    if (!assignment) {
+      for (const row of assignRows as Array<{ title: string; created_at: string }>) {
+        if (titleMatches(row.title, topic)) {
+          assignment = true;
+          assignment_at = row.created_at;
+          break;
+        }
+      }
     }
   }
 
