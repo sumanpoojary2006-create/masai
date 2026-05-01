@@ -4,10 +4,11 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
 import { getCurrentUser, getUserProfile } from "@/lib/auth";
-import { runComplianceCheck, syncTaskStatusesFromLms } from "@/lib/automation";
+import { runComplianceCheck, syncAssignedBatchesCache, syncTaskStatusesFromLms } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 import { getCCLectures } from "@/lib/queries";
 import { sendManualPendingDigest } from "@/lib/slack";
+import { createServerSupabase } from "@/lib/supabase";
 import { TASK_TYPES } from "@/lib/constants";
 
 export async function POST() {
@@ -28,9 +29,21 @@ export async function POST() {
     const timezone = getAppTimezone();
     const today = DateTime.now().setZone(timezone).toISODate();
 
-    // Sync LMS state into the DB before reading pending items so the digest
-    // reflects what is actually still missing (not stale cached status).
+    // Sync LMS state into both the tasks table (CC-configured lectures) and
+    // lms_lecture_cache (admin-batch lectures) so the digest reflects live LMS state.
     await syncTaskStatusesFromLms(user.id);
+
+    // Also sync lms_lecture_cache for admin-batch assignments so dashboard status
+    // reflects reality without waiting for the nightly admin sync.
+    const supabase = createServerSupabase();
+    const { data: ccAssignments } = await supabase
+      .from("cc_batch_assignments")
+      .select("batch_id")
+      .eq("cc_user_id", user.id);
+    const ccBatchIds = [...new Set((ccAssignments ?? []).map((a) => a.batch_id as number))];
+    if (ccBatchIds.length > 0) {
+      await syncAssignedBatchesCache(ccBatchIds);
+    }
 
     // getCCLectures reads from lms_lecture_cache (covers both CC-configured and
     // admin-batch lectures), so the pending digest includes all admin-batch tasks.

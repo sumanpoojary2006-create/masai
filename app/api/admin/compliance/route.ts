@@ -6,55 +6,11 @@ import { DateTime } from "luxon";
 import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
 import { computeDeadline } from "@/lib/deadlines";
-import { mysqlDateToIST, nowIST, getAppTimezone } from "@/lib/env";
-import { fetchBatchCompliance } from "@/lib/lms-mysql";
+import { getAppTimezone } from "@/lib/env";
+import { syncAssignedBatchesCache } from "@/lib/automation";
 import { sendManualPendingDigest } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LectureRecord, TaskType } from "@/lib/types";
-
-/** Re-sync lms_lecture_cache for every batch in cc_batch_assignments. */
-async function syncLmsCache() {
-  const supabase = createServerSupabase();
-
-  const { data: assignments, error: assignError } = await supabase
-    .from("cc_batch_assignments")
-    .select("batch_id")
-    .order("batch_id", { ascending: true });
-
-  if (assignError) throw new Error(assignError.message);
-
-  const batchIds = [...new Set((assignments ?? []).map((a) => a.batch_id as number))];
-  if (batchIds.length === 0) return { batchesSynced: 0, lecturesSynced: 0 };
-
-  let lecturesSynced = 0;
-
-  for (const batchId of batchIds) {
-    const lectures = await fetchBatchCompliance(batchId);
-    if (lectures.length === 0) continue;
-
-    const { error } = await supabase.from("lms_lecture_cache").upsert(
-      lectures.map((l) => ({
-        batch_id: batchId,
-        lecture_id: l.lecture_id,
-        section_id: l.section_id,
-        title: l.lecture_title,
-        module: l.module,
-        schedule: l.schedule ? mysqlDateToIST(l.schedule) : null,
-        concludes: l.concludes ? mysqlDateToIST(l.concludes) : null,
-        preread_uploaded: l.preread_uploaded,
-        notes_uploaded: l.notes_uploaded,
-        assignment_uploaded: l.assignment_uploaded,
-        synced_at: nowIST()
-      })),
-      { onConflict: "batch_id,lecture_id" }
-    );
-
-    if (error) throw new Error(`Batch ${batchId}: ${error.message}`);
-    lecturesSynced += lectures.length;
-  }
-
-  return { batchesSynced: batchIds.length, lecturesSynced };
-}
 
 /**
  * Build pending digest items from lms_lecture_cache.
@@ -150,7 +106,14 @@ export async function POST() {
     }
 
     // Step 1: Re-sync lms_lecture_cache from live LMS data
-    const syncResult = await syncLmsCache();
+    const supabase = createServerSupabase();
+    const { data: assignments, error: assignError } = await supabase
+      .from("cc_batch_assignments")
+      .select("batch_id")
+      .order("batch_id", { ascending: true });
+    if (assignError) throw new Error(assignError.message);
+    const batchIds = [...new Set((assignments ?? []).map((a) => a.batch_id as number))];
+    const syncResult = await syncAssignedBatchesCache(batchIds);
     console.log(`[sync-up] Cache synced: ${syncResult.batchesSynced} batches, ${syncResult.lecturesSynced} lectures`);
 
     // Step 2: Build pending digest from the freshly-synced cache
@@ -174,7 +137,7 @@ export async function POST() {
     }
 
     // Step 4: Dispatch GitHub Actions for the deeper compliance check (tasks table)
-    const githubToken = process.env.WORKFLOW_DISPATCH_TOKEN;
+    const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
 
