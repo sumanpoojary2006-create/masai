@@ -2,9 +2,10 @@ import { DateTime } from "luxon";
 
 import { TASK_LABELS } from "@/lib/constants";
 import { computeDeadline } from "@/lib/deadlines";
-import { getAppTimezone, getAutomationEnv, nowIST } from "@/lib/env";
+import { getAppTimezone, getAutomationEnv, mysqlDateToIST, nowIST } from "@/lib/env";
 import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { checkLmsTasksForLecture } from "@/lib/lms-db";
+import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
@@ -1158,4 +1159,94 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
   }
 
   return { updatedTasks: totalUpdated, checkedLectures: totalLectures };
+}
+
+/**
+ * Sync lms_lecture_cache for the given batch IDs using GREATEST semantics:
+ * structural fields are always updated, compliance flags only move true→true (never true→false).
+ *
+ * Uses fetchBatchCompliance (associatedLecture.id check) first, then falls back
+ * to checkLmsTasksForLecture (title/date matching) for any flags still false.
+ * This covers resources uploaded without an explicit lecture association.
+ */
+export async function syncAssignedBatchesCache(
+  batchIds: number[]
+): Promise<{ batchesSynced: number; lecturesSynced: number }> {
+  if (batchIds.length === 0) return { batchesSynced: 0, lecturesSynced: 0 };
+
+  const supabase = createServerSupabase();
+  let lecturesSynced = 0;
+
+  for (const batchId of batchIds) {
+    const lectures = await fetchBatchCompliance(batchId);
+    if (lectures.length === 0) continue;
+
+    // For each lecture still missing at least one resource, run the title-matching fallback.
+    const enhanced = await Promise.all(
+      lectures.map(async (l) => {
+        if (l.preread_uploaded && l.notes_uploaded && l.assignment_uploaded) return l;
+        if (!l.schedule) return l;
+
+        const schedDate = l.schedule instanceof Date ? l.schedule : new Date(l.schedule);
+        const lectureDate = schedDate.toISOString().slice(0, 10);
+
+        try {
+          const fallback = await checkLmsTasksForLecture(batchId, l.lecture_title, lectureDate);
+          return {
+            ...l,
+            preread_uploaded: l.preread_uploaded || fallback.preread,
+            notes_uploaded: l.notes_uploaded || fallback.notes,
+            assignment_uploaded: l.assignment_uploaded || fallback.assignment
+          };
+        } catch (err) {
+          console.warn(`[cache-sync] Fallback check failed for batch=${batchId} "${l.lecture_title}":`, err instanceof Error ? err.message : err);
+          return l;
+        }
+      })
+    );
+
+    // Upsert structural metadata (title, schedule, etc.) without touching flags.
+    // On INSERT the flags default to false; on UPDATE they are left unchanged.
+    // This ensures existing true flags are never overwritten with false.
+    const { error: structErr } = await supabase.from("lms_lecture_cache").upsert(
+      enhanced.map((l) => ({
+        batch_id: batchId,
+        lecture_id: l.lecture_id,
+        section_id: l.section_id ?? null,
+        title: l.lecture_title,
+        module: l.module ?? null,
+        schedule: l.schedule ? mysqlDateToIST(l.schedule instanceof Date ? l.schedule : new Date(l.schedule)) : null,
+        concludes: l.concludes ? mysqlDateToIST(l.concludes instanceof Date ? l.concludes : new Date(l.concludes)) : null,
+        synced_at: nowIST()
+        // Flags intentionally omitted — handled below via targeted true-only updates.
+      })),
+      { onConflict: "batch_id,lecture_id" }
+    );
+
+    if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
+
+    // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
+    for (const l of enhanced) {
+      const patch: Record<string, boolean> = {};
+      if (l.preread_uploaded) patch.preread_uploaded = true;
+      if (l.notes_uploaded) patch.notes_uploaded = true;
+      if (l.assignment_uploaded) patch.assignment_uploaded = true;
+      if (Object.keys(patch).length === 0) continue;
+
+      const { error: flagErr } = await supabase
+        .from("lms_lecture_cache")
+        .update(patch)
+        .eq("batch_id", batchId)
+        .eq("lecture_id", l.lecture_id);
+
+      if (flagErr) {
+        console.warn(`[cache-sync] Flag update failed batch=${batchId} lecture=${l.lecture_id}: ${flagErr.message}`);
+      }
+    }
+
+    lecturesSynced += enhanced.length;
+    console.log(`[cache-sync] Batch ${batchId}: ${enhanced.length} lectures synced`);
+  }
+
+  return { batchesSynced: batchIds.length, lecturesSynced };
 }
