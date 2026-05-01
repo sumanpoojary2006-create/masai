@@ -1163,11 +1163,11 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
 
 /**
  * Sync lms_lecture_cache for the given batch IDs using GREATEST semantics:
- * structural fields are always updated, compliance flags only move true→true (never true→false).
+ * structural fields are always updated, compliance flags only move false→true (never true→false).
  *
- * Uses fetchBatchCompliance (associatedLecture.id check) first, then falls back
- * to checkLmsTasksForLecture (title/date matching) for any flags still false.
- * This covers resources uploaded without an explicit lecture association.
+ * Uses fetchBatchCompliance (association-based check — one query per batch) for speed.
+ * Deep title/date-matching fallback is intentionally omitted here to keep this
+ * fast enough for Vercel's function timeout; GitHub Actions handles the thorough check.
  */
 export async function syncAssignedBatchesCache(
   batchIds: number[]
@@ -1181,35 +1181,11 @@ export async function syncAssignedBatchesCache(
     const lectures = await fetchBatchCompliance(batchId);
     if (lectures.length === 0) continue;
 
-    // For each lecture still missing at least one resource, run the title-matching fallback.
-    const enhanced = await Promise.all(
-      lectures.map(async (l) => {
-        if (l.preread_uploaded && l.notes_uploaded && l.assignment_uploaded) return l;
-        if (!l.schedule) return l;
-
-        const schedDate = l.schedule instanceof Date ? l.schedule : new Date(l.schedule);
-        const lectureDate = schedDate.toISOString().slice(0, 10);
-
-        try {
-          const fallback = await checkLmsTasksForLecture(batchId, l.lecture_title, lectureDate);
-          return {
-            ...l,
-            preread_uploaded: l.preread_uploaded || fallback.preread,
-            notes_uploaded: l.notes_uploaded || fallback.notes,
-            assignment_uploaded: l.assignment_uploaded || fallback.assignment
-          };
-        } catch (err) {
-          console.warn(`[cache-sync] Fallback check failed for batch=${batchId} "${l.lecture_title}":`, err instanceof Error ? err.message : err);
-          return l;
-        }
-      })
-    );
-
     // Upsert structural metadata (title, schedule, etc.) without touching flags.
     // On INSERT the flags default to false; on UPDATE they are left unchanged.
     // This ensures existing true flags are never overwritten with false.
     const { error: structErr } = await supabase.from("lms_lecture_cache").upsert(
-      enhanced.map((l) => ({
+      lectures.map((l) => ({
         batch_id: batchId,
         lecture_id: l.lecture_id,
         section_id: l.section_id ?? null,
@@ -1226,7 +1202,7 @@ export async function syncAssignedBatchesCache(
     if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
 
     // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
-    for (const l of enhanced) {
+    for (const l of lectures) {
       const patch: Record<string, boolean> = {};
       if (l.preread_uploaded) patch.preread_uploaded = true;
       if (l.notes_uploaded) patch.notes_uploaded = true;
@@ -1244,8 +1220,8 @@ export async function syncAssignedBatchesCache(
       }
     }
 
-    lecturesSynced += enhanced.length;
-    console.log(`[cache-sync] Batch ${batchId}: ${enhanced.length} lectures synced`);
+    lecturesSynced += lectures.length;
+    console.log(`[cache-sync] Batch ${batchId}: ${lectures.length} lectures synced`);
   }
 
   return { batchesSynced: batchIds.length, lecturesSynced };
