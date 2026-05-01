@@ -675,18 +675,26 @@ export async function runComplianceCheck(options?: {
     // reflects the same state as the Slack "completed" notification.
     await syncFoundResourcesToCache(supabase, allTrackingRecords);
 
-    const lectureIds = allLectures.map((lecture) => lecture.id);
-    const taskIds = allLectures.flatMap((lecture) => lecture.tasks.map((task) => task.id));
+    // lms_tracking and tasks tables use uuid lecture_id FKs to lectures.id.
+    // Admin-batch lectures have numeric LMS IDs (e.g. "147070"), not UUIDs.
+    // Only write to those tables for CC-configured lectures (UUID IDs).
+    const ccBatchLectureIds = new Set(lectures.map((l) => l.id));
+    const ccLectures = allLectures.filter((l) => ccBatchLectureIds.has(l.id));
+    const ccTaskIds = ccLectures.flatMap((l) => l.tasks.map((t) => t.id));
 
     const [
       { data: existingTrackingRows, error: existingTrackingError },
       { data: existingAlerts, error: alertError }
     ] = await Promise.all([
-      supabase
-        .from("lms_tracking")
-        .select("lecture_id, resource_type, found, uploaded_at, raw_payload")
-        .in("lecture_id", lectureIds),
-      supabase.from("alert_events").select("task_id, alert_type").in("task_id", taskIds)
+      ccLectures.length > 0
+        ? supabase
+            .from("lms_tracking")
+            .select("lecture_id, resource_type, found, uploaded_at, raw_payload")
+            .in("lecture_id", ccLectures.map((l) => l.id))
+        : Promise.resolve({ data: [], error: null }),
+      ccTaskIds.length > 0
+        ? supabase.from("alert_events").select("task_id, alert_type").in("task_id", ccTaskIds)
+        : Promise.resolve({ data: [], error: null })
     ]);
 
     if (existingTrackingError) {
@@ -749,23 +757,29 @@ export async function runComplianceCheck(options?: {
       trackingMap.set(trackingKey(record.lectureId, record.resourceType), record);
     }
 
-    const { error: trackingError } = await supabase.from("lms_tracking").upsert(
-      mergedTrackingRecords.map((record) => ({
-        lecture_id: record.lectureId,
-        resource_type: record.resourceType,
-        found: record.found,
-        uploaded_at: record.uploadedAt,
-        checked_at: now.toISO(),
-        raw_payload: record.rawPayload ?? {}
-      })),
-      {
-        onConflict: "lecture_id,resource_type"
-      }
-    );
+    // Only persist tracking rows for CC-configured lectures (UUID lecture_id FK).
+    const ccTrackingRecords = mergedTrackingRecords.filter((r) => ccBatchLectureIds.has(r.lectureId));
+    if (ccTrackingRecords.length > 0) {
+      const { error: trackingError } = await supabase.from("lms_tracking").upsert(
+        ccTrackingRecords.map((record) => ({
+          lecture_id: record.lectureId,
+          resource_type: record.resourceType,
+          found: record.found,
+          uploaded_at: record.uploadedAt,
+          checked_at: now.toISO(),
+          raw_payload: record.rawPayload ?? {}
+        })),
+        { onConflict: "lecture_id,resource_type" }
+      );
 
-    if (trackingError) {
-      throw new Error(trackingError.message);
+      if (trackingError) {
+        throw new Error(trackingError.message);
+      }
     }
+
+    const previousTaskMap = new Map(
+      allLectures.flatMap((lecture) => lecture.tasks.map((task) => [task.id, task] as const))
+    );
 
     const taskUpdates = allLectures.flatMap((lecture) =>
       lecture.tasks.map((task) => {
@@ -784,26 +798,23 @@ export async function runComplianceCheck(options?: {
       })
     );
 
-    const previousTaskMap = new Map(
-      allLectures.flatMap((lecture) => lecture.tasks.map((task) => [task.id, task] as const))
-    );
+    // Only upsert tasks for CC-configured lectures (UUID lecture_id FK).
+    const ccTaskUpdates = taskUpdates.filter((t) => ccBatchLectureIds.has(t.lecture_id));
+    const { data: updatedCcTasks, error: taskError } = ccTaskUpdates.length > 0
+      ? await supabase
+          .from("tasks")
+          .upsert(ccTaskUpdates, { onConflict: "id" })
+          .select("id, lecture_id, type, deadline, status, completed_at")
+      : { data: [], error: null };
 
-    const { data: updatedTasks, error: taskError } = await supabase
-      .from("tasks")
-      .upsert(taskUpdates, {
-        onConflict: "id"
-      })
-      .select("id, lecture_id, type, deadline, status, completed_at");
-
-    if (taskError || !updatedTasks) {
-      throw new Error(taskError?.message ?? "Unable to update tasks");
+    if (taskError) {
+      throw new Error(taskError.message ?? "Unable to update tasks");
     }
 
-    const candidateAlerts: ComplianceAlertEvent[] = updatedTasks.flatMap((task) => {
+    // Build candidate alerts for CC-configured lectures from DB result.
+    const ccCandidateAlerts: ComplianceAlertEvent[] = (updatedCcTasks ?? []).flatMap((task) => {
       const lecture = allLectures.find((item) => item.id === task.lecture_id);
-      if (!lecture) {
-        return [];
-      }
+      if (!lecture) return [];
 
       const previousTask = previousTaskMap.get(task.id);
       const sentAlertTypes = new Set(
@@ -820,9 +831,7 @@ export async function runComplianceCheck(options?: {
         options?.reminderType
       );
 
-      if (alertTypes.length === 0) {
-        return [];
-      }
+      if (alertTypes.length === 0) return [];
 
       return alertTypes.map((alertType) => ({
         taskId: task.id,
@@ -846,21 +855,66 @@ export async function runComplianceCheck(options?: {
       }));
     });
 
+    // Build candidate alerts for admin-batch lectures directly from resolved task states.
+    // Dedup is handled via lms_lecture_cache flags: if the cache already shows "completed"
+    // (previousTask.status === "completed"), the alert was already sent in a prior run.
+    const adminCandidateAlerts: ComplianceAlertEvent[] = pathBLectures.flatMap((lecture) =>
+      lecture.tasks.flatMap((task) => {
+        const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
+        const resolved = nextStatus(task, tracking, now, new Set());
+        const previousTask = previousTaskMap.get(task.id);
+        const alertTypes = chooseAlertTypes(
+          { ...task, status: resolved.status } as TaskRecord,
+          resolved.status,
+          now,
+          previousTask?.status as TaskStatus | undefined,
+          new Set(), // alert_events not used for admin-batch
+          options?.reminderType
+        );
+
+        if (alertTypes.length === 0) return [];
+
+        return alertTypes.map((alertType) => ({
+          taskId: task.id,
+          lecture: {
+            id: lecture.id,
+            user_id: lecture.user_id,
+            batch_name: lecture.batch_name,
+            module_name: lecture.module_name,
+            lecture_name: lecture.lecture_name,
+            learning_objective: "",
+            session_link: "",
+            lecture_date: lecture.lecture_date,
+            start_time: lecture.start_time,
+            end_time: lecture.end_time
+          },
+          taskType: task.type as TaskType,
+          alertType,
+          deadline: task.deadline,
+          completedAt: resolved.completedAt,
+          statusAtSend: resolved.status
+        }));
+      })
+    );
+
     const sentKeys = new Set(
       (existingAlerts ?? []).map((alert) => `${alert.task_id}:${alert.alert_type}`)
     );
 
-    const alertsToSend = candidateAlerts.filter(
+    const ccAlertsToSend = ccCandidateAlerts.filter(
       (alert) => !sentKeys.has(`${alert.taskId}:${alert.alertType}`)
     );
+    // Admin-batch alerts are already deduped via cache flags in previousTask.status check above.
+    const alertsToSend = [...ccAlertsToSend, ...adminCandidateAlerts];
 
     const alertsSent = await sendSlackAlerts(alertsToSend, {
       mentionUserId: profile.slack_member_id
     });
 
-    if (alertsToSend.length > 0) {
+    // Only persist alert_events for CC-configured lectures (tasks.id UUID FK).
+    if (ccAlertsToSend.length > 0) {
       const { error: persistAlertError } = await supabase.from("alert_events").insert(
-        alertsToSend.map((alert) => ({
+        ccAlertsToSend.map((alert) => ({
           task_id: alert.taskId,
           alert_type: alert.alertType
         }))
@@ -871,16 +925,17 @@ export async function runComplianceCheck(options?: {
       }
     }
 
+    const updatedTaskCount = (updatedCcTasks?.length ?? 0) + pathBLectures.flatMap((l) => l.tasks).length;
     summary.checkedLectures += allLectures.length;
     summary.trackedResources += mergedTrackingRecords.length;
-    summary.updatedTasks += updatedTasks.length;
+    summary.updatedTasks += updatedTaskCount;
     summary.alertsSent += alertsSent;
 
     console.log(
       `${profile.email} (CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}) => ${describeRun({
         checkedLectures: allLectures.length,
         trackedResources: mergedTrackingRecords.length,
-        updatedTasks: updatedTasks.length,
+        updatedTasks: updatedTaskCount,
         alertsSent
       })}`
     );
@@ -990,17 +1045,29 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     const allTrackingRecords = [...trackingRecords, ...pathBTracking];
 
     await syncFoundResourcesToCache(supabase, allTrackingRecords);
-    const lectureIds = allLectures.map((l) => l.id);
 
-    const { data: existingTrackingRows } = await supabase
-      .from("lms_tracking")
-      .select("lecture_id, resource_type, found, uploaded_at, raw_payload")
-      .in("lecture_id", lectureIds);
+    // lms_tracking and tasks tables require uuid lecture_id FKs.
+    // Admin-batch lectures use numeric LMS IDs — only write to those tables for CC lectures.
+    const ccBatchLectureIds = new Set(lectures.map((l) => l.id));
+    const ccLectureIdList = lectures.map((l) => l.id);
+    const ccTaskIdList = lectures.flatMap((l) => l.tasks.map((t) => t.id));
 
-    const { data: existingAlerts } = await supabase
-      .from("alert_events")
-      .select("task_id, alert_type")
-      .in("task_id", allLectures.flatMap((l) => l.tasks.map((t) => t.id)));
+    const [existingTrackingRows, existingAlerts] = await Promise.all([
+      ccLectureIdList.length > 0
+        ? supabase
+            .from("lms_tracking")
+            .select("lecture_id, resource_type, found, uploaded_at, raw_payload")
+            .in("lecture_id", ccLectureIdList)
+            .then((r) => r.data)
+        : Promise.resolve([]),
+      ccTaskIdList.length > 0
+        ? supabase
+            .from("alert_events")
+            .select("task_id, alert_type")
+            .in("task_id", ccTaskIdList)
+            .then((r) => r.data)
+        : Promise.resolve([])
+    ]);
 
     const stickyCompletedTaskIds = new Set(
       (existingAlerts ?? [])
@@ -1046,38 +1113,43 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
       trackingMap.set(trackingKey(r.lectureId, r.resourceType), r);
     }
 
-    await supabase.from("lms_tracking").upsert(
-      mergedTrackingRecords.map((r) => ({
-        lecture_id: r.lectureId,
-        resource_type: r.resourceType,
-        found: r.found,
-        uploaded_at: r.uploadedAt,
-        checked_at: now.toISO(),
-        raw_payload: r.rawPayload ?? {}
-      })),
-      { onConflict: "lecture_id,resource_type" }
-    );
+    // Only persist tracking and tasks for CC-configured lectures (UUID IDs).
+    const ccTrackingRecords = mergedTrackingRecords.filter((r) => ccBatchLectureIds.has(r.lectureId));
+    if (ccTrackingRecords.length > 0) {
+      await supabase.from("lms_tracking").upsert(
+        ccTrackingRecords.map((r) => ({
+          lecture_id: r.lectureId,
+          resource_type: r.resourceType,
+          found: r.found,
+          uploaded_at: r.uploadedAt,
+          checked_at: now.toISO(),
+          raw_payload: r.rawPayload ?? {}
+        })),
+        { onConflict: "lecture_id,resource_type" }
+      );
+    }
 
-    const taskUpdates = allLectures.flatMap((lecture) =>
-      lecture.tasks.map((task) => {
-        const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
-        const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
-        return {
-          id: task.id,
-          lecture_id: task.lecture_id,
-          type: task.type,
-          deadline: task.deadline,
-          status: resolved.status,
-          completed_at: resolved.completedAt,
-          last_checked_at: now.toISO()
-        };
-      })
-    );
+    const ccTaskUpdates = allLectures
+      .filter((l) => ccBatchLectureIds.has(l.id))
+      .flatMap((lecture) =>
+        lecture.tasks.map((task) => {
+          const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
+          const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
+          return {
+            id: task.id,
+            lecture_id: task.lecture_id,
+            type: task.type,
+            deadline: task.deadline,
+            status: resolved.status,
+            completed_at: resolved.completedAt,
+            last_checked_at: now.toISO()
+          };
+        })
+      );
 
-    const { data: updated } = await supabase
-      .from("tasks")
-      .upsert(taskUpdates, { onConflict: "id" })
-      .select("id");
+    const { data: updated } = ccTaskUpdates.length > 0
+      ? await supabase.from("tasks").upsert(ccTaskUpdates, { onConflict: "id" }).select("id")
+      : { data: [] };
 
     totalUpdated += updated?.length ?? 0;
     totalLectures += allLectures.length;

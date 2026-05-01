@@ -6,7 +6,7 @@ import { DateTime } from "luxon";
 import { getCurrentUser, getUserProfile } from "@/lib/auth";
 import { runComplianceCheck, syncTaskStatusesFromLms } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
-import { getDashboardData } from "@/lib/queries";
+import { getCCLectures } from "@/lib/queries";
 import { sendManualPendingDigest } from "@/lib/slack";
 import { TASK_TYPES } from "@/lib/constants";
 
@@ -32,8 +32,10 @@ export async function POST() {
     // reflects what is actually still missing (not stale cached status).
     await syncTaskStatusesFromLms(user.id);
 
+    // getCCLectures reads from lms_lecture_cache (covers both CC-configured and
+    // admin-batch lectures), so the pending digest includes all admin-batch tasks.
     const [lectures, userProfile] = await Promise.all([
-      getDashboardData({ userId: user.id }),
+      getCCLectures(user.id),
       getUserProfile(user.id)
     ]);
     const pendingItems = lectures.flatMap((lecture) =>
@@ -75,7 +77,7 @@ export async function POST() {
       mentionUserId: userProfile?.slack_member_id
     });
 
-    const githubToken = process.env.WORKFLOW_DISPATCH_TOKEN;
+    const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubWorkflowId = process.env.GITHUB_WORKFLOW_ID ?? "compliance-check.yml";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
