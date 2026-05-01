@@ -12,24 +12,34 @@ import { sendManualPendingDigest } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LectureRecord, TaskType } from "@/lib/types";
 
+type PendingDigestItemWithCC = {
+  lecture: Pick<LectureRecord, "lecture_name" | "lecture_date" | "batch_name">;
+  taskType: TaskType;
+  deadline: string;
+  cc_user_id: string;
+};
+
 /**
- * Build pending digest items from lms_lecture_cache.
- * Only includes resources whose deadline has already passed and the resource
- * is still not uploaded — i.e. the CC has missed or is late on the deadline.
+ * Build pending digest items from lms_lecture_cache, tagged with the CC user
+ * responsible for each batch so the caller can mention them in Slack.
+ * Only includes resources whose deadline falls today and is still not uploaded.
  */
-async function getPendingItemsFromCache() {
+async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
 
-  // Batch id → name map
+  // Batch id → { batch_name, cc_user_id }
   const { data: assignments, error: aErr } = await supabase
     .from("cc_batch_assignments")
-    .select("batch_id, batch_name");
+    .select("batch_id, batch_name, cc_user_id");
   if (aErr) throw new Error(aErr.message);
 
-  const batchNameById = new Map<number, string>(
-    (assignments ?? []).map((a) => [a.batch_id as number, a.batch_name as string])
+  const batchInfoById = new Map<number, { batchName: string; ccUserId: string }>(
+    (assignments ?? []).map((a) => [
+      a.batch_id as number,
+      { batchName: a.batch_name as string, ccUserId: a.cc_user_id as string }
+    ])
   );
 
   // Cache rows that have at least one resource still pending
@@ -40,7 +50,7 @@ async function getPendingItemsFromCache() {
 
   if (cErr) throw new Error(cErr.message);
 
-  const pendingItems: Array<{ lecture: Pick<LectureRecord, "lecture_name" | "lecture_date" | "batch_name">; taskType: TaskType; deadline: string }> = [];
+  const pendingItems: PendingDigestItemWithCC[] = [];
 
   for (const row of cacheRows ?? []) {
     if (!row.schedule) continue;
@@ -50,12 +60,13 @@ async function getPendingItemsFromCache() {
 
     const lectureDate = schedDt.toISODate()!;
     const startTime = schedDt.toFormat("HH:mm:ss");
-    const batchName = batchNameById.get(row.batch_id as number) ?? `Batch ${row.batch_id}`;
+    const batchInfo = batchInfoById.get(row.batch_id as number);
+    if (!batchInfo) continue;
 
     const lectureInfo = {
       lecture_name: row.title as string,
       lecture_date: lectureDate,
-      batch_name: batchName
+      batch_name: batchInfo.batchName
     };
 
     const types: Array<{ type: TaskType; uploaded: boolean }> = [
@@ -68,9 +79,8 @@ async function getPendingItemsFromCache() {
       if (uploaded) continue;
       const deadline = computeDeadline(type, lectureDate, startTime, startTime);
       const deadlineDt = DateTime.fromISO(deadline, { zone: timezone });
-      // Only include if deadline is today (not old missed items — those would flood Slack)
       if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
-        pendingItems.push({ lecture: lectureInfo, taskType: type, deadline });
+        pendingItems.push({ lecture: lectureInfo, taskType: type, deadline, cc_user_id: batchInfo.ccUserId });
       }
     }
   }
@@ -120,19 +130,38 @@ export async function POST() {
     const pendingItems = await getPendingItemsFromCache();
     console.log(`[sync-up] Pending items with passed deadlines: ${pendingItems.length}`);
 
-    // Step 3: Send Slack notification for pending items
+    // Step 3: Send per-CC Slack notifications so each CC is @mentioned with their own items
     let slackSent = false;
     if (pendingItems.length > 0) {
-      try {
-        await sendManualPendingDigest(
-          // Cast: Slack functions only read lecture_name, lecture_date, batch_name
-          pendingItems as Parameters<typeof sendManualPendingDigest>[0],
-          { mentionUserId: null }
-        );
-        slackSent = true;
-        console.log(`[sync-up] Slack notification sent with ${pendingItems.length} pending item(s)`);
-      } catch (slackErr) {
-        console.error("[sync-up] Slack send failed:", slackErr);
+      // Group items by CC user
+      const itemsByCC = new Map<string, PendingDigestItemWithCC[]>();
+      for (const item of pendingItems) {
+        const list = itemsByCC.get(item.cc_user_id) ?? [];
+        list.push(item);
+        itemsByCC.set(item.cc_user_id, list);
+      }
+
+      // Fetch Slack member IDs for all CCs with pending items
+      const { data: ccProfiles } = await supabase
+        .from("user_profiles")
+        .select("user_id, slack_member_id")
+        .in("user_id", [...itemsByCC.keys()]);
+      const slackIdByUser = new Map<string, string | null>(
+        (ccProfiles ?? []).map((p) => [p.user_id as string, p.slack_member_id as string | null])
+      );
+
+      for (const [ccUserId, items] of itemsByCC) {
+        const mentionUserId = slackIdByUser.get(ccUserId) ?? null;
+        try {
+          await sendManualPendingDigest(
+            items as unknown as Parameters<typeof sendManualPendingDigest>[0],
+            { mentionUserId }
+          );
+          slackSent = true;
+          console.log(`[sync-up] Slack sent for CC ${ccUserId} (mention: ${mentionUserId ?? "none"}) — ${items.length} item(s)`);
+        } catch (slackErr) {
+          console.error(`[sync-up] Slack send failed for CC ${ccUserId}:`, slackErr);
+        }
       }
     }
 

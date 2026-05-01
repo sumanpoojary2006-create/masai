@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
 import { getCurrentUser, getUserProfile } from "@/lib/auth";
-import { runComplianceCheck, syncAssignedBatchesCache, syncTaskStatusesFromLms } from "@/lib/automation";
+import { syncAssignedBatchesCache, syncTaskStatusesFromLms } from "@/lib/automation";
 import { getAppTimezone } from "@/lib/env";
 import { getCCLectures } from "@/lib/queries";
 import { sendManualPendingDigest } from "@/lib/slack";
@@ -95,68 +95,48 @@ export async function POST() {
     const githubWorkflowId = process.env.GITHUB_WORKFLOW_ID ?? "compliance-check.yml";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
 
-    if (githubToken) {
-      const [owner, repo] = githubRepo.split("/");
-
-      if (!owner || !repo) {
-        return NextResponse.json(
-          {
-            message: "Invalid GitHub repository configuration for compliance dispatch."
-          },
-          {
-            status: 500
-          }
-        );
-      }
-
-      const response = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${githubWorkflowId}/dispatches`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${githubToken}`,
-            Accept: "application/vnd.github+json",
-            "Content-Type": "application/json",
-            "X-GitHub-Api-Version": "2022-11-28"
-          },
-          body: JSON.stringify({
-            ref: githubRef
-          })
-        }
+    if (!githubToken) {
+      return NextResponse.json(
+        { message: "GitHub Actions token is not configured. Compliance check cannot be dispatched." },
+        { status: 500 }
       );
-
-      if (!response.ok) {
-        const failure = await response.text();
-
-        return NextResponse.json(
-          {
-            message: `Unable to dispatch GitHub compliance workflow. ${failure || response.statusText}`
-          },
-          {
-            status: 500
-          }
-        );
-      }
-
-      return NextResponse.json({
-        message:
-          pendingDigestSent > 0
-            ? "Manual pending reminder sent to Slack. Compliance workflow dispatched to GitHub Actions and status updates will follow when that run completes."
-            : "Compliance workflow dispatched to GitHub Actions. No pending manual reminder was needed, and status updates will follow when that run completes.",
-        mode: "github_dispatch"
-      });
     }
 
-    const result = await runComplianceCheck({
-      userId: user.id
-    });
+    const [owner, repo] = githubRepo.split("/");
+    if (!owner || !repo) {
+      return NextResponse.json(
+        { message: "Invalid GitHub repository configuration for compliance dispatch." },
+        { status: 500 }
+      );
+    }
+
+    const ghResponse = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${githubWorkflowId}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28"
+        },
+        body: JSON.stringify({ ref: githubRef })
+      }
+    );
+
+    if (!ghResponse.ok) {
+      const failure = await ghResponse.text();
+      return NextResponse.json(
+        { message: `Unable to dispatch GitHub compliance workflow. ${failure || ghResponse.statusText}` },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       message:
         pendingDigestSent > 0
-          ? "Manual pending reminder sent to Slack. Compliance workflow completed."
-          : "Compliance workflow completed.",
-      result
+          ? "Pending reminder sent to Slack. Compliance check dispatched to GitHub Actions — dashboard will update once it completes."
+          : "Compliance check dispatched to GitHub Actions — dashboard will update once it completes."
     });
   } catch (error) {
     return NextResponse.json(
