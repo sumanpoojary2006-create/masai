@@ -160,36 +160,47 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       setIsSyncing(true);
       setMessage(null);
 
-      const response = await fetch("/api/compliance", {
-        method: "POST"
-      });
+      try {
+        const response = await fetch("/api/compliance", {
+          method: "POST"
+        });
 
-      const payload = (await response.json()) as {
-        message?: string;
-        result?: {
-          checkedLectures: number;
-          trackedResources: number;
-          updatedTasks: number;
-          alertsSent: number;
-        };
-      };
+        let payload: {
+          message?: string;
+          result?: {
+            checkedLectures: number;
+            trackedResources: number;
+            updatedTasks: number;
+            alertsSent: number;
+          };
+        } = {};
 
-      if (!response.ok) {
-        setMessage(payload.message ?? "Unable to run compliance sync.");
+        try {
+          payload = await response.json();
+        } catch {
+          // Server returned a non-JSON response (e.g. a Vercel error page).
+        }
+
+        if (!response.ok) {
+          setMessage(payload.message ?? "Unable to run compliance sync.");
+          setIsSyncing(false);
+          return;
+        }
+
+        if (payload.result) {
+          setMessage(
+            `Sync complete. Checked ${payload.result.checkedLectures} lectures, updated ${payload.result.updatedTasks} tasks, and sent ${payload.result.alertsSent} Slack message(s).`
+          );
+        } else {
+          setMessage(payload.message ?? "Compliance sync completed.");
+        }
+
         setIsSyncing(false);
-        return;
+        router.refresh();
+      } catch {
+        setMessage("Unable to run compliance sync. Please try again.");
+        setIsSyncing(false);
       }
-
-      if (payload.result) {
-        setMessage(
-          `Sync complete. Checked ${payload.result.checkedLectures} lectures, updated ${payload.result.updatedTasks} tasks, and sent ${payload.result.alertsSent} Slack message(s).`
-        );
-      } else {
-        setMessage(payload.message ?? "Compliance sync completed.");
-      }
-
-      setIsSyncing(false);
-      router.refresh();
     });
   }
 
