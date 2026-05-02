@@ -31,7 +31,7 @@ export async function POST() {
 
     // Sync LMS state into both the tasks table (CC-configured lectures) and
     // lms_lecture_cache (admin-batch lectures) so the digest reflects live LMS state.
-    await syncTaskStatusesFromLms(user.id);
+    const syncResult = await syncTaskStatusesFromLms(user.id);
 
     // Also sync lms_lecture_cache for admin-batch assignments so dashboard status
     // reflects reality without waiting for the nightly admin sync.
@@ -86,57 +86,61 @@ export async function POST() {
       })
     );
 
-    const pendingDigestSent = await sendManualPendingDigest(pendingItems, {
-      mentionUserId: userProfile?.slack_member_id
-    });
+    // Send Slack digest — non-fatal so sync succeeds even if Slack isn't configured.
+    let slackSent = 0;
+    try {
+      slackSent = await sendManualPendingDigest(pendingItems, {
+        mentionUserId: userProfile?.slack_member_id
+      });
+    } catch (slackError) {
+      console.error("[compliance/sync] Slack digest failed:", slackError);
+    }
 
+    // Dispatch GitHub Actions compliance workflow — non-fatal so sync succeeds
+    // even when the token is missing (e.g. local dev or staging environments).
     const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
-    const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
-    const githubWorkflowId = process.env.GITHUB_WORKFLOW_ID ?? "compliance-check.yml";
-    const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
+    if (githubToken) {
+      const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
+      const githubWorkflowId = process.env.GITHUB_WORKFLOW_ID ?? "compliance-check.yml";
+      const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
+      const [owner, repo] = githubRepo.split("/");
 
-    if (!githubToken) {
-      return NextResponse.json(
-        { message: "GitHub Actions token is not configured. Compliance check cannot be dispatched." },
-        { status: 500 }
-      );
-    }
+      if (owner && repo) {
+        try {
+          const ghResponse = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${githubWorkflowId}/dispatches`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${githubToken}`,
+                Accept: "application/vnd.github+json",
+                "Content-Type": "application/json",
+                "X-GitHub-Api-Version": "2022-11-28"
+              },
+              body: JSON.stringify({ ref: githubRef })
+            }
+          );
 
-    const [owner, repo] = githubRepo.split("/");
-    if (!owner || !repo) {
-      return NextResponse.json(
-        { message: "Invalid GitHub repository configuration for compliance dispatch." },
-        { status: 500 }
-      );
-    }
-
-    const ghResponse = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${githubWorkflowId}/dispatches`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${githubToken}`,
-          Accept: "application/vnd.github+json",
-          "Content-Type": "application/json",
-          "X-GitHub-Api-Version": "2022-11-28"
-        },
-        body: JSON.stringify({ ref: githubRef })
+          if (!ghResponse.ok) {
+            console.error("[compliance/sync] GitHub dispatch failed:", await ghResponse.text());
+          }
+        } catch (ghError) {
+          console.error("[compliance/sync] GitHub dispatch error:", ghError);
+        }
       }
-    );
-
-    if (!ghResponse.ok) {
-      const failure = await ghResponse.text();
-      return NextResponse.json(
-        { message: `Unable to dispatch GitHub compliance workflow. ${failure || ghResponse.statusText}` },
-        { status: 500 }
-      );
     }
 
     return NextResponse.json({
+      result: {
+        checkedLectures: syncResult.checkedLectures,
+        trackedResources: 0,
+        updatedTasks: syncResult.updatedTasks,
+        alertsSent: slackSent
+      },
       message:
-        pendingDigestSent > 0
-          ? "Pending reminder sent to Slack. Compliance check dispatched to GitHub Actions — dashboard will update once it completes."
-          : "Compliance check dispatched to GitHub Actions — dashboard will update once it completes."
+        slackSent > 0
+          ? "Pending reminder sent to Slack. Dashboard updated with latest LMS state."
+          : "Dashboard updated with latest LMS state."
     });
   } catch (error) {
     return NextResponse.json(
