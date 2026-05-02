@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
@@ -42,11 +43,18 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
     ])
   );
 
+  // Scope to current week — same ±8-day window as getCacheLecturesForProfile — to
+  // avoid scanning thousands of historical rows with pending flags never flipped.
+  const weekStart = `${now.startOf("week").toISODate()!}T00:00:00+00:00`;
+  const weekEnd = `${now.startOf("week").plus({ days: 8 }).toISODate()!}T00:00:00+00:00`;
+
   // Cache rows that have at least one resource still pending
   const { data: cacheRows, error: cErr } = await supabase
     .from("lms_lecture_cache")
     .select("batch_id, lecture_id, title, schedule, preread_uploaded, notes_uploaded, assignment_uploaded")
-    .or("preread_uploaded.eq.false,notes_uploaded.eq.false,assignment_uploaded.eq.false");
+    .or("preread_uploaded.eq.false,notes_uploaded.eq.false,assignment_uploaded.eq.false")
+    .gte("schedule", weekStart)
+    .lte("schedule", weekEnd);
 
   if (cErr) throw new Error(cErr.message);
 
