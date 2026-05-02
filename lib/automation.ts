@@ -645,6 +645,13 @@ export async function runComplianceCheck(options?: {
           if (!isNaN(parsed)) lmsLectureId = parsed;
         } catch { /* ignore */ }
       }
+      // cl.lectureId is the LMS numeric lecture_id stored in lms_lecture_cache.
+      // Use it as a fallback when session_link is absent or lacks an ?id= param
+      // so syncFoundResourcesToCache can still update the cache row.
+      if (!lmsLectureId) {
+        const fallback = parseInt(cl.lectureId, 10);
+        if (!isNaN(fallback)) lmsLectureId = fallback;
+      }
       const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId };
 
       pathBTracking.push(
@@ -1018,6 +1025,13 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
           const parsed = lmsIdStr ? parseInt(lmsIdStr, 10) : NaN;
           if (!isNaN(parsed)) lmsLectureId = parsed;
         } catch { /* ignore */ }
+      }
+      // cl.lectureId is the LMS numeric lecture_id stored in lms_lecture_cache.
+      // Use it as a fallback when session_link is absent or lacks an ?id= param
+      // so syncFoundResourcesToCache can still update the cache row.
+      if (!lmsLectureId) {
+        const fallback = parseInt(cl.lectureId, 10);
+        if (!isNaN(fallback)) lmsLectureId = fallback;
       }
       const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId };
 
