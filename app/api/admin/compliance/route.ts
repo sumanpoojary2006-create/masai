@@ -1,5 +1,4 @@
 export const runtime = "nodejs";
-export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
@@ -8,7 +7,6 @@ import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
 import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone } from "@/lib/env";
-import { syncAssignedBatchesCache } from "@/lib/automation";
 import { sendManualPendingDigest } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LectureRecord, TaskType } from "@/lib/types";
@@ -123,25 +121,18 @@ export async function POST() {
       return NextResponse.json({ message: "Admin access required." }, { status: 403 });
     }
 
-    // Step 1: Re-sync lms_lecture_cache from live LMS data
     const supabase = createServerSupabase();
-    const { data: assignments, error: assignError } = await supabase
-      .from("cc_batch_assignments")
-      .select("batch_id")
-      .order("batch_id", { ascending: true });
-    if (assignError) throw new Error(assignError.message);
-    const batchIds = [...new Set((assignments ?? []).map((a) => a.batch_id as number))];
-    const syncResult = await syncAssignedBatchesCache(batchIds);
-    console.log(`[sync-up] Cache synced: ${syncResult.batchesSynced} batches, ${syncResult.lecturesSynced} lectures`);
 
-    // Step 2: Build pending digest from the freshly-synced cache
+    // Step 1: Build pending digest from the existing cache (scoped to current week).
+    // Cache is kept fresh by the weekly auto-sync and the "Sync All Lectures" button —
+    // re-syncing here caused sequential MySQL queries for every assigned batch and
+    // routinely timed out the Vercel function before any response was sent.
     const pendingItems = await getPendingItemsFromCache();
     console.log(`[sync-up] Pending items with passed deadlines: ${pendingItems.length}`);
 
-    // Step 3: Send per-CC Slack notifications so each CC is @mentioned with their own items
+    // Step 2: Send per-CC Slack notifications so each CC is @mentioned with their own items
     let slackSent = false;
     if (pendingItems.length > 0) {
-      // Group items by CC user
       const itemsByCC = new Map<string, PendingDigestItemWithCC[]>();
       for (const item of pendingItems) {
         const list = itemsByCC.get(item.cc_user_id) ?? [];
@@ -149,7 +140,6 @@ export async function POST() {
         itemsByCC.set(item.cc_user_id, list);
       }
 
-      // Fetch Slack member IDs for all CCs with pending items
       const { data: ccProfiles } = await supabase
         .from("user_profiles")
         .select("user_id, slack_member_id")
@@ -173,7 +163,7 @@ export async function POST() {
       }
     }
 
-    // Step 4: Dispatch GitHub Actions for the deeper compliance check (tasks table)
+    // Step 3: Dispatch GitHub Actions for the deeper compliance check (tasks table)
     const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
@@ -190,9 +180,8 @@ export async function POST() {
 
     return NextResponse.json({
       message: slackSent
-        ? `Synced ${syncResult.lecturesSynced} lectures across ${syncResult.batchesSynced} batches. Slack notification sent for ${pendingItems.length} pending item(s).`
-        : `Synced ${syncResult.lecturesSynced} lectures across ${syncResult.batchesSynced} batches. No overdue pending items — all resources are on track!`,
-      ...syncResult,
+        ? `Compliance check complete. Slack notification sent for ${pendingItems.length} pending item(s).`
+        : "Compliance check complete. No overdue pending items — all resources are on track!",
       pendingCount: pendingItems.length,
       slackSent
     });
