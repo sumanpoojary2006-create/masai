@@ -669,13 +669,21 @@ export async function getCacheLecturesForProfile(userId: string): Promise<CacheL
     assignments.map((a) => [a.batch_id, a.batch_name])
   );
 
-  // 2. Fetch cache rows for all assigned batches
+  // 2. Fetch current-week cache rows for all assigned batches.
+  // Matching the same ±8-day window as getCCLectures so we only check the lectures
+  // the dashboard actually shows — prevents 700+ per-lecture MySQL calls on large accounts.
+  const now = DateTime.now().setZone(timezone);
+  const weekStart = `${now.startOf("week").toISODate()!}T00:00:00+00:00`;
+  const weekEnd = `${now.startOf("week").plus({ days: 8 }).toISODate()!}T00:00:00+00:00`;
+
   const { data: rows, error: cacheErr } = await supabase
     .from("lms_lecture_cache")
     .select(
       "batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded"
     )
     .in("batch_id", batchIds)
+    .gte("schedule", weekStart)
+    .lte("schedule", weekEnd)
     .order("schedule", { ascending: false });
 
   if (cacheErr) throw new Error(cacheErr.message);
