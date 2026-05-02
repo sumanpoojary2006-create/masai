@@ -1013,9 +1013,14 @@ export function AdminDashboardClient({
                   {syncState === "loading" ? "Syncing…" : "Sync Lectures"}
                 </button>
                 {syncMsg && (
-                  <p className={`mt-2 text-xs font-medium ${syncState === "error" ? "text-rose-400" : "text-emerald-400"}`}>
-                    {syncState === "success" ? "✓ " : "✗ "}{syncMsg}
-                  </p>
+                  <div className={`mt-3 flex items-start gap-2 rounded-xl px-3 py-2 text-sm font-medium ${
+                    syncState === "error"
+                      ? "bg-rose-500/10 text-rose-300"
+                      : "bg-emerald-500/10 text-emerald-300"
+                  }`}>
+                    <span className="shrink-0">{syncState === "success" ? "✓" : "✗"}</span>
+                    <span>{syncMsg}</span>
+                  </div>
                 )}
               </div>
 
@@ -1031,9 +1036,14 @@ export function AdminDashboardClient({
                   {complianceState === "loading" ? "Running…" : "Sync Up"}
                 </button>
                 {complianceMsg && (
-                  <p className={`mt-2 text-xs font-medium ${complianceState === "error" ? "text-rose-400" : "text-emerald-400"}`}>
-                    {complianceState === "success" ? "✓ " : "✗ "}{complianceMsg}
-                  </p>
+                  <div className={`mt-3 flex items-start gap-2 rounded-xl px-3 py-2 text-sm font-medium ${
+                    complianceState === "error"
+                      ? "bg-rose-500/10 text-rose-300"
+                      : "bg-emerald-500/10 text-emerald-300"
+                  }`}>
+                    <span className="shrink-0">{complianceState === "success" ? "✓" : "✗"}</span>
+                    <span>{complianceMsg}</span>
+                  </div>
                 )}
               </div>
             </div>

@@ -43,6 +43,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const [showTodayLectures, setShowTodayLectures] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "success" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -158,6 +159,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   function handleSync() {
     startTransition(async () => {
       setIsSyncing(true);
+      setSyncStatus("idle");
       setMessage(null);
 
       try {
@@ -182,14 +184,16 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         }
 
         if (!response.ok) {
+          setSyncStatus("error");
           setMessage(payload.message ?? "Unable to run compliance sync.");
           setIsSyncing(false);
           return;
         }
 
+        setSyncStatus("success");
         if (payload.result) {
           setMessage(
-            `Sync complete. Checked ${payload.result.checkedLectures} lectures, updated ${payload.result.updatedTasks} tasks, and sent ${payload.result.alertsSent} Slack message(s).`
+            `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated · ${payload.result.alertsSent} Slack alert(s) sent.`
           );
         } else {
           setMessage(payload.message ?? "Compliance sync completed.");
@@ -198,6 +202,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         setIsSyncing(false);
         router.refresh();
       } catch {
+        setSyncStatus("error");
         setMessage("Unable to run compliance sync. Please try again.");
         setIsSyncing(false);
       }
@@ -256,8 +261,11 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
           type="button"
           disabled={isPending || isSyncing}
           onClick={handleSync}
-          className="mt-6 inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
+          className="mt-6 inline-flex h-11 items-center gap-2 justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
         >
+          {isSyncing && (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+          )}
           {isSyncing ? "Syncing..." : "Sync Up"}
         </button>
       </div>
@@ -305,8 +313,11 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                     type="button"
                     disabled={isPending || isSyncing}
                     onClick={handleSync}
-                    className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
+                    className="inline-flex h-11 items-center gap-2 justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
                   >
+                    {isSyncing && (
+                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    )}
                     {isSyncing ? "Syncing..." : "Sync Up"}
                   </button>
 
@@ -372,12 +383,26 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                     </button>
                   )}
                 </div>
+
+                {/* Sync feedback banner */}
+                {message && (
+                  <div
+                    className={`flex items-start gap-2 rounded-2xl px-4 py-3 text-sm font-medium transition-all ${
+                      syncStatus === "error"
+                        ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                        : "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    }`}
+                  >
+                    <span className="mt-px shrink-0 text-base leading-none">
+                      {syncStatus === "error" ? "✗" : "✓"}
+                    </span>
+                    <span>{message}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
-
-        {message ? <p className="theme-muted mt-4 text-sm">{message}</p> : null}
 
         {showTodayTodo ? (
           <div className="mt-6 rounded-3xl border border-slate-200/80 bg-slate-50/90 p-5 dark:border-slate-700/70 dark:bg-slate-900/40">
