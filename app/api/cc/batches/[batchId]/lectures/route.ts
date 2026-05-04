@@ -44,7 +44,26 @@ export async function GET(
 
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ lectures: data ?? [] });
+    // Deduplicate by (title, schedule): the LMS stores one row per section for
+    // the same live session. Merge compliance flags with OR.
+    type Row = (typeof data)[number];
+    const dedupMap = new Map<string, Row>();
+    for (const l of data ?? []) {
+      const key = `${l.schedule}::${l.title}`;
+      const existing = dedupMap.get(key);
+      if (!existing) {
+        dedupMap.set(key, l);
+      } else {
+        dedupMap.set(key, {
+          ...existing,
+          preread_uploaded: existing.preread_uploaded || l.preread_uploaded,
+          notes_uploaded: existing.notes_uploaded || l.notes_uploaded,
+          assignment_uploaded: existing.assignment_uploaded || l.assignment_uploaded,
+        });
+      }
+    }
+
+    return NextResponse.json({ lectures: [...dedupMap.values()] });
   } catch (err) {
     return NextResponse.json(
       { message: err instanceof Error ? err.message : "Failed to fetch lectures." },

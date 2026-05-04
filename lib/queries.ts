@@ -608,11 +608,31 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
 
   if (error) throw new Error(error.message);
 
-  return (data ?? []).map((row) => {
-    // Strip the +00:00 offset and parse wall-clock string as IST
-    // (LMS stores IST times mislabeled as UTC)
-    const dt = DateTime.fromISO((row.schedule as string).slice(0, 19), { zone: timezone });
-    const end = DateTime.fromISO((row.concludes as string).slice(0, 19), { zone: timezone });
+  // Deduplicate by (batch_id, title, schedule): the LMS stores one row per
+  // section for the same live session. Merge compliance flags with OR.
+  type CacheRow = (typeof data)[number];
+  const dedupMap = new Map<string, CacheRow>();
+  for (const row of data ?? []) {
+    const key = `${row.batch_id}::${row.schedule}::${row.title}`;
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, row);
+    } else {
+      dedupMap.set(key, {
+        ...existing,
+        preread_uploaded: existing.preread_uploaded || row.preread_uploaded,
+        notes_uploaded: existing.notes_uploaded || row.notes_uploaded,
+        assignment_uploaded: existing.assignment_uploaded || row.assignment_uploaded,
+      });
+    }
+  }
+
+  return [...dedupMap.values()].map((row) => {
+    // Supabase stores timestamptz as UTC (+00:00). Parse respecting the offset,
+    // then convert to IST for display. (Old approach of slicing off "+00:00" and
+    // re-interpreting as IST wall-clock was wrong: it showed 14:30 instead of 20:00.)
+    const dt = DateTime.fromISO(row.schedule as string).setZone(timezone);
+    const end = DateTime.fromISO(row.concludes as string).setZone(timezone);
     const lectureId = row.lecture_id.toString();
     const lectureDate = dt.toISODate()!;
     const startTime = dt.toFormat("HH:mm:ss");
@@ -689,15 +709,33 @@ export async function getCacheLecturesForProfile(userId: string): Promise<CacheL
   if (cacheErr) throw new Error(cacheErr.message);
   if (!rows?.length) return [];
 
-  return rows.map((row) => {
+  // Deduplicate by (batch_id, title, schedule) before mapping.
+  // The LMS stores one row per section for the same live session; merge flags with OR.
+  type CRow = (typeof rows)[number];
+  const dedupMap = new Map<string, CRow>();
+  for (const row of rows) {
+    const key = `${row.batch_id}::${row.schedule}::${row.title}`;
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, row);
+    } else {
+      dedupMap.set(key, {
+        ...existing,
+        preread_uploaded: existing.preread_uploaded || row.preread_uploaded,
+        notes_uploaded: existing.notes_uploaded || row.notes_uploaded,
+        assignment_uploaded: existing.assignment_uploaded || row.assignment_uploaded,
+      });
+    }
+  }
+
+  return [...dedupMap.values()].map((row) => {
     const batchId = row.batch_id as number;
     const lmsLectureId = row.lecture_id as number;
     const lectureId = lmsLectureId.toString();
 
-    // Strip the +00:00 offset and parse wall-clock string as IST
-    // (LMS stores IST times mislabeled as UTC)
-    const dt = DateTime.fromISO((row.schedule as string).slice(0, 19), { zone: timezone });
-    const end = DateTime.fromISO((row.concludes as string).slice(0, 19), { zone: timezone });
+    // Parse Supabase UTC timestamp respecting the offset, then convert to IST.
+    const dt = DateTime.fromISO(row.schedule as string).setZone(timezone);
+    const end = DateTime.fromISO(row.concludes as string).setZone(timezone);
     const lectureDate = dt.toISODate()!;
     const startTime = dt.toFormat("HH:mm:ss");
     const endTime = end.toFormat("HH:mm:ss");
