@@ -115,6 +115,12 @@ export default async function CCDashboardPage() {
   }
   const lectures: LmsLecture[] = [...dedupMap.values()];
 
+  // Saturday sessions whose notes/assignment are due Monday
+  const mondayTodos = lectures.filter((l) => {
+    const dt = DateTime.fromISO(l.schedule).setZone(tz);
+    return dt.weekday === 6 && (!l.notes_uploaded || !l.assignment_uploaded);
+  });
+
   // Summary
   const taskStatuses = lectures.flatMap((l) => [l.preread_uploaded, l.notes_uploaded, l.assignment_uploaded]);
   const completed = taskStatuses.filter(Boolean).length;
@@ -170,6 +176,50 @@ export default async function CCDashboardPage() {
           <p className="mt-3 font-[var(--font-heading)] text-4xl font-bold">{assignments.length}</p>
         </div>
       </section>
+
+      {/* Monday To-Dos — Saturday sessions with pending resources */}
+      {mondayTodos.length > 0 && (
+        <section className="rounded-[2rem] border border-amber-500/30 bg-amber-950/20 p-6">
+          <h2 className="mb-1 font-[var(--font-heading)] text-xl font-bold text-amber-300">Monday To-Dos</h2>
+          <p className="mb-5 text-sm text-amber-400/80">
+            These Saturday sessions have pending resources — send Notes &amp; Assignment by{" "}
+            <strong>
+              {DateTime.fromISO(mondayTodos[0].schedule).setZone(tz).plus({ days: 2 }).toFormat("dd MMM yyyy")}, 3:00 PM
+            </strong>
+            .
+          </p>
+          <div className="flex flex-col gap-3">
+            {mondayTodos.map((l) => {
+              const dt = DateTime.fromISO(l.schedule).setZone(tz);
+              return (
+                <div
+                  key={l.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/20 bg-amber-950/30 px-5 py-4"
+                >
+                  <div>
+                    <p className="font-medium text-amber-100">{l.title}</p>
+                    <p className="text-xs text-amber-400/70">
+                      {batchNameMap[l.batch_id]} &bull; {dt.toFormat("dd MMM yyyy (cccc)")}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    {!l.notes_uploaded && (
+                      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+                        Notes pending
+                      </span>
+                    )}
+                    {!l.assignment_uploaded && (
+                      <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300">
+                        Assignment pending
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* This week's lectures */}
       <section className="theme-panel rounded-[2rem] p-6">

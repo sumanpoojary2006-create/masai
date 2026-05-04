@@ -693,7 +693,10 @@ export async function getCacheLecturesForProfile(userId: string): Promise<CacheL
   // Matching the same ±8-day window as getCCLectures so we only check the lectures
   // the dashboard actually shows — prevents 700+ per-lecture MySQL calls on large accounts.
   const now = DateTime.now().setZone(timezone);
-  const weekStart = `${now.startOf("week").toISODate()!}T00:00:00+00:00`;
+  // On Monday the deadline for Saturday lectures falls today (+2 days). Extend
+  // the lookback by 2 days so those lectures are included and reminders fire.
+  const lookback = now.weekday === 1 ? 2 : 0;
+  const weekStart = `${now.startOf("week").minus({ days: lookback }).toISODate()!}T00:00:00+00:00`;
   const weekEnd = `${now.startOf("week").plus({ days: 8 }).toISODate()!}T00:00:00+00:00`;
 
   const { data: rows, error: cacheErr } = await supabase
