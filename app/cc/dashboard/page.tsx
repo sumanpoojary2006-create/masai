@@ -93,12 +93,27 @@ export default async function CCDashboardPage() {
     .lte("schedule", weekEnd)
     .order("schedule", { ascending: false });
 
-  // Attach batch_name to each lecture
+  // Attach batch_name and deduplicate by (batch_id, title, schedule).
+  // The LMS stores one row per section for the same live session, so the same
+  // lecture appears multiple times with different lecture_ids. We merge compliance
+  // flags with OR: if any section uploaded a resource, consider it uploaded.
   const batchNameMap = Object.fromEntries(assignments.map((a) => [a.batch_id, a.batch_name]));
-  const lectures: LmsLecture[] = (rawLectures ?? []).map((l) => ({
-    ...l,
-    batch_name: batchNameMap[l.batch_id] ?? `Batch ${l.batch_id}`,
-  }));
+  const dedupMap = new Map<string, LmsLecture>();
+  for (const l of rawLectures ?? []) {
+    const key = `${l.batch_id}::${l.schedule}::${l.title}`;
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, { ...l, batch_name: batchNameMap[l.batch_id] ?? `Batch ${l.batch_id}` });
+    } else {
+      dedupMap.set(key, {
+        ...existing,
+        preread_uploaded: existing.preread_uploaded || l.preread_uploaded,
+        notes_uploaded: existing.notes_uploaded || l.notes_uploaded,
+        assignment_uploaded: existing.assignment_uploaded || l.assignment_uploaded,
+      });
+    }
+  }
+  const lectures: LmsLecture[] = [...dedupMap.values()];
 
   // Summary
   const taskStatuses = lectures.flatMap((l) => [l.preread_uploaded, l.notes_uploaded, l.assignment_uploaded]);
