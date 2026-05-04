@@ -581,8 +581,11 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
   const now = DateTime.now().setZone(timezone);
   // LMS stores IST wall-clock times labeled as +00:00 (no UTC conversion done by LMS).
   // Use IST date strings directly as range boundaries to avoid off-by-5:30h errors.
-  const weekStartDate = now.startOf("week").toISODate()!; // "2026-04-27"
-  const weekEndDate = now.startOf("week").plus({ days: 8 }).toISODate()!; // "2026-05-05"
+  // On Monday the deadline for Saturday lectures falls today (+2 days). Extend
+  // the lookback by 2 days so Saturday sessions appear in the to-do list.
+  const lookback = now.weekday === 1 ? 2 : 0;
+  const weekStartDate = now.startOf("week").minus({ days: lookback }).toISODate()!;
+  const weekEndDate = now.startOf("week").plus({ days: 8 }).toISODate()!;
   const weekStart = `${weekStartDate}T00:00:00+00:00`;
   const weekEnd = `${weekEndDate}T00:00:00+00:00`;
 
