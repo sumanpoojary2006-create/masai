@@ -41,18 +41,20 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
     ])
   );
 
-  // Scope to current week — same ±8-day window as getCacheLecturesForProfile — to
-  // avoid scanning thousands of historical rows with pending flags never flipped.
-  const weekStart = `${now.startOf("week").toISODate()!}T00:00:00+00:00`;
-  const weekEnd = `${now.startOf("week").plus({ days: 8 }).toISODate()!}T00:00:00+00:00`;
+  // Scope to lectures scheduled for today only — Sync Up is a "today's to-do list"
+  // notification, not a full-week sweep.
+  const todayStart = `${now.toISODate()!}T00:00:00+00:00`;
+  const todayEnd = `${now.plus({ days: 1 }).toISODate()!}T00:00:00+00:00`;
 
-  // Cache rows that have at least one resource still pending
+  // Cache rows for today's lectures that still have at least one resource pending
   const { data: cacheRows, error: cErr } = await supabase
     .from("lms_lecture_cache")
     .select("batch_id, lecture_id, title, schedule, preread_uploaded, notes_uploaded, assignment_uploaded")
     .or("preread_uploaded.eq.false,notes_uploaded.eq.false,assignment_uploaded.eq.false")
-    .gte("schedule", weekStart)
-    .lte("schedule", weekEnd);
+    .neq("module", "general")
+    .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
+    .gte("schedule", todayStart)
+    .lt("schedule", todayEnd);
 
   if (cErr) throw new Error(cErr.message);
 
@@ -84,10 +86,7 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
     for (const { type, uploaded } of types) {
       if (uploaded) continue;
       const deadline = computeDeadline(type, lectureDate, startTime, startTime);
-      const deadlineDt = DateTime.fromISO(deadline, { zone: timezone });
-      if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
-        pendingItems.push({ lecture: lectureInfo, taskType: type, deadline, cc_user_id: batchInfo.ccUserId });
-      }
+      pendingItems.push({ lecture: lectureInfo, taskType: type, deadline, cc_user_id: batchInfo.ccUserId });
     }
   }
 

@@ -702,6 +702,8 @@ export async function getCacheLecturesForProfile(userId: string): Promise<CacheL
       "batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded"
     )
     .in("batch_id", batchIds)
+    .neq("module", "general")
+    .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd)
     .order("schedule", { ascending: false });
