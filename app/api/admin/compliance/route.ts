@@ -58,9 +58,29 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
 
   if (cErr) throw new Error(cErr.message);
 
+  // Deduplicate by (batch_id, title, schedule): LMS stores one row per section
+  // for the same live session — merge compliance flags with OR so a single
+  // uploaded resource in any section counts as uploaded.
+  type CacheRow = NonNullable<typeof cacheRows>[number];
+  const dedupMap = new Map<string, CacheRow>();
+  for (const row of cacheRows ?? []) {
+    const key = `${row.batch_id}::${row.schedule}::${row.title}`;
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, row);
+    } else {
+      dedupMap.set(key, {
+        ...existing,
+        preread_uploaded: existing.preread_uploaded || row.preread_uploaded,
+        notes_uploaded: existing.notes_uploaded || row.notes_uploaded,
+        assignment_uploaded: existing.assignment_uploaded || row.assignment_uploaded,
+      });
+    }
+  }
+
   const pendingItems: PendingDigestItemWithCC[] = [];
 
-  for (const row of cacheRows ?? []) {
+  for (const row of dedupMap.values()) {
     if (!row.schedule) continue;
 
     const schedDt = DateTime.fromISO(row.schedule as string, { zone: timezone });
