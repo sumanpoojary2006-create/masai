@@ -7,6 +7,7 @@ import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
 import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone } from "@/lib/env";
+import { checkLmsTasksForLecture } from "@/lib/lms-db";
 import { sendManualPendingDigest } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LectureRecord, TaskType } from "@/lib/types";
@@ -94,6 +95,34 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
     const batchInfo = batchInfoById.get(row.batch_id as number);
     if (!batchInfo) continue;
 
+    // Do a fresh LMS check so stale cache flags don't cause false "pending" alerts.
+    // Fall back to cached values if the live check fails.
+    let prereadUploaded = Boolean(row.preread_uploaded);
+    let notesUploaded = Boolean(row.notes_uploaded);
+    let assignmentUploaded = Boolean(row.assignment_uploaded);
+
+    try {
+      const check = await checkLmsTasksForLecture(row.batch_id as number, row.title as string, lectureDate);
+      prereadUploaded = prereadUploaded || check.preread;
+      notesUploaded = notesUploaded || check.notes;
+      assignmentUploaded = assignmentUploaded || check.assignment;
+
+      // Promote cache flags false→true as a side effect so the dashboard stays in sync.
+      const patch: Record<string, boolean> = {};
+      if (check.preread && !row.preread_uploaded) patch.preread_uploaded = true;
+      if (check.notes && !row.notes_uploaded) patch.notes_uploaded = true;
+      if (check.assignment && !row.assignment_uploaded) patch.assignment_uploaded = true;
+      if (Object.keys(patch).length > 0) {
+        await supabase
+          .from("lms_lecture_cache")
+          .update(patch)
+          .eq("batch_id", row.batch_id as number)
+          .eq("lecture_id", row.lecture_id as number);
+      }
+    } catch (err) {
+      console.warn(`[sync-up] Live LMS check failed for "${row.title}" — using cached flags:`, err instanceof Error ? err.message : err);
+    }
+
     const lectureInfo = {
       lecture_name: row.title as string,
       lecture_date: lectureDate,
@@ -101,9 +130,9 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
     };
 
     const types: Array<{ type: TaskType; uploaded: boolean }> = [
-      { type: "preread", uploaded: Boolean(row.preread_uploaded) },
-      { type: "notes", uploaded: Boolean(row.notes_uploaded) },
-      { type: "assignment", uploaded: Boolean(row.assignment_uploaded) }
+      { type: "preread", uploaded: prereadUploaded },
+      { type: "notes", uploaded: notesUploaded },
+      { type: "assignment", uploaded: assignmentUploaded }
     ];
 
     for (const { type, uploaded } of types) {
