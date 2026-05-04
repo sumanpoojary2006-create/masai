@@ -62,29 +62,40 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
 
   if (cErr) throw new Error(cErr.message);
 
-  // Deduplicate by (batch_id, title, schedule): LMS stores one row per section
-  // for the same live session — merge compliance flags with OR so a single
-  // uploaded resource in any section counts as uploaded.
+  // Deduplicate by (batch_name, title, schedule) — not batch_id — because a
+  // parent batch can have many section sub-batches (M1_101, M1_102, …), each
+  // with their own batch_id in lms_lecture_cache. Keying by batch_id would
+  // produce one notification per section. We also collect every section's
+  // batch_id so the live LMS check can try each one: the pre-read/notes/
+  // assignment may live in any section's batch in the LMS.
   type CacheRow = NonNullable<typeof cacheRows>[number];
-  const dedupMap = new Map<string, CacheRow>();
+  type DedupEntry = {
+    row: CacheRow;
+    batchInfo: { batchName: string; ccUserId: string };
+    sectionBatchIds: number[];
+  };
+  const dedupMap = new Map<string, DedupEntry>();
   for (const row of cacheRows ?? []) {
-    const key = `${row.batch_id}::${row.schedule}::${row.title}`;
+    const batchInfo = batchInfoById.get(row.batch_id as number);
+    if (!batchInfo) continue;
+    const key = `${batchInfo.batchName}::${row.schedule}::${row.title}`;
     const existing = dedupMap.get(key);
     if (!existing) {
-      dedupMap.set(key, row);
+      dedupMap.set(key, { row, batchInfo, sectionBatchIds: [row.batch_id as number] });
     } else {
-      dedupMap.set(key, {
-        ...existing,
-        preread_uploaded: existing.preread_uploaded || row.preread_uploaded,
-        notes_uploaded: existing.notes_uploaded || row.notes_uploaded,
-        assignment_uploaded: existing.assignment_uploaded || row.assignment_uploaded,
-      });
+      existing.sectionBatchIds.push(row.batch_id as number);
+      existing.row = {
+        ...existing.row,
+        preread_uploaded: existing.row.preread_uploaded || row.preread_uploaded,
+        notes_uploaded: existing.row.notes_uploaded || row.notes_uploaded,
+        assignment_uploaded: existing.row.assignment_uploaded || row.assignment_uploaded,
+      };
     }
   }
 
   const pendingItems: PendingDigestItemWithCC[] = [];
 
-  for (const row of dedupMap.values()) {
+  for (const { row, batchInfo, sectionBatchIds } of dedupMap.values()) {
     if (!row.schedule) continue;
 
     const schedDt = DateTime.fromISO(row.schedule as string, { zone: timezone });
@@ -92,35 +103,36 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
 
     const lectureDate = schedDt.toISODate()!;
     const startTime = schedDt.toFormat("HH:mm:ss");
-    const batchInfo = batchInfoById.get(row.batch_id as number);
-    if (!batchInfo) continue;
 
-    // Do a fresh LMS check so stale cache flags don't cause false "pending" alerts.
-    // Fall back to cached values if the live check fails.
+    // Do a fresh LMS check across ALL section batch_ids so stale cache flags
+    // don't cause false "pending" alerts and cross-section uploads are caught.
     let prereadUploaded = Boolean(row.preread_uploaded);
     let notesUploaded = Boolean(row.notes_uploaded);
     let assignmentUploaded = Boolean(row.assignment_uploaded);
 
-    try {
-      const check = await checkLmsTasksForLecture(row.batch_id as number, row.title as string, lectureDate);
-      prereadUploaded = prereadUploaded || check.preread;
-      notesUploaded = notesUploaded || check.notes;
-      assignmentUploaded = assignmentUploaded || check.assignment;
+    for (const batchId of sectionBatchIds) {
+      if (prereadUploaded && notesUploaded && assignmentUploaded) break;
+      try {
+        const check = await checkLmsTasksForLecture(batchId, row.title as string, lectureDate);
+        prereadUploaded = prereadUploaded || check.preread;
+        notesUploaded = notesUploaded || check.notes;
+        assignmentUploaded = assignmentUploaded || check.assignment;
 
-      // Promote cache flags false→true as a side effect so the dashboard stays in sync.
-      const patch: Record<string, boolean> = {};
-      if (check.preread && !row.preread_uploaded) patch.preread_uploaded = true;
-      if (check.notes && !row.notes_uploaded) patch.notes_uploaded = true;
-      if (check.assignment && !row.assignment_uploaded) patch.assignment_uploaded = true;
-      if (Object.keys(patch).length > 0) {
-        await supabase
-          .from("lms_lecture_cache")
-          .update(patch)
-          .eq("batch_id", row.batch_id as number)
-          .eq("lecture_id", row.lecture_id as number);
+        // Promote cache flags false→true as a side effect so the dashboard stays in sync.
+        const patch: Record<string, boolean> = {};
+        if (check.preread && !row.preread_uploaded) patch.preread_uploaded = true;
+        if (check.notes && !row.notes_uploaded) patch.notes_uploaded = true;
+        if (check.assignment && !row.assignment_uploaded) patch.assignment_uploaded = true;
+        if (Object.keys(patch).length > 0) {
+          await supabase
+            .from("lms_lecture_cache")
+            .update(patch)
+            .eq("batch_id", batchId)
+            .eq("lecture_id", row.lecture_id as number);
+        }
+      } catch (err) {
+        console.warn(`[sync-up] Live LMS check failed for "${row.title}" batch=${batchId} — skipping:`, err instanceof Error ? err.message : err);
       }
-    } catch (err) {
-      console.warn(`[sync-up] Live LMS check failed for "${row.title}" — using cached flags:`, err instanceof Error ? err.message : err);
     }
 
     const lectureInfo = {
