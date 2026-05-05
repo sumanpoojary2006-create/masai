@@ -104,7 +104,7 @@ function titleTokens(input: string) {
     .filter((token) => token.length > 2 && !stopWords.has(token));
 }
 
-function deterministicMatchLearningObjective(
+export function deterministicMatchLearningObjective(
   lmsLectureName: string,
   curriculumList: { lecture_name: string; learning_objective: string }[]
 ) {

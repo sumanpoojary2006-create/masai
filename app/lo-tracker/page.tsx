@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
 import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 import { getLoTrackerData } from "@/lib/queries";
+import { createServerSupabase } from "@/lib/supabase";
 import { LoTrackerRow } from "@/lib/types";
 
 export default async function LoTrackerPage() {
@@ -19,14 +20,32 @@ export default async function LoTrackerPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [profile, batchConfigs] = await Promise.all([
+  const supabase = createServerSupabase();
+
+  // Check both access paths in parallel:
+  // 1. Personal CC: has onboarding_complete + user_batch_configs
+  // 2. Admin-assigned CC: has cc_batch_assignments (no personal setup required)
+  const [profile, batchConfigs, ccAssignmentsResult] = await Promise.all([
     getUserProfile(user.id),
-    getUserBatchConfigs(user.id)
+    getUserBatchConfigs(user.id),
+    supabase
+      .from("cc_batch_assignments")
+      .select("batch_id, batch_name")
+      .eq("cc_user_id", user.id)
   ]);
 
-  if (!profile?.onboarding_complete || batchConfigs.length === 0) {
+  const ccAssignments = ccAssignmentsResult.data ?? [];
+  const isPersonalCC = profile?.onboarding_complete && batchConfigs.length > 0;
+  const isAdminCC = ccAssignments.length > 0;
+
+  if (!isPersonalCC && !isAdminCC) {
     redirect("/setup");
   }
+
+  // Build a readable batch summary for the subtitle
+  const batchSummary = isAdminCC
+    ? `${ccAssignments.length} batch${ccAssignments.length === 1 ? "" : "es"} assigned`
+    : `${batchConfigs.length} batch${batchConfigs.length === 1 ? "" : "es"} configured`;
 
   let rows: LoTrackerRow[] = [];
   let loadError: string | null = null;
@@ -46,8 +65,7 @@ export default async function LoTrackerPage() {
             LO Tracker
           </h1>
           <p className="theme-muted mt-2 text-sm">
-            Signed in as {user.email} · {batchConfigs.length} batch
-            {batchConfigs.length === 1 ? "" : "es"} configured
+            Signed in as {user.email} · {batchSummary}
           </p>
         </div>
         <div className="flex items-center gap-3">
