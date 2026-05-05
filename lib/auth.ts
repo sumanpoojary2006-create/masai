@@ -62,6 +62,25 @@ export async function getUserBatchConfigs(userId: string) {
     return savedConfigs;
   }
 
+  const { data: assignedBatches, error: assignmentError } = await supabase
+    .from("cc_batch_assignments")
+    .select("batch_name")
+    .eq("cc_user_id", userId)
+    .order("batch_name", { ascending: true });
+
+  if (assignmentError) {
+    throw new Error(assignmentError.message);
+  }
+
+  if (assignedBatches?.length) {
+    return assignedBatches.map((assignment) => ({
+      user_id: userId,
+      batch_name: assignment.batch_name,
+      lecture_batch_url: getScopedLmsUrl("lectures", assignment.batch_name) ?? "",
+      assignment_batch_url: getScopedLmsUrl("assignments", assignment.batch_name) ?? ""
+    }));
+  }
+
   const [profileResult, lectureBatchesResult] = await Promise.all([
     supabase
       .from("user_profiles")

@@ -88,7 +88,7 @@ async function main() {
       .from("batch_curriculums")
       .select("batch_name, lecture_name, learning_objective")
       .in("batch_name", batchNamesInSync)
-      .eq("user_id", profile.user_id);
+      .or(`user_id.eq.${profile.user_id},user_id.is.null`);
 
     const curriculumMap = new Map<string, string>();
     if (curriculums) {

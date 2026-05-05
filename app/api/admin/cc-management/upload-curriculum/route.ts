@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
 import { parseCurriculumWorkbook } from "@/lib/importer";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -69,9 +70,20 @@ export async function POST(request: Request) {
 
     if (error) throw new Error(error.message);
 
+    const { data: assignedBatches } = await supabase
+      .from("cc_batch_assignments")
+      .select("batch_id")
+      .eq("batch_name", batchName);
+    const batchIds = [...new Set((assignedBatches ?? []).map((row) => row.batch_id as number))];
+    const loSync = batchIds.length
+      ? await upsertAssignedLecturesFromCache({ batchIds })
+      : { lecturesUpserted: 0, objectivesMatched: 0 };
+
     return NextResponse.json({
-      message: `Uploaded ${rows.length} curriculum entries for batch "${batchName}".`,
-      count: rows.length
+      message: `Uploaded ${rows.length} curriculum entries for batch "${batchName}". LO Tracker refreshed with ${loSync.lecturesUpserted} lecture(s).`,
+      count: rows.length,
+      loLecturesSynced: loSync.lecturesUpserted,
+      objectivesMatched: loSync.objectivesMatched
     });
   } catch (err) {
     return NextResponse.json(

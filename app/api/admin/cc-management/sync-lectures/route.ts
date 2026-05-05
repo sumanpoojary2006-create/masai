@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
 import { mysqlDateToIST, nowIST } from "@/lib/env";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { createServerSupabase } from "@/lib/supabase";
@@ -47,9 +48,13 @@ export async function POST(request: Request) {
 
     if (error) throw new Error(error.message);
 
+    const loSync = await upsertAssignedLecturesFromCache({ batchIds: [batchId] });
+
     return NextResponse.json({
-      message: `Synced ${lectures.length} lectures for batch ${batchId}.`,
-      synced: lectures.length
+      message: `Synced ${lectures.length} lectures for batch ${batchId}. LO Tracker updated with ${loSync.lecturesUpserted} lecture(s).`,
+      synced: lectures.length,
+      loLecturesSynced: loSync.lecturesUpserted,
+      objectivesMatched: loSync.objectivesMatched
     });
   } catch (err) {
     return NextResponse.json(

@@ -15,11 +15,12 @@ export async function POST() {
 
     const supabase = createServerSupabase();
 
-    // 1. Fetch ALL curriculum for this user first — if none at all, bail early
+    // 1. Fetch per-user plus admin-global curriculum. Admin uploads are stored
+    // with user_id = null so every assigned CC can use the same batch mapping.
     const { data: curriculums, error: curriculumError } = await supabase
       .from("batch_curriculums")
       .select("batch_name, lecture_name, learning_objective")
-      .eq("user_id", user.id);
+      .or(`user_id.eq.${user.id},user_id.is.null`);
 
     if (curriculumError) {
       throw new Error("Unable to fetch curriculums: " + curriculumError.message);
@@ -27,7 +28,7 @@ export async function POST() {
 
     if (!curriculums || curriculums.length === 0) {
       return NextResponse.json(
-        { message: "No curriculum uploaded. Upload a curriculum first in Profile settings." },
+        { message: "No curriculum uploaded. Upload a curriculum first in CC Batch Mapping." },
         { status: 400 }
       );
     }

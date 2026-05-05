@@ -128,6 +128,61 @@ export function hhmmToTimeStr(val: number): string {
   return `${h}:${m}:00`;
 }
 
+export function extractLmsLectureId(value: string | null | undefined): number | null {
+  const input = String(value ?? "").trim();
+  if (!input) return null;
+
+  const queryMatch = input.match(/[?&]id=(\d+)/);
+  const pathMatch = input.match(/\/lectures\/(\d+)/);
+  const rawId = queryMatch?.[1] ?? pathMatch?.[1];
+  if (!rawId) return null;
+
+  const id = Number(rawId);
+  return Number.isFinite(id) ? id : null;
+}
+
+function normalizeAiText(value: unknown) {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export async function fetchLectureSummaryFromDb(lmsLectureId: number): Promise<string> {
+  const conn = await getConn();
+
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `
+    SELECT summary, transcript, isSummaryPublished, updated_at
+    FROM lectures_ai
+    WHERE lectureId = ?
+    ORDER BY isSummaryPublished DESC, updated_at DESC, id DESC
+    LIMIT 1
+    `,
+    [lmsLectureId]
+  );
+
+  const row = rows[0] as
+    | {
+        summary?: string | null;
+        transcript?: string | null;
+        isSummaryPublished?: number | boolean | null;
+      }
+    | undefined;
+
+  if (!row) {
+    throw new Error(`No LMS AI summary/transcript found for lecture id ${lmsLectureId}.`);
+  }
+
+  const summary = normalizeAiText(row.summary);
+  if (summary) return summary;
+
+  const transcript = normalizeAiText(row.transcript);
+  if (transcript) return transcript;
+
+  throw new Error(`LMS AI summary/transcript is empty for lecture id ${lmsLectureId}.`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Task-completion checking
 // ─────────────────────────────────────────────────────────────────────────────

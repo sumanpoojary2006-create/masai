@@ -189,13 +189,8 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
       const json = (await res.json()) as {
         results?: ActionResult[];
         message?: string;
-        dispatched?: boolean;
       };
-      if (json.dispatched) {
-        setActionResults([{ lectureId: "dispatch", lectureName: "GitHub Actions", status: "fetched", reason: json.message }]);
-      } else {
-        setActionResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
-      }
+      setActionResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
       setIsSyncing(false);
       if (res.ok) router.refresh();
     });
@@ -351,7 +346,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
                             {(r.status === "fetched" || r.status === "analyzed") && (
                               <div>
                                 <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-sm">
-                                  ✓ {r.status === "analyzed" ? `${r.coveredCount ?? 0} covered / ${r.missingCount ?? 0} missing` : "Dispatched"}
+                                  ✓ {r.status === "analyzed" ? `${r.coveredCount ?? 0} covered / ${r.missingCount ?? 0} missing` : "Done"}
                                 </span>
                                 {r.reason && <p className="mt-0.5 text-xs theme-muted">{r.reason}</p>}
                               </div>

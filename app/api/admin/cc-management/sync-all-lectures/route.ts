@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
 import { mysqlDateToIST, nowIST } from "@/lib/env";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { createServerSupabase } from "@/lib/supabase";
@@ -49,7 +50,14 @@ async function syncAll() {
     lecturesSynced += lectures.length;
   }
 
-  return { batchesSynced: batchIds.length, lecturesSynced };
+  const loSync = await upsertAssignedLecturesFromCache({ batchIds });
+
+  return {
+    batchesSynced: batchIds.length,
+    lecturesSynced,
+    loLecturesSynced: loSync.lecturesUpserted,
+    objectivesMatched: loSync.objectivesMatched
+  };
 }
 
 function isCronAuthorized(request: NextRequest) {
@@ -89,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     const result = await syncAll();
     return NextResponse.json({
-      message: `Synced ${result.lecturesSynced} lectures across ${result.batchesSynced} batches.`,
+      message: `Synced ${result.lecturesSynced} lectures across ${result.batchesSynced} batches. LO Tracker updated with ${result.loLecturesSynced} lecture(s).`,
       ...result
     });
   } catch (err) {

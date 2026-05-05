@@ -5,6 +5,7 @@ import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
+import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
 import { createServerSupabase } from "@/lib/supabase";
 
 /** GET — list all CC→batch assignments */
@@ -92,6 +93,11 @@ export async function POST(request: Request) {
     );
 
     if (error) throw new Error(error.message);
+
+    await upsertAssignedLecturesFromCache({
+      batchIds: [body.batch_id],
+      ccUserIds: [body.cc_user_id]
+    });
 
     return NextResponse.json({ message: `Assigned batch "${body.batch_name}" to CC.` });
   } catch (err) {

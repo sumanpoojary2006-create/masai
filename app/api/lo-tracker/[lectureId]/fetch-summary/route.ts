@@ -1,11 +1,11 @@
 export const runtime = "nodejs";
-export const maxDuration = 120; // Playwright needs up to 2 min
+export const maxDuration = 30;
 
 import { NextResponse } from "next/server";
 import { nowIST } from "@/lib/env";
 
-import { getCurrentUser, getUserProfile } from "@/lib/auth";
-import { scrapeLectureSummary } from "@/lib/lms-scraper";
+import { getCurrentUser } from "@/lib/auth";
+import { extractLmsLectureId, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { createServerSupabase } from "@/lib/supabase";
 
 export async function POST(
@@ -21,16 +21,12 @@ export async function POST(
     const { lectureId } = await context.params;
     const supabase = createServerSupabase();
 
-    // Fetch lecture + user profile (for LMS credentials)
-    const [lectureResult, profile] = await Promise.all([
-      supabase
-        .from("lectures")
-        .select("id, lecture_name, session_link")
-        .eq("id", lectureId)
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      getUserProfile(user.id, { includePassword: true })
-    ]);
+    const lectureResult = await supabase
+      .from("lectures")
+      .select("id, lecture_name, session_link")
+      .eq("id", lectureId)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
     if (lectureResult.error) throw new Error(lectureResult.error.message);
     if (!lectureResult.data) {
@@ -54,18 +50,15 @@ export async function POST(
       );
     }
 
-    if (!profile?.lms_username || !profile?.lms_password) {
+    const lmsLectureId = extractLmsLectureId(sessionLink);
+    if (!lmsLectureId) {
       return NextResponse.json(
-        { message: "LMS credentials not configured in your profile." },
+        { message: "Could not parse LMS lecture id from the session link." },
         { status: 400 }
       );
     }
 
-    // Scrape the summary
-    const summary = await scrapeLectureSummary(sessionLink, {
-      username: profile.lms_username,
-      password: profile.lms_password
-    });
+    const summary = await fetchLectureSummaryFromDb(lmsLectureId);
 
     // Save to lo_reports (upsert so existing reports are updated)
     const { error: upsertError } = await supabase.from("lo_reports").upsert(

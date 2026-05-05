@@ -4,10 +4,10 @@ import { TASK_LABELS } from "@/lib/constants";
 import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone, getAutomationEnv, mysqlDateToIST, nowIST } from "@/lib/env";
 import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
-import { checkLmsTasksForLecture } from "@/lib/lms-db";
+import { checkLmsTasksForLecture, extractLmsLectureId, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
+import { resolveSessionLinks } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
 import { sendSlackAlerts } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
@@ -311,11 +311,11 @@ function describeRun(summary: ComplianceRunSummary) {
 /**
  * For a given profile, finds all lectures that:
  *  - have a session_link
- *  - ended more than 1.5 hours ago
+ *  - ended at least 1 hour ago
  *  - do NOT yet have a completed lo_report with transcript
  *
- * Then scrapes the LMS summary tab and (if learning_objective is set)
- * auto-runs the Gemini LO analysis — fully hands-free.
+ * Then reads the LMS AI summary/transcript from MySQL by lecture id and
+ * (if learning_objective is set) auto-runs LO analysis — fully hands-free.
  */
 export interface SummaryFetchResult {
   lectureId: string;
@@ -327,7 +327,7 @@ export interface SummaryFetchResult {
 }
 
 export async function fetchAndAnalyzePendingSummaries(
-  profile: Pick<AutomationProfile, "user_id" | "lms_username" | "lms_password" | "email">
+  profile: Pick<AutomationProfile, "user_id" | "email">
 ): Promise<SummaryFetchResult[]> {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
@@ -336,7 +336,8 @@ export async function fetchAndAnalyzePendingSummaries(
   let lectures = await getAutomationLectures(profile.user_id);
   console.log(`[lo-sync] ${profile.email}: ${lectures.length} total lectures`);
 
-  // Lectures that ended > 1.5 hours ago and have a valid LMS detail-page link
+  // Lectures that ended at least 1 hour ago and have a valid LMS detail-page link.
+  // LMS summaries usually appear 1-1.5 hours after the live session.
   const eligible = lectures.filter((lecture) => {
     // Normalize: Supabase may return null even if TS type says string
     const sessionLink = String(lecture.session_link ?? "").trim();
@@ -351,14 +352,14 @@ export async function fetchAndAnalyzePendingSummaries(
       return false;
     }
 
-    const lectureStart = DateTime.fromISO(
-      `${lecture.lecture_date}T${lecture.start_time}`,
+    const lectureEnd = DateTime.fromISO(
+      `${lecture.lecture_date}T${lecture.end_time}`,
       { zone: timezone }
-    );
+    ).plus({ hours: 1 });
 
-    const started = now >= lectureStart;
-    if (!started) {
-      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — starts ${lectureStart.toISO()} (now: ${now.toISO()})`);
+    const summaryLikelyReady = now >= lectureEnd;
+    if (!summaryLikelyReady) {
+      console.log(`[lo-sync]   SKIP "${lecture.lecture_name}" — summary likely ready after ${lectureEnd.toISO()} (now: ${now.toISO()})`);
       return false;
     }
 
@@ -366,7 +367,7 @@ export async function fetchAndAnalyzePendingSummaries(
     return true;
   });
 
-  console.log(`[lo-sync] ${eligible.length} eligible lectures (ended + have session link)`);
+  console.log(`[lo-sync] ${eligible.length} eligible lectures (summary-ready + have session link)`);
   if (eligible.length === 0) return [];
 
   // Get existing lo_reports for these lectures
@@ -393,13 +394,15 @@ export async function fetchAndAnalyzePendingSummaries(
     }
 
     const sessionLink = String(lecture.session_link ?? "").trim();
-    console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from ${sessionLink}`);
+    console.log(`[lo-sync] Fetching DB summary for "${lecture.lecture_name}" from ${sessionLink}`);
 
     try {
-      const summary = await scrapeLectureSummary(sessionLink, {
-        username: profile.lms_username,
-        password: profile.lms_password
-      });
+      const lmsLectureId = extractLmsLectureId(sessionLink);
+      if (!lmsLectureId) {
+        throw new Error("Could not parse LMS lecture id from session link");
+      }
+
+      const summary = await fetchLectureSummaryFromDb(lmsLectureId);
 
       // ── Step 1: Save transcript immediately so it's never lost on analysis failure ──
       await supabase.from("lo_reports").upsert(
