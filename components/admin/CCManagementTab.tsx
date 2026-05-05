@@ -22,7 +22,6 @@ type Batch = {
 export function CCManagementTab() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [users, setUsers] = useState<CcUser[]>([]);
-  const [cachedBatches, setCachedBatches] = useState<Batch[]>([]);
   const [unassigned, setUnassigned] = useState<Batch[]>([]);
 
   const [selectedCcId, setSelectedCcId] = useState("");
@@ -41,6 +40,8 @@ export function CCManagementTab() {
 
   const [uploadBatchName, setUploadBatchName] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ text: string; ok: boolean; count?: number } | null>(null);
+  const [curriculumCounts, setCurriculumCounts] = useState<Record<string, number>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function flash(text: string, ok = true) {
@@ -51,19 +52,22 @@ export function CCManagementTab() {
   async function loadData() {
     setLoading(true);
     try {
-      const [assignRes, userRes, unassignedRes] = await Promise.all([
+      const [assignRes, userRes, unassignedRes, curriculumRes] = await Promise.all([
         fetch("/api/admin/cc-management/assignments"),
         fetch("/api/admin/cc-management/users"),
-        fetch("/api/admin/cc-management/unassigned-batches")
+        fetch("/api/admin/cc-management/unassigned-batches"),
+        fetch("/api/admin/cc-management/curriculum-counts")
       ]);
-      const [assignJson, userJson, unassignedJson] = await Promise.all([
+      const [assignJson, userJson, unassignedJson, curriculumJson] = await Promise.all([
         assignRes.json(),
         userRes.json(),
-        unassignedRes.json()
+        unassignedRes.json(),
+        curriculumRes.ok ? curriculumRes.json() : Promise.resolve({ counts: {} })
       ]);
       setAssignments(assignJson.assignments ?? []);
       setUsers(userJson.users ?? []);
       setUnassigned(unassignedJson.batches ?? []);
+      setCurriculumCounts(curriculumJson.counts ?? {});
     } finally {
       setLoading(false);
     }
@@ -162,10 +166,11 @@ export function CCManagementTab() {
     e.preventDefault();
     const file = fileInputRef.current?.files?.[0];
     if (!file || !uploadBatchName) {
-      flash("Select a batch and a file.", false);
+      setUploadResult({ text: "Select a batch and a file.", ok: false });
       return;
     }
     setUploading(true);
+    setUploadResult(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -174,9 +179,19 @@ export function CCManagementTab() {
         method: "POST",
         body: fd
       });
-      const json = await res.json() as { message?: string };
-      flash(json.message ?? "Uploaded.", res.ok);
-      if (res.ok && fileInputRef.current) fileInputRef.current.value = "";
+      const json = await res.json() as { message?: string; count?: number };
+      if (res.ok) {
+        setUploadResult({ text: json.message ?? "Uploaded.", ok: true, count: json.count });
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        // Refresh curriculum counts to update the assignments table badge
+        const countRes = await fetch("/api/admin/cc-management/curriculum-counts");
+        if (countRes.ok) {
+          const countJson = await countRes.json() as { counts?: Record<string, number> };
+          setCurriculumCounts(countJson.counts ?? {});
+        }
+      } else {
+        setUploadResult({ text: json.message ?? "Upload failed.", ok: false });
+      }
     } finally {
       setUploading(false);
     }
@@ -337,6 +352,7 @@ export function CCManagementTab() {
                   <th className="pb-2 pr-4 font-medium">Batch</th>
                   <th className="pb-2 pr-4 font-medium">Program</th>
                   <th className="pb-2 pr-4 font-medium">CC</th>
+                  <th className="pb-2 pr-4 font-medium">Curriculum</th>
                   <th className="pb-2 pr-4 font-medium">Sync Lectures</th>
                   <th className="pb-2 font-medium">Remove</th>
                 </tr>
@@ -351,6 +367,17 @@ export function CCManagementTab() {
                         <div className="text-white">{a.cc_name || a.cc_email}</div>
                         {a.cc_name && <div className="text-slate-400">{a.cc_email}</div>}
                       </div>
+                    </td>
+                    <td className="py-2 pr-4">
+                      {curriculumCounts[a.batch_name] ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
+                          ✓ {curriculumCounts[a.batch_name]} LOs
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-slate-500/15 px-2.5 py-0.5 text-xs font-medium text-slate-400">
+                          No curriculum
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 pr-4">
                       <button
@@ -413,6 +440,23 @@ export function CCManagementTab() {
             {uploading ? "Uploading…" : "Upload"}
           </button>
         </form>
+        {uploadResult && (
+          <div
+            className={`mt-4 flex items-start gap-2 rounded-xl px-4 py-3 text-sm font-medium ${
+              uploadResult.ok
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-rose-500/15 text-rose-300"
+            }`}
+          >
+            <span className="shrink-0">{uploadResult.ok ? "✓" : "✗"}</span>
+            <span>
+              {uploadResult.text}
+              {uploadResult.ok && uploadResult.count !== undefined && (
+                <span className="ml-1 font-semibold">({uploadResult.count} rows uploaded)</span>
+              )}
+            </span>
+          </div>
+        )}
       </section>
     </div>
   );
