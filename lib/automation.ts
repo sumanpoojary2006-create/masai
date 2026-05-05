@@ -6,6 +6,7 @@ import { getAppTimezone, getAutomationEnv, mysqlDateToIST, nowIST } from "@/lib/
 import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-urls";
 import { checkLmsTasksForLecture, extractLmsLectureId, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
+import { syncLmsLectureCacheForBatch } from "@/lib/lms-lecture-cache";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { resolveSessionLinks } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
@@ -1168,58 +1169,22 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
  */
 export async function syncAssignedBatchesCache(
   batchIds: number[]
-): Promise<{ batchesSynced: number; lecturesSynced: number }> {
-  if (batchIds.length === 0) return { batchesSynced: 0, lecturesSynced: 0 };
+): Promise<{ batchesSynced: number; lecturesSynced: number; staleDeleted: number }> {
+  if (batchIds.length === 0) return { batchesSynced: 0, lecturesSynced: 0, staleDeleted: 0 };
 
-  const supabase = createServerSupabase();
   let lecturesSynced = 0;
+  let staleDeleted = 0;
 
   for (const batchId of batchIds) {
     const lectures = await fetchBatchCompliance(batchId);
-    if (lectures.length === 0) continue;
-
-    // Upsert structural metadata (title, schedule, etc.) without touching flags.
-    // On INSERT the flags default to false; on UPDATE they are left unchanged.
-    // This ensures existing true flags are never overwritten with false.
-    const { error: structErr } = await supabase.from("lms_lecture_cache").upsert(
-      lectures.map((l) => ({
-        batch_id: batchId,
-        lecture_id: l.lecture_id,
-        section_id: l.section_id ?? null,
-        title: l.lecture_title,
-        module: l.module ?? null,
-        schedule: l.schedule ? mysqlDateToIST(l.schedule instanceof Date ? l.schedule : new Date(l.schedule)) : null,
-        concludes: l.concludes ? mysqlDateToIST(l.concludes instanceof Date ? l.concludes : new Date(l.concludes)) : null,
-        synced_at: nowIST()
-        // Flags intentionally omitted — handled below via targeted true-only updates.
-      })),
-      { onConflict: "batch_id,lecture_id" }
-    );
-
-    if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
-
-    // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
-    for (const l of lectures) {
-      const patch: Record<string, boolean> = {};
-      if (l.preread_uploaded) patch.preread_uploaded = true;
-      if (l.notes_uploaded) patch.notes_uploaded = true;
-      if (l.assignment_uploaded) patch.assignment_uploaded = true;
-      if (Object.keys(patch).length === 0) continue;
-
-      const { error: flagErr } = await supabase
-        .from("lms_lecture_cache")
-        .update(patch)
-        .eq("batch_id", batchId)
-        .eq("lecture_id", l.lecture_id);
-
-      if (flagErr) {
-        console.warn(`[cache-sync] Flag update failed batch=${batchId} lecture=${l.lecture_id}: ${flagErr.message}`);
-      }
-    }
+    const cacheSync = await syncLmsLectureCacheForBatch(batchId, lectures, {
+      preserveCompletedFlags: true
+    });
 
     lecturesSynced += lectures.length;
-    console.log(`[cache-sync] Batch ${batchId}: ${lectures.length} lectures synced`);
+    staleDeleted += cacheSync.staleDeleted;
+    console.log(`[cache-sync] Batch ${batchId}: ${lectures.length} lectures synced, ${cacheSync.staleDeleted} stale deleted`);
   }
 
-  return { batchesSynced: batchIds.length, lecturesSynced };
+  return { batchesSynced: batchIds.length, lecturesSynced, staleDeleted };
 }

@@ -19,7 +19,7 @@ export async function POST() {
     // with user_id = null so every assigned CC can use the same batch mapping.
     const { data: curriculums, error: curriculumError } = await supabase
       .from("batch_curriculums")
-      .select("batch_name, lecture_name, learning_objective")
+      .select("user_id, batch_name, lecture_name, learning_objective")
       .or(`user_id.eq.${user.id},user_id.is.null`);
 
     if (curriculumError) {
@@ -28,12 +28,12 @@ export async function POST() {
 
     if (!curriculums || curriculums.length === 0) {
       return NextResponse.json(
-        { message: "No curriculum uploaded. Upload a curriculum first in CC Batch Mapping." },
+        { message: "No curriculum uploaded. Ask admin to upload a curriculum for your batch first." },
         { status: 400 }
       );
     }
 
-    // 2. Get ALL lectures for this user (re-match everything, not just missing ones)
+    // 2. Get ALL non-archived lectures for this user
     const { data: lectures, error: lectureError } = await supabase
       .from("lectures")
       .select("id, batch_name, lecture_name")
@@ -48,20 +48,40 @@ export async function POST() {
       return NextResponse.json({ message: "No lectures found.", count: 0 });
     }
 
-    // Group curriculum by batch
+    // Group curriculum by batch. When both global and user-specific rows exist
+    // for the same lecture name, the user-specific objective should win.
     const curriculumByBatch: Record<string, { lecture_name: string; learning_objective: string }[]> = {};
-    for (const c of curriculums) {
+
+    const sortedCurriculums = [...curriculums].sort((a, b) => {
+      const aPriority = a.user_id == null ? 0 : 1;
+      const bPriority = b.user_id == null ? 0 : 1;
+      return aPriority - bPriority;
+    });
+
+    for (const c of sortedCurriculums) {
       if (!curriculumByBatch[c.batch_name]) curriculumByBatch[c.batch_name] = [];
-      curriculumByBatch[c.batch_name].push({
-        lecture_name: c.lecture_name,
-        learning_objective: c.learning_objective
-      });
+
+      const existingIndex = curriculumByBatch[c.batch_name].findIndex(
+        (entry) => entry.lecture_name === c.lecture_name
+      );
+
+      if (existingIndex >= 0) {
+        curriculumByBatch[c.batch_name][existingIndex] = {
+          lecture_name: c.lecture_name,
+          learning_objective: c.learning_objective
+        };
+      } else {
+        curriculumByBatch[c.batch_name].push({
+          lecture_name: c.lecture_name,
+          learning_objective: c.learning_objective
+        });
+      }
     }
 
     let updatedCount = 0;
     let skippedCount = 0;
 
-    // 3. Re-match ALL lectures against curriculum and overwrite
+    // 3. Re-match ALL lectures against curriculum and overwrite learning_objective
     for (const lecture of lectures) {
       const batchCurriculum = curriculumByBatch[lecture.batch_name] ?? [];
       if (batchCurriculum.length === 0) {

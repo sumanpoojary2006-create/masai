@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
 import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
-import { mysqlDateToIST, nowIST } from "@/lib/env";
+import { syncLmsLectureCacheForBatch } from "@/lib/lms-lecture-cache";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -21,33 +21,16 @@ async function syncAll() {
   if (assignError) throw new Error(assignError.message);
 
   const batchIds = [...new Set((assignments ?? []).map((a) => a.batch_id as number))];
-  if (batchIds.length === 0) return { batchesSynced: 0, lecturesSynced: 0 };
+  if (batchIds.length === 0) return { batchesSynced: 0, lecturesSynced: 0, staleDeleted: 0 };
 
   let lecturesSynced = 0;
+  let staleDeleted = 0;
 
   for (const batchId of batchIds) {
     const lectures = await fetchBatchCompliance(batchId);
-    if (lectures.length === 0) continue;
-
-    const { error } = await supabase.from("lms_lecture_cache").upsert(
-      lectures.map((l) => ({
-        batch_id: batchId,
-        lecture_id: l.lecture_id,
-        section_id: l.section_id,
-        title: l.lecture_title,
-        module: l.module,
-        schedule: l.schedule ? mysqlDateToIST(l.schedule) : null,
-        concludes: l.concludes ? mysqlDateToIST(l.concludes) : null,
-        preread_uploaded: l.preread_uploaded,
-        notes_uploaded: l.notes_uploaded,
-        assignment_uploaded: l.assignment_uploaded,
-        synced_at: nowIST()
-      })),
-      { onConflict: "batch_id,lecture_id" }
-    );
-
-    if (error) throw new Error(`Batch ${batchId}: ${error.message}`);
+    const cacheSync = await syncLmsLectureCacheForBatch(batchId, lectures);
     lecturesSynced += lectures.length;
+    staleDeleted += cacheSync.staleDeleted;
   }
 
   const loSync = await upsertAssignedLecturesFromCache({ batchIds });
@@ -55,6 +38,7 @@ async function syncAll() {
   return {
     batchesSynced: batchIds.length,
     lecturesSynced,
+    staleDeleted,
     loLecturesSynced: loSync.lecturesUpserted,
     objectivesMatched: loSync.objectivesMatched
   };
@@ -75,7 +59,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await syncAll();
-    console.log(`[sync-all-lectures] Cron complete: ${result.batchesSynced} batches, ${result.lecturesSynced} lectures`);
+    console.log(`[sync-all-lectures] Cron complete: ${result.batchesSynced} batches, ${result.lecturesSynced} lectures, ${result.staleDeleted} stale deleted`);
     return NextResponse.json({ message: "Sync complete.", ...result });
   } catch (err) {
     console.error("[sync-all-lectures] Cron failed:", err);
@@ -97,7 +81,7 @@ export async function POST(request: NextRequest) {
 
     const result = await syncAll();
     return NextResponse.json({
-      message: `Synced ${result.lecturesSynced} lectures across ${result.batchesSynced} batches. LO Tracker updated with ${result.loLecturesSynced} lecture(s).`,
+      message: `Synced ${result.lecturesSynced} lectures across ${result.batchesSynced} batches. Removed ${result.staleDeleted} stale cached lecture(s). LO Tracker updated with ${result.loLecturesSynced} lecture(s).`,
       ...result
     });
   } catch (err) {

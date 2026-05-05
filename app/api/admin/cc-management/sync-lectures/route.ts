@@ -5,9 +5,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { hasAdminAccess } from "@/lib/admin-access";
 import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
-import { mysqlDateToIST, nowIST } from "@/lib/env";
+import { syncLmsLectureCacheForBatch } from "@/lib/lms-lecture-cache";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
-import { createServerSupabase } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -23,36 +22,22 @@ export async function POST(request: Request) {
     }
 
     const lectures = await fetchBatchCompliance(batchId);
+    const cacheSync = await syncLmsLectureCacheForBatch(batchId, lectures);
 
     if (lectures.length === 0) {
-      return NextResponse.json({ message: "No live lectures found for this batch.", synced: 0 });
+      return NextResponse.json({
+        message: `No live lectures found for this batch. Removed ${cacheSync.staleDeleted} stale cached lecture(s).`,
+        synced: 0,
+        staleDeleted: cacheSync.staleDeleted
+      });
     }
-
-    const supabase = createServerSupabase();
-    const { error } = await supabase.from("lms_lecture_cache").upsert(
-      lectures.map((l) => ({
-        batch_id: batchId,
-        lecture_id: l.lecture_id,
-        section_id: l.section_id,
-        title: l.lecture_title,
-        module: l.module,
-        schedule: l.schedule ? mysqlDateToIST(l.schedule) : null,
-        concludes: l.concludes ? mysqlDateToIST(l.concludes) : null,
-        preread_uploaded: l.preread_uploaded,
-        notes_uploaded: l.notes_uploaded,
-        assignment_uploaded: l.assignment_uploaded,
-        synced_at: nowIST()
-      })),
-      { onConflict: "batch_id,lecture_id" }
-    );
-
-    if (error) throw new Error(error.message);
 
     const loSync = await upsertAssignedLecturesFromCache({ batchIds: [batchId] });
 
     return NextResponse.json({
-      message: `Synced ${lectures.length} lectures for batch ${batchId}. LO Tracker updated with ${loSync.lecturesUpserted} lecture(s).`,
+      message: `Synced ${lectures.length} lectures for batch ${batchId}. Removed ${cacheSync.staleDeleted} stale cached lecture(s). LO Tracker updated with ${loSync.lecturesUpserted} lecture(s).`,
       synced: lectures.length,
+      staleDeleted: cacheSync.staleDeleted,
       loLecturesSynced: loSync.lecturesUpserted,
       objectivesMatched: loSync.objectivesMatched
     });
