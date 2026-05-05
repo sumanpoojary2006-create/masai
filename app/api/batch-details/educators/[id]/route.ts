@@ -9,9 +9,10 @@ import { getEducator, updateEducator, type EducatorUpdatePayload } from "@/lib/e
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
@@ -20,7 +21,7 @@ export async function GET(
       return NextResponse.json({ message: "Admin access required." }, { status: 403 });
     }
 
-    const educator = await getEducator(params.id);
+    const educator = await getEducator(id);
     if (!educator) {
       return NextResponse.json({ message: "Educator not found." }, { status: 404 });
     }
@@ -36,9 +37,10 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const user = await getCurrentUser();
     if (!user) {
       return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
@@ -48,7 +50,7 @@ export async function PUT(
     }
 
     const body = (await request.json()) as EducatorUpdatePayload;
-    const updated = await updateEducator(params.id, body);
+    const updated = await updateEducator(id, body);
     return NextResponse.json(updated);
   } catch (error) {
     return NextResponse.json(
