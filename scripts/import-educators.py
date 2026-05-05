@@ -6,8 +6,23 @@ Usage:
   pip install pandas openpyxl supabase
   SUPABASE_URL=https://xxx.supabase.co SUPABASE_KEY=service_role_key python scripts/import-educators.py
 
-The script is idempotent: rows with duplicate emails are updated (upserted),
-so it is safe to run multiple times.
+Idempotent — safe to re-run. Upserts on email.
+
+availability JSONB structure:
+  {
+    "mon": true,           # general availability (declared by educator)
+    ...
+    "blocked": {           # current batch commitments (from "Current" columns)
+      "thu": true,
+      "sat": true
+    },
+    "stats": {             # from sheet; overridden by live DB query when sessions have names
+      "totalSessions": 44,
+      "overallAvgRating": 4.63,
+      "last5AvgRating": 4.65,
+      "sessionsRated4_5Plus": 40
+    }
+  }
 """
 
 import os
@@ -19,7 +34,7 @@ from supabase import create_client
 EXCEL_PATH = "EDUCATOR MANAGEMENT.xlsx"
 SHEET_NAME = "Educator Master - Currently Ass"
 
-DAY_COLS = {
+GENERAL_DAY_COLS = {
     "mon": "General Mon",
     "tue": "General Tue",
     "wed": "General Wed",
@@ -27,6 +42,16 @@ DAY_COLS = {
     "fri": "General Fri",
     "sat": "General Sat",
     "sun": "General Sun",
+}
+
+CURRENT_DAY_COLS = {
+    "mon": "Current Mon ( Do not update this )",
+    "tue": "Current Tue ( Do not update this )",
+    "wed": "Current Wed ( Do not update this )",
+    "thu": "Current Thu ( Do not update this )",
+    "fri": "Current Fri ( Do not update this )",
+    "sat": "Current Sat ( Do not update this )",
+    "sun": "Current Sun ( Do not update this )",
 }
 
 
@@ -46,16 +71,62 @@ def to_bool(value, true_value="Yes"):
     return v.strip().lower() == true_value.lower()
 
 
+def to_float(value):
+    v = clean(value)
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def to_int(value):
+    v = to_float(value)
+    return int(v) if v is not None else None
+
+
 def build_availability(row):
-    avail = {}
-    for key, col in DAY_COLS.items():
+    # General: Available = true, Unavailable = false
+    general = {}
+    for key, col in GENERAL_DAY_COLS.items():
         val = clean(row.get(col))
-        avail[key] = val != "Unavailable" if val is not None else True
-    return avail
+        general[key] = val != "Unavailable" if val is not None else True
+
+    # Current blocked: "Blocked" = true (has batch commitment on that day)
+    blocked = {}
+    for key, col in CURRENT_DAY_COLS.items():
+        val = clean(row.get(col))
+        if val == "Blocked":
+            blocked[key] = True
+
+    # Stats from sheet columns
+    stats = {}
+    total = to_int(row.get("Total Sessions"))
+    overall = to_float(row.get("Overall Avg Rating"))
+    last5 = to_float(row.get("Last 5 Classes Avg Rating"))
+    rated_4_5 = to_int(row.get("Sessions with Rating >= 4.5"))
+
+    if total is not None:
+        stats["totalSessions"] = total
+    if overall is not None:
+        stats["overallAvgRating"] = overall
+    if last5 is not None:
+        stats["last5AvgRating"] = last5
+    if rated_4_5 is not None:
+        stats["sessionsRated4_5Plus"] = rated_4_5
+
+    return {**general, "blocked": blocked, "stats": stats}
 
 
-def build_record(row):
+def build_record(row, placeholder_email=False):
     email = clean(row.get("Educator ID")) or clean(row.get("Email"))
+
+    if not email and placeholder_email:
+        name = clean(row.get("Name"))
+        if name:
+            email = name.strip().lower().replace(" ", ".") + "@no-email.masai.internal"
+
     if not email:
         return None
 
@@ -63,13 +134,7 @@ def build_record(row):
     if not name:
         return None
 
-    yoe_raw = row.get("YOE")
-    yoe = None
-    if yoe_raw is not None and not (isinstance(yoe_raw, float) and math.isnan(yoe_raw)):
-        try:
-            yoe = float(yoe_raw)
-        except (ValueError, TypeError):
-            yoe = None
+    yoe = to_float(row.get("YOE"))
 
     return {
         "email": email.lower(),
@@ -112,26 +177,21 @@ def main():
     records = []
     skipped = 0
     for _, row in df.iterrows():
-        rec = build_record(row)
+        rec = build_record(row, placeholder_email=True)
         if rec is None:
             skipped += 1
         else:
             records.append(rec)
 
-    print(f"  {len(records)} valid rows, {skipped} skipped (missing email/name)")
+    print(f"  {len(records)} valid rows, {skipped} skipped (truly blank rows)")
 
     supabase = create_client(url, key)
-
     batch_size = 100
     total_upserted = 0
 
     for i in range(0, len(records), batch_size):
         batch = records[i : i + batch_size]
-        result = (
-            supabase.table("educators")
-            .upsert(batch, on_conflict="email")
-            .execute()
-        )
+        supabase.table("educators").upsert(batch, on_conflict="email").execute()
         total_upserted += len(batch)
         print(f"  Upserted {total_upserted}/{len(records)} …")
 

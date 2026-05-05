@@ -12,6 +12,13 @@ export interface EducatorAvailability {
   sun: boolean;
 }
 
+export interface EducatorStats {
+  totalSessions: number;
+  overallAvgRating: number | null;
+  last5AvgRating: number | null;
+  sessionsRated4_5Plus: number;
+}
+
 export interface Educator {
   id: string;
   email: string;
@@ -31,24 +38,21 @@ export interface Educator {
   blacklisted: boolean;
   remarks: string | null;
   availability: EducatorAvailability;
+  /** Days currently blocked by batch commitments (from Excel "Current" columns / future session assignments) */
+  currentBlockedDays: Partial<EducatorAvailability>;
+  /** Stats — from live session query if instructor_name is populated, else from sheet import cache */
+  stats: EducatorStats;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface EducatorStats {
-  totalSessions: number;
-  overallAvgRating: number | null;
-  last5AvgRating: number | null;
-  sessionsRated4_5Plus: number;
+export interface EducatorListItem extends Educator {
+  /** Current week: days that have a live session scheduled (overlaid on top of currentBlockedDays) */
+  liveBlockedThisWeek: Partial<EducatorAvailability>;
 }
 
 export interface EducatorWithStats extends Educator {
-  stats: EducatorStats;
-  currentWeekBlocked: Partial<EducatorAvailability>;
-}
-
-export interface EducatorListItem extends Educator {
-  currentWeekBlocked: Partial<EducatorAvailability>;
+  liveBlockedThisWeek: Partial<EducatorAvailability>;
 }
 
 export interface EducatorListResult {
@@ -87,13 +91,64 @@ export type EducatorUpdatePayload = Partial<
     | "blacklisted"
     | "remarks"
     | "availability"
+    | "currentBlockedDays"
   >
 >;
 
+// ─── Raw JSONB shape ──────────────────────────────────────────────────────────
+
+interface AvailabilityRaw {
+  mon?: boolean;
+  tue?: boolean;
+  wed?: boolean;
+  thu?: boolean;
+  fri?: boolean;
+  sat?: boolean;
+  sun?: boolean;
+  blocked?: Partial<Record<keyof EducatorAvailability, boolean>>;
+  stats?: {
+    totalSessions?: number;
+    overallAvgRating?: number | null;
+    last5AvgRating?: number | null;
+    sessionsRated4_5Plus?: number;
+  };
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function parseAvailability(raw: AvailabilityRaw): EducatorAvailability {
+  return {
+    mon: raw.mon ?? true,
+    tue: raw.tue ?? true,
+    wed: raw.wed ?? true,
+    thu: raw.thu ?? true,
+    fri: raw.fri ?? true,
+    sat: raw.sat ?? true,
+    sun: raw.sun ?? true,
+  };
+}
+
+function parseCurrentBlocked(raw: AvailabilityRaw): Partial<EducatorAvailability> {
+  const b = raw.blocked ?? {};
+  const result: Partial<EducatorAvailability> = {};
+  for (const [day, val] of Object.entries(b)) {
+    if (val === true) result[day as keyof EducatorAvailability] = false;
+  }
+  return result;
+}
+
+function parseCachedStats(raw: AvailabilityRaw): EducatorStats {
+  const s = raw.stats ?? {};
+  return {
+    totalSessions: s.totalSessions ?? 0,
+    overallAvgRating: s.overallAvgRating ?? null,
+    last5AvgRating: s.last5AvgRating ?? null,
+    sessionsRated4_5Plus: s.sessionsRated4_5Plus ?? 0,
+  };
+}
+
 function toEducator(row: Record<string, unknown>): Educator {
-  const avail = (row.availability ?? {}) as Partial<EducatorAvailability>;
+  const raw = (row.availability ?? {}) as AvailabilityRaw;
   return {
     id: row.id as string,
     email: row.email as string,
@@ -112,33 +167,26 @@ function toEducator(row: Record<string, unknown>): Educator {
     curriculumApprovalRating: (row.curriculum_approval_rating as string | null) ?? null,
     blacklisted: Boolean(row.blacklisted),
     remarks: (row.remarks as string | null) ?? null,
-    availability: {
-      mon: avail.mon ?? true,
-      tue: avail.tue ?? true,
-      wed: avail.wed ?? true,
-      thu: avail.thu ?? true,
-      fri: avail.fri ?? true,
-      sat: avail.sat ?? true,
-      sun: avail.sun ?? true,
-    },
+    availability: parseAvailability(raw),
+    currentBlockedDays: parseCurrentBlocked(raw),
+    stats: parseCachedStats(raw),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
 }
 
-/** Returns ISO date strings for Monday–Sunday of the current IST week. */
+/** Returns ISO date strings for Mon–Sun of the current IST week. */
 function getCurrentWeekDates(): Record<keyof EducatorAvailability, string> {
   const now = new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
   );
-  const dow = now.getDay(); // 0 = Sunday
+  const dow = now.getDay();
   const monday = new Date(now);
   monday.setDate(now.getDate() - ((dow + 6) % 7));
 
   const days: (keyof EducatorAvailability)[] = [
     "mon", "tue", "wed", "thu", "fri", "sat", "sun",
   ];
-
   return Object.fromEntries(
     days.map((day, i) => {
       const d = new Date(monday);
@@ -148,45 +196,18 @@ function getCurrentWeekDates(): Record<keyof EducatorAvailability, string> {
   ) as Record<keyof EducatorAvailability, string>;
 }
 
-/**
- * Given a set of sessions (name → Set<date>), compute which days an educator
- * is blocked in the current week.
- */
-function computeCurrentWeekBlocked(
-  educatorName: string,
-  sessionsByName: Map<string, Set<string>>
-): Partial<EducatorAvailability> {
-  const weekDates = getCurrentWeekDates();
-  const key = educatorName.trim().toLowerCase();
-  const blocked = sessionsByName.get(key) ?? new Set<string>();
-  const result: Partial<EducatorAvailability> = {};
-
-  for (const [day, date] of Object.entries(weekDates) as [keyof EducatorAvailability, string][]) {
-    if (blocked.has(date)) {
-      result[day] = false;
-    }
-  }
-
-  return result;
-}
-
-/**
- * Fetches the sessions for the current ISO week and returns a map of
- * lowercased instructor name → Set of blocked date strings.
- */
+/** Live session map: lowercased instructor name → Set of blocked date strings this week. */
 async function fetchCurrentWeekSessionMap(): Promise<Map<string, Set<string>>> {
   const supabase = createServerSupabase();
   const weekDates = getCurrentWeekDates();
   const dates = Object.values(weekDates);
-  const from = dates[0];
-  const to = dates[dates.length - 1];
 
   const { data, error } = await supabase
     .from("sessions")
     .select("instructor_name, date")
     .not("instructor_name", "is", null)
-    .gte("date", from)
-    .lte("date", to);
+    .gte("date", dates[0])
+    .lte("date", dates[dates.length - 1]);
 
   if (error) throw new Error(error.message);
 
@@ -197,8 +218,23 @@ async function fetchCurrentWeekSessionMap(): Promise<Map<string, Set<string>>> {
     if (!map.has(key)) map.set(key, new Set());
     map.get(key)!.add(row.date as string);
   }
-
   return map;
+}
+
+/** Returns which days have a live session this week for this educator. */
+function computeLiveBlockedThisWeek(
+  educatorName: string,
+  sessionMap: Map<string, Set<string>>
+): Partial<EducatorAvailability> {
+  const weekDates = getCurrentWeekDates();
+  const key = educatorName.trim().toLowerCase();
+  const blocked = sessionMap.get(key) ?? new Set<string>();
+  const result: Partial<EducatorAvailability> = {};
+
+  for (const [day, date] of Object.entries(weekDates) as [keyof EducatorAvailability, string][]) {
+    if (blocked.has(date)) result[day] = false;
+  }
+  return result;
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -208,15 +244,9 @@ export async function listEducators(
 ): Promise<EducatorListResult> {
   const supabase = createServerSupabase();
   const {
-    search,
-    tier,
-    instructorType,
-    primaryDomain,
-    mouStatus,
-    blacklisted,
-    availableDay,
-    page = 1,
-    pageSize = 50,
+    search, tier, instructorType, primaryDomain,
+    mouStatus, blacklisted, availableDay,
+    page = 1, pageSize = 50,
   } = filters;
 
   let query = supabase
@@ -224,24 +254,16 @@ export async function listEducators(
     .select("*", { count: "exact" })
     .order("name", { ascending: true });
 
-  if (search) {
-    query = query.or(
-      `name.ilike.%${search}%,email.ilike.%${search}%`
-    );
-  }
+  if (search) query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
   if (tier) query = query.eq("tier", tier);
   if (instructorType) query = query.eq("instructor_type", instructorType);
   if (primaryDomain) query = query.eq("primary_domain", primaryDomain);
   if (mouStatus) query = query.eq("mou_status", mouStatus);
   if (blacklisted !== undefined) query = query.eq("blacklisted", blacklisted);
-
-  if (availableDay) {
-    query = query.eq(`availability->>${availableDay}`, "true");
-  }
+  if (availableDay) query = query.eq(`availability->>${availableDay}`, "true");
 
   const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-  query = query.range(from, to);
+  query = query.range(from, from + pageSize - 1);
 
   const { data, error, count } = await query;
   if (error) throw new Error(error.message);
@@ -253,7 +275,7 @@ export async function listEducators(
     const educator = toEducator(row);
     return {
       ...educator,
-      currentWeekBlocked: computeCurrentWeekBlocked(educator.name, sessionMap),
+      liveBlockedThisWeek: computeLiveBlockedThisWeek(educator.name, sessionMap),
     };
   });
 
@@ -274,42 +296,37 @@ export async function getEducator(id: string): Promise<EducatorWithStats | null>
 
   const educator = toEducator(data as Record<string, unknown>);
 
-  // Live stats from sessions — match by name (case-insensitive)
-  const { data: sessionRows, error: sessionsError } = await supabase
+  // Try live stats from sessions (works once instructor_name gets populated)
+  const { data: sessionRows } = await supabase
     .from("sessions")
     .select("date, rating")
     .ilike("instructor_name", educator.name)
     .order("date", { ascending: false });
 
-  if (sessionsError) throw new Error(sessionsError.message);
+  const sessionMap = await fetchCurrentWeekSessionMap();
+  const liveBlockedThisWeek = computeLiveBlockedThisWeek(educator.name, sessionMap);
 
-  const allSessions = (sessionRows ?? []) as { date: string | null; rating: number | null }[];
-  const ratedSessions = allSessions.filter((s) => s.rating != null);
-  const ratings = ratedSessions.map((s) => s.rating as number);
-  const last5Ratings = ratings.slice(0, 5);
+  if (sessionRows && sessionRows.length > 0) {
+    const allSessions = sessionRows as { date: string | null; rating: number | null }[];
+    const ratings = allSessions.filter((s) => s.rating != null).map((s) => s.rating as number);
+    const last5 = ratings.slice(0, 5);
 
-  const stats: EducatorStats = {
-    totalSessions: allSessions.length,
-    overallAvgRating:
-      ratings.length > 0
+    const liveStats: EducatorStats = {
+      totalSessions: allSessions.length,
+      overallAvgRating: ratings.length > 0
         ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 100) / 100
         : null,
-    last5AvgRating:
-      last5Ratings.length > 0
-        ? Math.round(
-            (last5Ratings.reduce((a, b) => a + b, 0) / last5Ratings.length) * 100
-          ) / 100
+      last5AvgRating: last5.length > 0
+        ? Math.round((last5.reduce((a, b) => a + b, 0) / last5.length) * 100) / 100
         : null,
-    sessionsRated4_5Plus: ratings.filter((r) => r >= 4.5).length,
-  };
+      sessionsRated4_5Plus: ratings.filter((r) => r >= 4.5).length,
+    };
 
-  const sessionMap = await fetchCurrentWeekSessionMap();
+    return { ...educator, stats: liveStats, liveBlockedThisWeek };
+  }
 
-  return {
-    ...educator,
-    stats,
-    currentWeekBlocked: computeCurrentWeekBlocked(educator.name, sessionMap),
-  };
+  // Fall back to sheet-imported stats
+  return { ...educator, liveBlockedThisWeek };
 }
 
 export async function updateEducator(
@@ -318,7 +335,10 @@ export async function updateEducator(
 ): Promise<Educator> {
   const supabase = createServerSupabase();
 
+  // For availability and currentBlockedDays, we need to merge into the JSONB
+  // First fetch current availability JSONB to preserve stats sub-object
   const dbPayload: Record<string, unknown> = {};
+
   if (payload.name !== undefined) dbPayload.name = payload.name;
   if (payload.phone !== undefined) dbPayload.phone = payload.phone;
   if (payload.linkedinUrl !== undefined) dbPayload.linkedin_url = payload.linkedinUrl;
@@ -335,7 +355,31 @@ export async function updateEducator(
     dbPayload.curriculum_approval_rating = payload.curriculumApprovalRating;
   if (payload.blacklisted !== undefined) dbPayload.blacklisted = payload.blacklisted;
   if (payload.remarks !== undefined) dbPayload.remarks = payload.remarks;
-  if (payload.availability !== undefined) dbPayload.availability = payload.availability;
+
+  // If availability or currentBlockedDays changed, merge into the JSONB
+  if (payload.availability !== undefined || payload.currentBlockedDays !== undefined) {
+    const { data: current } = await supabase
+      .from("educators")
+      .select("availability")
+      .eq("id", id)
+      .single();
+
+    const existing = (current?.availability ?? {}) as AvailabilityRaw;
+
+    const newBlocked: Record<string, boolean> = {};
+    const blockedSource = payload.currentBlockedDays ?? parseCurrentBlocked(existing);
+    for (const [day, val] of Object.entries(blockedSource)) {
+      // val=false means blocked (inverted from availability), val=true means free
+      // In our schema: blocked[day]=true means blocked on that day
+      newBlocked[day] = val === false;
+    }
+
+    dbPayload.availability = {
+      ...(payload.availability ?? parseAvailability(existing)),
+      blocked: newBlocked,
+      stats: existing.stats ?? {},
+    };
+  }
 
   const { data, error } = await supabase
     .from("educators")

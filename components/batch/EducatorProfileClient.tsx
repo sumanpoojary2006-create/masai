@@ -572,11 +572,14 @@ export function EducatorProfileClient({ educatorId }: { educatorId: string }) {
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
               This Week
             </p>
-            <p className="mt-1 text-xs text-slate-600">Live — based on sessions assigned this week</p>
+            <p className="mt-1 text-xs text-slate-600">Batch commitments + live sessions this week</p>
             <div className="mt-4 grid grid-cols-7 gap-1.5">
               {DAYS.map(({ key, label, full }) => {
                 const isUnavailable = !data.availability[key];
-                const isBlocked = Boolean(data.currentWeekBlocked[key]);
+                // Merge: batch-committed days OR live session this week
+                const isBlocked =
+                  data.currentBlockedDays[key] === false ||
+                  Boolean(data.liveBlockedThisWeek[key] === false);
                 const status = isUnavailable ? "unavail" : isBlocked ? "blocked" : "free";
                 const styles = {
                   unavail: "border-slate-800 bg-slate-900/40 text-slate-700",
@@ -587,7 +590,7 @@ export function EducatorProfileClient({ educatorId }: { educatorId: string }) {
                 return (
                   <div
                     key={key}
-                    title={`${full}: ${status === "unavail" ? "Generally unavailable" : status === "blocked" ? "Has session(s) this week" : "Free"}`}
+                    title={`${full}: ${status === "unavail" ? "Generally unavailable" : status === "blocked" ? "Blocked (batch commitment or live session)" : "Free"}`}
                     className={`flex flex-col items-center gap-1 rounded-[14px] border py-3 ${styles[status]}`}
                   >
                     <span className="text-xs font-bold">{label}</span>

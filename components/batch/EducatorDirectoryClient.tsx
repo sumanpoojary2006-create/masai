@@ -480,7 +480,7 @@ export function EducatorDirectoryClient() {
                       <td className="px-4 py-3.5">
                         <AvailabilityDots
                           availability={educator.availability}
-                          blocked={educator.currentWeekBlocked}
+                          blocked={{ ...educator.currentBlockedDays, ...educator.liveBlockedThisWeek }}
                         />
                       </td>
                       <td className="px-4 py-3.5 text-slate-400">
