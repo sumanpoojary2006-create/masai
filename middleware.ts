@@ -15,6 +15,13 @@ function isPublic(pathname: string) {
 }
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Skip auth entirely for public paths — no Supabase round-trip needed
+  if (isPublic(pathname)) {
+    return NextResponse.next({ request });
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const supabaseKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
@@ -47,13 +54,6 @@ export async function middleware(request: NextRequest) {
   const {
     data: { user }
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-
-  // Always allow public paths through
-  if (isPublic(pathname)) {
-    return response;
-  }
 
   // Unauthenticated: redirect to the right login page based on the portal
   if (!user) {
