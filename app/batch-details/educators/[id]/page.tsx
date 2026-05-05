@@ -10,8 +10,9 @@ import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 export default async function EducatorProfilePage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   if (!hasSupabaseConfig() || !hasPublicSupabaseConfig()) {
     redirect("/");
   }
@@ -26,5 +27,5 @@ export default async function EducatorProfilePage({
     redirect("/batch-details/dashboard");
   }
 
-  return <EducatorProfileClient educatorId={params.id} />;
+  return <EducatorProfileClient educatorId={id} />;
 }
