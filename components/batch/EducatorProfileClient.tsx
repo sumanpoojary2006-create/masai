@@ -190,6 +190,7 @@ export function EducatorProfileClient({ educatorId }: { educatorId: string }) {
           blacklisted: form.blacklisted,
           remarks: form.remarks,
           availability: form.availability,
+          currentBlockedDays: form.currentBlockedDays,
         }),
       });
       const updated = await res.json();
@@ -567,35 +568,71 @@ export function EducatorProfileClient({ educatorId }: { educatorId: string }) {
             </div>
           </div>
 
-          {/* Current week availability */}
+          {/* Weekly commitment / blocked days */}
           <div className="rounded-[26px] border border-slate-800/90 bg-slate-950/75 p-5 shadow-[0_18px_48px_rgba(2,6,23,0.28)]">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              This Week
+              Weekly Commitment
             </p>
-            <p className="mt-1 text-xs text-slate-600">Batch commitments + live sessions this week</p>
+            <p className="mt-1 text-xs text-slate-600">
+              {editing ? "Click a day to toggle blocked / free" : "Days blocked by current batch assignments"}
+            </p>
             <div className="mt-4 grid grid-cols-7 gap-1.5">
               {DAYS.map(({ key, label, full }) => {
-                const isUnavailable = !data.availability[key];
-                // Merge: batch-committed days OR live session this week
+                const isUnavailable = !(editing
+                  ? (form.availability ?? data.availability)[key]
+                  : data.availability[key]);
+
+                // In edit mode: use form state for committed days
+                const committedSource = editing
+                  ? (form.currentBlockedDays ?? data.currentBlockedDays)
+                  : data.currentBlockedDays;
+
+                // blocked = committed on that day OR live session this week
                 const isBlocked =
-                  data.currentBlockedDays[key] === false ||
+                  committedSource[key] === false ||
                   Boolean(data.liveBlockedThisWeek[key] === false);
+
                 const status = isUnavailable ? "unavail" : isBlocked ? "blocked" : "free";
+
                 const styles = {
-                  unavail: "border-slate-800 bg-slate-900/40 text-slate-700",
-                  blocked: "border-rose-500/30 bg-rose-500/15 text-rose-300",
-                  free: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300",
+                  unavail: "border-slate-800 bg-slate-900/40 text-slate-700 cursor-default",
+                  blocked: `border-rose-500/30 bg-rose-500/15 text-rose-300 ${editing ? "cursor-pointer hover:opacity-70" : ""}`,
+                  free: `border-emerald-500/30 bg-emerald-500/15 text-emerald-300 ${editing ? "cursor-pointer hover:opacity-70" : ""}`,
                 };
                 const icons = { unavail: "—", blocked: "●", free: "✓" };
+
                 return (
-                  <div
+                  <button
                     key={key}
-                    title={`${full}: ${status === "unavail" ? "Generally unavailable" : status === "blocked" ? "Blocked (batch commitment or live session)" : "Free"}`}
-                    className={`flex flex-col items-center gap-1 rounded-[14px] border py-3 ${styles[status]}`}
+                    type="button"
+                    disabled={!editing || isUnavailable}
+                    title={
+                      isUnavailable
+                        ? `${full}: Generally unavailable`
+                        : editing
+                        ? `${full}: Click to ${isBlocked ? "unblock" : "block"}`
+                        : `${full}: ${isBlocked ? "Blocked" : "Free"}`
+                    }
+                    onClick={() => {
+                      if (!editing || isUnavailable) return;
+                      setForm((f) => {
+                        const current = f.currentBlockedDays ?? data.currentBlockedDays;
+                        // false = blocked, true/undefined = free
+                        const nowBlocked = current[key] === false;
+                        return {
+                          ...f,
+                          currentBlockedDays: {
+                            ...current,
+                            [key]: nowBlocked ? true : false,
+                          },
+                        };
+                      });
+                    }}
+                    className={`flex flex-col items-center gap-1 rounded-[14px] border py-3 transition ${styles[status]}`}
                   >
                     <span className="text-xs font-bold">{label}</span>
                     <span className="text-[11px]">{icons[status]}</span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -604,7 +641,7 @@ export function EducatorProfileClient({ educatorId }: { educatorId: string }) {
                 <span className="h-2 w-2 rounded-full bg-emerald-500" /> Free
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-rose-500" /> Blocked (has session)
+                <span className="h-2 w-2 rounded-full bg-rose-500" /> Blocked
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-slate-700" /> Unavailable
