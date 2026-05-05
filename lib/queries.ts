@@ -4,6 +4,7 @@ import { TASK_TYPES } from "@/lib/constants";
 import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone } from "@/lib/env";
 import { decryptLmsPassword } from "@/lib/lms-password";
+import { deterministicMatchLearningObjective } from "@/lib/lo-matcher";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   CacheLecture,
@@ -113,14 +114,160 @@ export async function getAutomationLectures(userId: string) {
   }));
 }
 
+/**
+ * Sync this week's lms_lecture_cache rows into the lectures table for an
+ * admin-assigned CC. Only inserts rows that don't exist yet (ignoreDuplicates),
+ * then backfills learning_objective from the global batch curriculum for any
+ * rows that still have an empty LO. Existing session_link and LO values are
+ * never overwritten.
+ */
+async function syncCCWeeklyLectures(
+  userId: string,
+  supabase: ReturnType<typeof createServerSupabase>
+): Promise<void> {
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+  const lookback = now.weekday === 1 ? 2 : 0;
+  const weekStartDate = now.startOf("week").minus({ days: lookback }).toISODate()!;
+  const weekEndDate = now.startOf("week").plus({ days: 8 }).toISODate()!;
+  const weekStart = `${weekStartDate}T00:00:00+00:00`;
+  const weekEnd = `${weekEndDate}T00:00:00+00:00`;
+
+  // Get CC batch assignments
+  const { data: assignments, error: assignErr } = await supabase
+    .from("cc_batch_assignments")
+    .select("batch_id, batch_name")
+    .eq("cc_user_id", userId);
+
+  if (assignErr) throw new Error(assignErr.message);
+  if (!assignments?.length) return;
+
+  const batchIds = assignments.map((a) => a.batch_id as number);
+  const batchNameById: Record<number, string> = Object.fromEntries(
+    assignments.map((a) => [a.batch_id as number, a.batch_name as string])
+  );
+
+  // Get this week's lectures from lms_lecture_cache
+  const { data: cacheRows, error: cacheErr } = await supabase
+    .from("lms_lecture_cache")
+    .select("batch_id, lecture_id, title, module, schedule, concludes")
+    .in("batch_id", batchIds)
+    .neq("module", "general")
+    .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
+    .gte("schedule", weekStart)
+    .lte("schedule", weekEnd);
+
+  if (cacheErr) throw new Error(cacheErr.message);
+  if (!cacheRows?.length) return;
+
+  // Deduplicate by (batch_id, schedule, title)
+  type CRow = (typeof cacheRows)[number];
+  const dedupMap = new Map<string, CRow>();
+  for (const row of cacheRows) {
+    const key = `${row.batch_id}::${row.schedule}::${row.title}`;
+    if (!dedupMap.has(key)) dedupMap.set(key, row);
+  }
+
+  // Map to lecture rows for upsert
+  const lectureRows = [...dedupMap.values()].map((row) => {
+    const dt = DateTime.fromISO(row.schedule as string).setZone(timezone);
+    const end = DateTime.fromISO(row.concludes as string).setZone(timezone);
+    return {
+      user_id: userId,
+      batch_name: batchNameById[row.batch_id as number] ?? `Batch ${row.batch_id}`,
+      module_name: (row.module as string) ?? "",
+      lecture_name: row.title as string,
+      learning_objective: "",
+      session_link: "",
+      lecture_date: dt.toISODate()!,
+      start_time: dt.toFormat("HH:mm:ss"),
+      end_time: end.toFormat("HH:mm:ss")
+    };
+  });
+
+  // Insert new rows only — never overwrite session_link or learning_objective
+  await supabase
+    .from("lectures")
+    .upsert(lectureRows, {
+      onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time",
+      ignoreDuplicates: true
+    });
+
+  // Backfill learning_objective from global curriculum for rows that still have none
+  const batchNames = [...new Set(assignments.map((a) => a.batch_name as string))];
+  const { data: curriculums } = await supabase
+    .from("batch_curriculums")
+    .select("batch_name, lecture_name, learning_objective")
+    .is("user_id", null)
+    .in("batch_name", batchNames);
+
+  if (!curriculums?.length) return;
+
+  const curriculumByBatch: Record<string, { lecture_name: string; learning_objective: string }[]> =
+    {};
+  for (const c of curriculums) {
+    if (!curriculumByBatch[c.batch_name]) curriculumByBatch[c.batch_name] = [];
+    curriculumByBatch[c.batch_name].push({
+      lecture_name: c.lecture_name,
+      learning_objective: c.learning_objective
+    });
+  }
+
+  // Query lectures with empty/null LO for this week
+  const { data: weekLectures } = await supabase
+    .from("lectures")
+    .select("id, batch_name, lecture_name, learning_objective")
+    .eq("user_id", userId)
+    .is("archived_at", null)
+    .gte("lecture_date", weekStartDate)
+    .lte("lecture_date", weekEndDate);
+
+  const updates: Array<{ id: string; lo: string }> = [];
+  for (const lec of weekLectures ?? []) {
+    const existingLo = ((lec as Record<string, unknown>).learning_objective as string) ?? "";
+    if (existingLo.trim()) continue; // already has an LO — skip
+
+    const curriculum = curriculumByBatch[lec.batch_name] ?? [];
+    if (!curriculum.length) continue;
+
+    const matched = deterministicMatchLearningObjective(lec.lecture_name, curriculum);
+    if (matched) updates.push({ id: lec.id, lo: matched });
+  }
+
+  // Batch-update in parallel (best-effort — non-blocking)
+  await Promise.all(
+    updates.map(({ id, lo }) =>
+      supabase
+        .from("lectures")
+        .update({ learning_objective: lo })
+        .eq("id", id)
+    )
+  );
+}
+
 export async function getLoTrackerData(userId: string): Promise<LoTrackerRow[]> {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
 
-  // Current week: Monday to next Monday
+  // Check if this is an admin-assigned CC (has cc_batch_assignments)
+  const { data: ccAssignments } = await supabase
+    .from("cc_batch_assignments")
+    .select("batch_id")
+    .eq("cc_user_id", userId)
+    .limit(1);
+
+  const isAdminCC = (ccAssignments?.length ?? 0) > 0;
+
+  if (isAdminCC) {
+    // Sync lms_lecture_cache → lectures table for this CC (inserts only, no overwrites)
+    await syncCCWeeklyLectures(userId, supabase);
+  }
+
+  // Current week: Monday to next Monday (with Monday lookback for Saturday sessions)
   const now = DateTime.now().setZone(timezone);
-  const currentMonday = now.startOf("week").toISODate()!;
-  const nextMonday = now.startOf("week").plus({ weeks: 1 }).toISODate()!;
+  const lookback = now.weekday === 1 ? 2 : 0;
+  const currentMonday = now.startOf("week").minus({ days: lookback }).toISODate()!;
+  const nextMonday = now.startOf("week").plus({ days: 8 }).toISODate()!;
 
   const { data: lectures, error: lectureError } = await supabase
     .from("lectures")
