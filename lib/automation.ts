@@ -637,22 +637,12 @@ export async function runComplianceCheck(options?: {
         return dt.isValid ? dt.toISO() : null;
       };
 
-      let lmsLectureId: number | undefined;
-      if (check.session_link) {
-        try {
-          const lmsIdStr = new URL(check.session_link).searchParams.get("id");
-          const parsed = lmsIdStr ? parseInt(lmsIdStr, 10) : NaN;
-          if (!isNaN(parsed)) lmsLectureId = parsed;
-        } catch { /* ignore */ }
-      }
-      // cl.lectureId is the LMS numeric lecture_id stored in lms_lecture_cache.
-      // Use it as a fallback when session_link is absent or lacks an ?id= param
-      // so syncFoundResourcesToCache can still update the cache row.
-      if (!lmsLectureId) {
-        const fallback = parseInt(cl.lectureId, 10);
-        if (!isNaN(fallback)) lmsLectureId = fallback;
-      }
-      const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId };
+      // cl.lectureId is the exact lecture_id stored in lms_lecture_cache — always use it
+      // for the cache update key. Using session_link's ?id= param is risky: the LMS may
+      // resolve to a different lecture entity, causing syncFoundResourcesToCache to silently
+      // update 0 rows while the Slack "completed" alert is still sent.
+      const lmsLectureId = parseInt(cl.lectureId, 10);
+      const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId: isNaN(lmsLectureId) ? undefined : lmsLectureId };
 
       pathBTracking.push(
         { lectureId: cl.lectureId, resourceType: "preread", found: check.preread, uploadedAt: check.preread ? toIso(check.preread_at) : null, rawPayload: { source: "lms-db" }, ...base },
@@ -1018,22 +1008,12 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
         return dt.isValid ? dt.toISO() : null;
       };
 
-      let lmsLectureId: number | undefined;
-      if (check.session_link) {
-        try {
-          const lmsIdStr = new URL(check.session_link).searchParams.get("id");
-          const parsed = lmsIdStr ? parseInt(lmsIdStr, 10) : NaN;
-          if (!isNaN(parsed)) lmsLectureId = parsed;
-        } catch { /* ignore */ }
-      }
-      // cl.lectureId is the LMS numeric lecture_id stored in lms_lecture_cache.
-      // Use it as a fallback when session_link is absent or lacks an ?id= param
-      // so syncFoundResourcesToCache can still update the cache row.
-      if (!lmsLectureId) {
-        const fallback = parseInt(cl.lectureId, 10);
-        if (!isNaN(fallback)) lmsLectureId = fallback;
-      }
-      const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId };
+      // cl.lectureId is the exact lecture_id stored in lms_lecture_cache — always use it
+      // for the cache update key. Using session_link's ?id= param is risky: the LMS may
+      // resolve to a different lecture entity, causing syncFoundResourcesToCache to silently
+      // update 0 rows while the Slack "completed" alert is still sent.
+      const lmsLectureId = parseInt(cl.lectureId, 10);
+      const base = { lmsBatchId: cl.lmsBatchId, lmsLectureId: isNaN(lmsLectureId) ? undefined : lmsLectureId };
 
       pathBTracking.push(
         { lectureId: cl.lectureId, resourceType: "preread", found: check.preread, uploadedAt: check.preread ? toIso(check.preread_at) : null, rawPayload: { source: "lms-db" }, ...base },
