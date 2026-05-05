@@ -10,7 +10,6 @@ import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { scrapeLectureSummary } from "@/lib/lms-scraper";
 import { sendLoSyncSlackNotification } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
-import { LoReport } from "@/lib/types";
 
 interface ActionResult {
   lectureId: string;
@@ -92,7 +91,7 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
   const profile = await getUserProfile(userId, { includePassword: true });
   if (!profile?.lms_username || !profile?.lms_password) {
     // No credentials — only analyze already-fetched transcripts
-    return analyzeExistingTranscripts(userId, lectureIds, lectures, reportByLecture, supabase);
+    return analyzeExistingTranscripts(userId, lectures, reportByLecture, supabase);
   }
 
   const results: ActionResult[] = [];
@@ -221,10 +220,9 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
 
 async function analyzeExistingTranscripts(
   userId: string,
-  lectureIds: string[],
   lectures: { id: string; lecture_name: string; learning_objective: unknown }[],
   reportByLecture: Map<string, { transcript: string; status: string }>,
-  supabase: ReturnType<typeof import("@/lib/supabase").createServerSupabase>
+  supabase: ReturnType<typeof createServerSupabase>
 ): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
 
