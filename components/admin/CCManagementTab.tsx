@@ -27,6 +27,9 @@ export function CCManagementTab() {
 
   const [selectedCcId, setSelectedCcId] = useState("");
   const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [batchSearch, setBatchSearch] = useState("");
+  const [batchDropdownOpen, setBatchDropdownOpen] = useState(false);
+  const batchSearchRef = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [syncingBatches, setSyncingBatches] = useState(false);
@@ -131,6 +134,7 @@ export function CCManagementTab() {
       if (res.ok) {
         setSelectedCcId("");
         setSelectedBatchId("");
+        setBatchSearch("");
         await loadData();
       }
     } finally {
@@ -177,6 +181,23 @@ export function CCManagementTab() {
       setUploading(false);
     }
   }
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (batchSearchRef.current && !batchSearchRef.current.contains(e.target as Node)) {
+        setBatchDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredBatches = unassigned.filter((b) =>
+    b.name.toLowerCase().includes(batchSearch.toLowerCase()) ||
+    (b.program ?? "").toLowerCase().includes(batchSearch.toLowerCase())
+  );
+
+  const selectedBatch = unassigned.find((b) => String(b.batch_id) === selectedBatchId);
 
   const allBatches = [
     ...assignments.map((a) => ({ batch_id: a.batch_id, name: a.batch_name, program: a.batch_program })),
@@ -251,18 +272,42 @@ export function CCManagementTab() {
             ))}
           </select>
 
-          <select
-            value={selectedBatchId}
-            onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="flex-1 min-w-[200px] rounded-lg border border-white/10 bg-[#1a2236] px-3 py-2 text-sm text-white"
-          >
-            <option value="">— Select Unassigned Batch —</option>
-            {unassigned.map((b) => (
-              <option key={b.batch_id} value={String(b.batch_id)}>
-                {b.name}{b.program ? ` · ${b.program}` : ""}
-              </option>
-            ))}
-          </select>
+          <div ref={batchSearchRef} className="relative flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder={selectedBatch ? `${selectedBatch.name}${selectedBatch.program ? ` · ${selectedBatch.program}` : ""}` : "— Select Unassigned Batch —"}
+              value={batchSearch}
+              onChange={(e) => {
+                setBatchSearch(e.target.value);
+                setBatchDropdownOpen(true);
+                if (!e.target.value) setSelectedBatchId("");
+              }}
+              onFocus={() => setBatchDropdownOpen(true)}
+              className="w-full rounded-lg border border-white/10 bg-[#1a2236] px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none"
+            />
+            {batchDropdownOpen && filteredBatches.length > 0 && (
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-white/10 bg-[#1a2236] py-1 shadow-xl">
+                {filteredBatches.map((b) => (
+                  <li
+                    key={b.batch_id}
+                    onMouseDown={() => {
+                      setSelectedBatchId(String(b.batch_id));
+                      setBatchSearch("");
+                      setBatchDropdownOpen(false);
+                    }}
+                    className="cursor-pointer px-3 py-2 text-sm text-white hover:bg-indigo-600/30"
+                  >
+                    {b.name}{b.program ? <span className="ml-1 text-slate-400">· {b.program}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {batchDropdownOpen && batchSearch && filteredBatches.length === 0 && (
+              <div className="absolute z-20 mt-1 w-full rounded-lg border border-white/10 bg-[#1a2236] px-3 py-2 text-sm text-slate-400 shadow-xl">
+                No batches match &ldquo;{batchSearch}&rdquo;
+              </div>
+            )}
+          </div>
 
           <button
             onClick={assign}
