@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
+import { revalidatePath } from "next/cache";
 
 import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
@@ -162,32 +163,35 @@ export async function POST() {
     }
 
     // ── Step 4: Deduplicate by (batch_name, title, schedule) ──────────────────
-    // A parent batch (e.g. IITR-PM-2512) can have many section sub-batches
-    // (sections 01, 02, 03…) each with their own batch_id in lms_lecture_cache.
-    // Iterating by batch_id produces one entry per section → duplicates.
-    // We key by (batch_name, title, schedule) and collect ALL section batch_ids
-    // so the live LMS check can probe each one.
+    // A parent batch (e.g. IITR-PM-2512) has many section sub-batches each with
+    // their own batch_id in lms_lecture_cache. Iterating by batch_id produces
+    // one entry per section → duplicates in the Slack message.
+    // We key by (batch_name, title, schedule) and collect ALL section batch_ids.
     type CacheRow = NonNullable<typeof cacheRows>[number];
     type DedupEntry = {
       row: CacheRow;
       batchName: string;
       sectionBatchIds: number[];
+      // lecture_id per section_batch_id, needed for targeted cache updates
+      lectureIdByBatchId: Map<number, number>;
     };
 
     const dedupMap = new Map<string, DedupEntry>();
 
     for (const row of cacheRows) {
       const batchName = batchNameById.get(row.batch_id as number);
-      if (!batchName) continue; // batch not assigned to any CC — skip
+      if (!batchName) continue;
 
       const key = `${batchName}::${row.schedule}::${row.title}`;
       const existing = dedupMap.get(key);
 
       if (!existing) {
-        dedupMap.set(key, { row, batchName, sectionBatchIds: [row.batch_id as number] });
+        const lectureIdByBatchId = new Map([[row.batch_id as number, row.lecture_id as number]]);
+        dedupMap.set(key, { row, batchName, sectionBatchIds: [row.batch_id as number], lectureIdByBatchId });
       } else {
-        // Collect this section's batch_id and merge upload flags (true wins)
         existing.sectionBatchIds.push(row.batch_id as number);
+        existing.lectureIdByBatchId.set(row.batch_id as number, row.lecture_id as number);
+        // Merge upload flags — true wins (if any section has it uploaded, count as uploaded)
         existing.row = {
           ...existing.row,
           preread_uploaded:    existing.row.preread_uploaded    || row.preread_uploaded,
@@ -197,16 +201,11 @@ export async function POST() {
       }
     }
 
-    // ── Step 5: Live LMS DB check + bucket per CC ──────────────────────────────
+    // ── Step 5: Live LMS DB check + update cache + bucket per CC ──────────────
     const buckets = new Map<string, CoordinatorBucket>();
+    let cacheUpdates = 0;
 
-    const RESOURCE_TYPES = [
-      { key: "preread"    as const, uploadedField: "preread_uploaded"    as const },
-      { key: "notes"      as const, uploadedField: "notes_uploaded"      as const },
-      { key: "assignment" as const, uploadedField: "assignment_uploaded" as const },
-    ];
-
-    for (const { row, batchName, sectionBatchIds } of dedupMap.values()) {
+    for (const { row, batchName, sectionBatchIds, lectureIdByBatchId } of dedupMap.values()) {
       if (!row.schedule) continue;
 
       const schedDt = DateTime.fromISO((row.schedule as string).slice(0, 19), { zone: timezone });
@@ -219,32 +218,23 @@ export async function POST() {
         : schedDt.plus({ hours: 1 });
       const endTime = concludesDt.isValid ? concludesDt.toFormat("HH:mm:ss") : startTime;
 
-      // Live LMS check — probe every section batch so cross-section uploads are found.
-      // This is the DB check: it queries the LMS MySQL DB for actual upload state.
-      let prereadUploaded    = Boolean(row.preread_uploaded);
-      let notesUploaded      = Boolean(row.notes_uploaded);
-      let assignmentUploaded = Boolean(row.assignment_uploaded);
+      // Phase A: probe every section batch to find the merged live upload state.
+      // Do NOT break early here — we need the final merged state before we can
+      // decide what to write to each section's cache row.
+      let livePreread    = Boolean(row.preread_uploaded);
+      let liveNotes      = Boolean(row.notes_uploaded);
+      let liveAssignment = Boolean(row.assignment_uploaded);
+
+      const liveCheckBySectionBatchId = new Map<number, { preread: boolean; notes: boolean; assignment: boolean }>();
 
       for (const batchId of sectionBatchIds) {
-        if (prereadUploaded && notesUploaded && assignmentUploaded) break;
         try {
           const check = await checkLmsTasksForLecture(batchId, row.title as string, lectureDate);
-          prereadUploaded    = prereadUploaded    || check.preread;
-          notesUploaded      = notesUploaded      || check.notes;
-          assignmentUploaded = assignmentUploaded || check.assignment;
-
-          // Promote cache flags false→true as a side effect so the dashboard stays fresh.
-          const patch: Record<string, boolean> = {};
-          if (check.preread    && !row.preread_uploaded)    patch.preread_uploaded    = true;
-          if (check.notes      && !row.notes_uploaded)      patch.notes_uploaded      = true;
-          if (check.assignment && !row.assignment_uploaded) patch.assignment_uploaded = true;
-          if (Object.keys(patch).length > 0) {
-            await supabase
-              .from("lms_lecture_cache")
-              .update(patch)
-              .eq("batch_id", batchId)
-              .eq("lecture_id", row.lecture_id as number);
-          }
+          liveCheckBySectionBatchId.set(batchId, check);
+          // Merge: true wins across sections
+          livePreread    = livePreread    || check.preread;
+          liveNotes      = liveNotes      || check.notes;
+          liveAssignment = liveAssignment || check.assignment;
         } catch (err) {
           console.warn(
             `[push-slack] Live LMS check failed for "${row.title}" batch=${batchId}:`,
@@ -253,22 +243,46 @@ export async function POST() {
         }
       }
 
-      const uploadState: Record<string, boolean> = {
-        preread:    prereadUploaded,
-        notes:      notesUploaded,
-        assignment: assignmentUploaded,
-      };
+      // Phase B: update EVERY section's cache row to reflect live state.
+      // Bidirectional: both false→true AND true→false so the CC dashboard
+      // always shows what the LMS actually has right now.
+      for (const batchId of sectionBatchIds) {
+        const check = liveCheckBySectionBatchId.get(batchId);
+        if (!check) continue; // live check failed for this section — skip update
 
-      // Find the CCs responsible for this batch
+        const patch: Record<string, boolean> = {};
+        if (check.preread    !== Boolean(row.preread_uploaded))    patch.preread_uploaded    = check.preread;
+        if (check.notes      !== Boolean(row.notes_uploaded))      patch.notes_uploaded      = check.notes;
+        if (check.assignment !== Boolean(row.assignment_uploaded)) patch.assignment_uploaded = check.assignment;
+
+        if (Object.keys(patch).length > 0) {
+          const lectureId = lectureIdByBatchId.get(batchId);
+          if (lectureId != null) {
+            await supabase
+              .from("lms_lecture_cache")
+              .update(patch)
+              .eq("batch_id", batchId)
+              .eq("lecture_id", lectureId);
+            cacheUpdates++;
+          }
+        }
+      }
+
+      // Phase C: bucket into completed / pending per CC using merged live state.
       const ccIds = ccsByBatchName.get(batchName) ?? [];
       if (ccIds.length === 0) continue;
 
-      for (const { key, uploadedField: _ } of RESOURCE_TYPES) {
+      const RESOURCE_TYPES = [
+        { key: "preread"    as const, live: livePreread    },
+        { key: "notes"      as const, live: liveNotes      },
+        { key: "assignment" as const, live: liveAssignment },
+      ];
+
+      for (const { key, live } of RESOURCE_TYPES) {
         const deadlineIso = computeDeadline(key, lectureDate, startTime, endTime);
         const deadlineDay = DateTime.fromISO(deadlineIso).setZone(timezone).toISODate()!;
         if (deadlineDay !== todayDate) continue; // only resources due today
 
-        const uploaded = uploadState[key];
         const item: ResourceItem = { batch: batchName, lecture: row.title as string, type: key };
 
         for (const userId of ccIds) {
@@ -285,17 +299,26 @@ export async function POST() {
           }
 
           const bucket = buckets.get(userId)!;
-          if (uploaded) bucket.completed.push(item);
-          else          bucket.pending.push(item);
+          if (live) bucket.completed.push(item);
+          else      bucket.pending.push(item);
         }
       }
     }
 
+    // ── Step 6: Revalidate CC dashboard pages so they reflect the fresh cache ──
+    revalidatePath("/cc/dashboard");
+    revalidatePath("/cc/batch", "layout");
+    revalidatePath("/", "layout");
+    console.log(`[push-slack] Cache updated for ${cacheUpdates} row(s). Dashboards revalidated.`);
+
     if (buckets.size === 0) {
-      return NextResponse.json({ message: "No resource deadlines fall today — nothing to notify." });
+      return NextResponse.json({
+        message: `DB check complete — cache updated (${cacheUpdates} row(s) refreshed). No resource deadlines fall today.`,
+        cacheUpdates
+      });
     }
 
-    // ── Step 6: Send one Slack message per CC ─────────────────────────────────
+    // ── Step 7: Send one Slack message per CC ─────────────────────────────────
     let sent = 0;
     let skipped = 0;
     const errors: string[] = [];
@@ -321,9 +344,10 @@ export async function POST() {
     }
 
     return NextResponse.json({
-      message: `Slack notification sent to ${sent} coordinator(s).${skipped > 0 ? ` ${skipped} skipped (no deadlines today).` : ""}`,
+      message: `DB check complete — cache updated (${cacheUpdates} row(s) refreshed). Slack notification sent to ${sent} coordinator(s).${skipped > 0 ? ` ${skipped} skipped (no deadlines today).` : ""}`,
       sent,
-      skipped
+      skipped,
+      cacheUpdates
     });
   } catch (error) {
     console.error("[push-slack-notification] Error:", error);
