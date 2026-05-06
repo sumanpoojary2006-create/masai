@@ -4,7 +4,7 @@ import { useState } from "react";
 
 type ActionState = "idle" | "loading" | "success" | "error";
 
-function useAdminAction(endpoint: string) {
+function useAdminAction(endpoint: string, body?: Record<string, unknown>) {
   const [state, setState] = useState<ActionState>("idle");
   const [message, setMessage] = useState("");
 
@@ -12,7 +12,11 @@ function useAdminAction(endpoint: string) {
     setState("loading");
     setMessage("");
     try {
-      const res = await fetch(endpoint, { method: "POST" });
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: body ? { "Content-Type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
       const json = await res.json();
       if (!res.ok) {
         setState("error");
@@ -31,12 +35,13 @@ function useAdminAction(endpoint: string) {
 }
 
 export function AdminSyncControls() {
-  const sync = useAdminAction("/api/admin/sync-week");
+  const sync       = useAdminAction("/api/admin/sync-week");
   const compliance = useAdminAction("/api/admin/compliance");
-  const slackPush = useAdminAction("/api/admin/push-slack-notification");
+  const slackPush  = useAdminAction("/api/admin/push-slack-notification", { type: "normal" });
+  const slackAlert = useAdminAction("/api/admin/push-slack-notification", { type: "alert" });
 
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <ActionCard
         title="Sync This Week's Lectures"
         description="Pull the latest sessions from LMS for all users and refresh their dashboards."
@@ -62,13 +67,26 @@ export function AdminSyncControls() {
       <ActionCard
         title="Push Slack Notification"
         description="Run a DB check and send completed and pending resource status to all coordinators on Slack."
-        buttonLabel="Push Slack Notification"
+        buttonLabel="Push Notification"
         loadingLabel="Sending…"
         state={slackPush.state}
         message={slackPush.message}
         onTrigger={slackPush.trigger}
         borderColor="#7c3aed"
         buttonStyle={{ background: '#7c3aed', color: '#fff' }}
+        badge="Completed + Pending"
+      />
+      <ActionCard
+        title="Slack Alert"
+        description="Run a DB check and send only the pending resources as an urgent alert to all coordinators."
+        buttonLabel="Send Alert"
+        loadingLabel="Sending…"
+        state={slackAlert.state}
+        message={slackAlert.message}
+        onTrigger={slackAlert.trigger}
+        borderColor="#b45309"
+        buttonStyle={{ background: '#d97706', color: '#fff' }}
+        badge="Pending Only"
       />
     </div>
   );
@@ -84,6 +102,7 @@ function ActionCard({
   onTrigger,
   borderColor,
   buttonStyle,
+  badge,
 }: {
   title: string;
   description: string;
@@ -94,6 +113,7 @@ function ActionCard({
   onTrigger: () => void;
   borderColor: string;
   buttonStyle: React.CSSProperties;
+  badge?: string;
 }) {
   return (
     <div
@@ -102,12 +122,33 @@ function ActionCard({
         border: `1px solid ${borderColor}40`,
         borderRadius: '12px',
         padding: '20px',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <h3 style={{ color: '#f1f5f9', fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>
-        {title}
-      </h3>
-      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: '1.5' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
+        <h3 style={{ color: '#f1f5f9', fontSize: '14px', fontWeight: 600, margin: 0, flex: 1 }}>
+          {title}
+        </h3>
+        {badge && (
+          <span
+            style={{
+              fontSize: '10px',
+              fontWeight: 600,
+              color: borderColor,
+              background: `${borderColor}18`,
+              border: `1px solid ${borderColor}40`,
+              borderRadius: '9999px',
+              padding: '2px 8px',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+      <p style={{ color: '#94a3b8', fontSize: '12px', lineHeight: '1.5', flex: 1 }}>
         {description}
       </p>
 
@@ -128,6 +169,7 @@ function ActionCard({
           cursor: state === "loading" ? 'not-allowed' : 'pointer',
           opacity: state === "loading" ? 0.6 : 1,
           transition: 'opacity 0.15s',
+          alignSelf: 'flex-start',
         }}
       >
         {state === "loading" && (
