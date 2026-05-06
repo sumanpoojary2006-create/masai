@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-export const preferredRegion = "ap-south-1"; // same region as RDS — eliminates cross-region latency
+// Region is set to bom1 (Mumbai) via vercel.json — same as RDS ap-south-1
 
 import { NextRequest, NextResponse } from "next/server";
 import mysql from "mysql2/promise";
