@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+// Region is set to bom1 (Mumbai) via vercel.json — same as RDS ap-south-1
 
 import { NextRequest, NextResponse } from "next/server";
 import mysql from "mysql2/promise";
@@ -26,89 +27,101 @@ export async function GET(request: NextRequest) {
   const conn = await getConnection();
 
   try {
-    const [rows] = await conn.execute<mysql.RowDataPacket[]>(`
-      SELECT
-        b.name                                  AS batch_name,
-        live.title                              AS session_name,
-        DATE_FORMAT(live.schedule, '%Y-%m-%d')  AS scheduled_date,
-        live.id                                 AS live_id,
-        pr.id                                   AS pre_read_id,
-        ln.id                                   AS notes_id,
-        ao.id                                   AS assign_obj_id,
-        asub.id                                 AS assign_subj_id,
-        COUNT(DISTINCT a.user_id)               AS students_attended,
-        ROUND(AVG(lf.rating), 2)                AS avg_rating
+    // Run 7 simple fast queries and join in memory
+    // Much faster than one mega-JOIN with JSON_EXTRACT conditions
 
+    // 1. All Academic Session lectures across active batches
+    const [lectures] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT live.id, b.name AS batch_name, live.title, DATE_FORMAT(live.schedule, '%Y-%m-%d') AS scheduled_date
       FROM lectures live
       JOIN batches b ON live.batch_id = b.id
-
-      -- Pre-reads: linked via data->associatedLecture.id (plain object)
-      LEFT JOIN lectures pr
-        ON  pr.batch_id   = live.batch_id
-        AND pr.category   = 'pre-reads'
-        AND pr.deleted_at IS NULL
-        AND JSON_UNQUOTE(JSON_EXTRACT(pr.data, '$.associatedLecture.id')) = CAST(live.id AS CHAR)
-
-      -- Lecture notes: same pattern
-      LEFT JOIN lectures ln
-        ON  ln.batch_id   = live.batch_id
-        AND ln.category   = 'notes'
-        AND ln.deleted_at IS NULL
-        AND JSON_UNQUOTE(JSON_EXTRACT(ln.data, '$.associatedLecture.id')) = CAST(live.id AS CHAR)
-
-      -- Objective assignments
-      LEFT JOIN assignments ao
-        ON  ao.batch_id   = live.batch_id
-        AND (
-          ao.category = 'objective'
-          OR (ao.category = 'practice-assignment' AND ao.title LIKE '%Objective%')
-        )
-        AND ao.deleted_at IS NULL
-        AND JSON_UNQUOTE(JSON_EXTRACT(ao.data, '$.associatedLecture[0].id')) = CAST(live.id AS CHAR)
-
-      -- Subjective assignments
-      LEFT JOIN assignments asub
-        ON  asub.batch_id  = live.batch_id
-        AND (
-          asub.category = 'subjective'
-          OR (asub.category = 'practice-assignment' AND asub.title LIKE '%Subjective%')
-        )
-        AND asub.deleted_at IS NULL
-        AND JSON_UNQUOTE(JSON_EXTRACT(asub.data, '$.associatedLecture[0].id')) = CAST(live.id AS CHAR)
-
-      -- Attendance: status=1 means present
-      LEFT JOIN attendances a
-        ON  a.lecture_id = live.id
-        AND a.status     = 1
-
-      -- Ratings
-      LEFT JOIN lecture_feedback lf
-        ON  lf.lecture_id = live.id
-
       WHERE live.category   = 'Academic Session'
         AND live.deleted_at IS NULL
         AND b.deleted_at    IS NULL
         AND b.active        = 1
-
-      GROUP BY
-        b.name, live.title, live.schedule, live.id,
-        pr.id, ln.id, ao.id, asub.id
-
       ORDER BY b.name, live.schedule
     `);
 
-    const sessions = rows.map((r) => [
-      r.batch_name        ?? "",
-      r.session_name      ?? "",
-      r.scheduled_date    ?? "",
-      r.live_id        ? LECTURE_URL    + r.live_id        : "",
-      r.pre_read_id    ? LECTURE_URL    + r.pre_read_id    : "",
-      r.notes_id       ? LECTURE_URL    + r.notes_id       : "",
-      r.assign_obj_id  ? ASSIGNMENT_URL + r.assign_obj_id  : "",
-      r.assign_subj_id ? ASSIGNMENT_URL + r.assign_subj_id : "",
-      r.students_attended ?? 0,
-      r.avg_rating        ?? "",
-    ]);
+    // 2. Pre-reads — all at once, keyed by associatedLecture.id
+    const [prereads] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT id, JSON_UNQUOTE(JSON_EXTRACT(data, '$.associatedLecture.id')) AS lecture_id
+      FROM lectures
+      WHERE category   = 'pre-reads'
+        AND deleted_at IS NULL
+        AND JSON_EXTRACT(data, '$.associatedLecture.id') IS NOT NULL
+    `);
+
+    // 3. Lecture notes
+    const [notes] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT id, JSON_UNQUOTE(JSON_EXTRACT(data, '$.associatedLecture.id')) AS lecture_id
+      FROM lectures
+      WHERE category   = 'notes'
+        AND deleted_at IS NULL
+        AND JSON_EXTRACT(data, '$.associatedLecture.id') IS NOT NULL
+    `);
+
+    // 4. Objective assignments
+    const [objAssignments] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT id, JSON_UNQUOTE(JSON_EXTRACT(data, '$.associatedLecture[0].id')) AS lecture_id
+      FROM assignments
+      WHERE (category = 'objective' OR (category = 'practice-assignment' AND title LIKE '%Objective%'))
+        AND deleted_at IS NULL
+        AND JSON_EXTRACT(data, '$.associatedLecture[0].id') IS NOT NULL
+    `);
+
+    // 5. Subjective assignments
+    const [subjAssignments] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT id, JSON_UNQUOTE(JSON_EXTRACT(data, '$.associatedLecture[0].id')) AS lecture_id
+      FROM assignments
+      WHERE (category = 'subjective' OR (category = 'practice-assignment' AND title LIKE '%Subjective%'))
+        AND deleted_at IS NULL
+        AND JSON_EXTRACT(data, '$.associatedLecture[0].id') IS NOT NULL
+    `);
+
+    // 6. Attendance count per lecture (status=1 means present)
+    const [attendance] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT lecture_id, COUNT(DISTINCT user_id) AS student_count
+      FROM attendances
+      WHERE status = 1
+      GROUP BY lecture_id
+    `);
+
+    // 7. Average rating per lecture
+    const [ratings] = await conn.execute<mysql.RowDataPacket[]>(`
+      SELECT lecture_id, ROUND(AVG(rating), 2) AS avg_rating
+      FROM lecture_feedback
+      GROUP BY lecture_id
+    `);
+
+    // Build lookup maps
+    const prereadMap   = new Map(prereads.map((r)       => [String(r.lecture_id), r.id]));
+    const notesMap     = new Map(notes.map((r)           => [String(r.lecture_id), r.id]));
+    const objMap       = new Map(objAssignments.map((r)  => [String(r.lecture_id), r.id]));
+    const subjMap      = new Map(subjAssignments.map((r) => [String(r.lecture_id), r.id]));
+    const attendMap    = new Map(attendance.map((r)      => [String(r.lecture_id), r.student_count]));
+    const ratingMap    = new Map(ratings.map((r)         => [String(r.lecture_id), r.avg_rating]));
+
+    // Assemble final rows
+    const sessions = lectures.map((l) => {
+      const lid       = String(l.id);
+      const preId     = prereadMap.get(lid);
+      const notesId   = notesMap.get(lid);
+      const objId     = objMap.get(lid);
+      const subjId    = subjMap.get(lid);
+
+      return [
+        l.batch_name     ?? "",
+        l.title          ?? "",
+        l.scheduled_date ?? "",
+        LECTURE_URL    + l.id,
+        preId   ? LECTURE_URL    + preId   : "",
+        notesId ? LECTURE_URL    + notesId : "",
+        objId   ? ASSIGNMENT_URL + objId   : "",
+        subjId  ? ASSIGNMENT_URL + subjId  : "",
+        attendMap.get(lid) ?? 0,
+        ratingMap.get(lid) ?? "",
+      ];
+    });
 
     return NextResponse.json({ sessions, count: sessions.length });
 
