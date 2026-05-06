@@ -4,6 +4,9 @@ import { computeDeadline } from "../lib/deadlines";
 import { getAppTimezone } from "../lib/env";
 import { syncCurrentWeekLectures } from "../lib/lms-scraper";
 import { closeLmsDb } from "../lib/lms-db";
+import { fetchBatchCompliance } from "../lib/lms-mysql";
+import { syncLmsLectureCacheForBatch } from "../lib/lms-lecture-cache";
+import { upsertAssignedLecturesFromCache } from "../lib/cc-lo-sync";
 import { matchLearningObjectiveAI } from "../lib/lo-matcher";
 import { getAutomationProfiles } from "../lib/queries";
 import { createServerSupabase } from "../lib/supabase";
@@ -37,6 +40,18 @@ function lectureIdentityKey(input: {
   ].join("::");
 }
 
+function extractBatchIdFromUrl(batchUrl: string): number | null {
+  try {
+    const url = new URL(batchUrl);
+    const raw = url.searchParams.get("batch");
+    if (!raw) return null;
+    const obj = JSON.parse(decodeURIComponent(raw)) as { id?: unknown };
+    return typeof obj.id === "number" ? obj.id : null;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const targetUserId = process.env.TARGET_USER_ID?.trim() || undefined;
   const profiles = await getAutomationProfiles(targetUserId);
@@ -60,6 +75,43 @@ async function main() {
     if (profile.batch_configs.length === 0) {
       console.log("  No batch configs — skipping.");
       continue;
+    }
+
+    const batchIdsForProfile = profile.batch_configs.flatMap((config) => {
+      const batchId = extractBatchIdFromUrl(config.lecture_batch_url);
+      return batchId ? [batchId] : [];
+    });
+
+    for (const batchId of batchIdsForProfile) {
+      try {
+        const complianceLectures = await fetchBatchCompliance(batchId);
+        const cacheSync = await syncLmsLectureCacheForBatch(batchId, complianceLectures);
+        console.log(
+          `  [cache] Batch ${batchId}: synced ${complianceLectures.length} LMS cache lecture(s), pruned ${cacheSync.staleDeleted} stale row(s).`
+        );
+      } catch (err) {
+        console.error(
+          `  [cache] Batch ${batchId} cache sync failed:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+
+    if (batchIdsForProfile.length > 0) {
+      try {
+        const loSync = await upsertAssignedLecturesFromCache({
+          batchIds: batchIdsForProfile,
+          ccUserIds: [profile.user_id]
+        });
+        console.log(
+          `  [cache] LO Tracker cache bridge: ${loSync.lecturesUpserted} lecture(s), ${loSync.staleArchived} stale archived.`
+        );
+      } catch (err) {
+        console.error(
+          "  [cache] LO Tracker cache bridge failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
     }
 
     // Fetch live sessions for the current week directly from the LMS MySQL DB
@@ -127,43 +179,64 @@ async function main() {
       );
     }
 
-    // Upsert lectures
-    const { data: upsertedLectures, error: lectureError } = await supabase
-      .from("lectures")
-      .upsert(
-        synced.map((lec) => {
-          const exactCurriculumObjective =
-            curriculumMap.get(`${lec.batch_name}::${lec.lecture_name.toLowerCase()}`) ?? "";
-          const existingObjective =
-            existingLearningObjectiveMap.get(
-              lectureIdentityKey({
-                batch_name: lec.batch_name,
-                module_name: lec.module_name,
-                lecture_name: lec.lecture_name,
-                lecture_date: lec.lecture_date,
-                start_time: lec.start_time
-              })
-            ) ?? "";
-
-          return {
-            user_id: profile.user_id,
-            batch_name: lec.batch_name,
-            module_name: lec.module_name,
-            lecture_name: lec.lecture_name,
-            learning_objective: exactCurriculumObjective || existingObjective,
-            lecture_date: lec.lecture_date,
-            start_time: lec.start_time,
-            end_time: lec.end_time,
-            session_link: lec.session_link
-          };
+    const existingLectureByIdentity = new Map(
+      (existingLecturesForUser ?? []).map((lecture) => [
+        lectureIdentityKey({
+          batch_name: lecture.batch_name,
+          module_name: lecture.module_name ?? "",
+          lecture_name: lecture.lecture_name,
+          lecture_date: lecture.lecture_date,
+          start_time: lecture.start_time
         }),
-        { onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time" }
-      )
-      .select("id, lecture_date, start_time, end_time");
+        lecture
+      ])
+    );
 
-    if (lectureError || !upsertedLectures) {
-      console.error("  [sync] Lecture upsert failed:", lectureError?.message);
-      continue;
+    const upsertedLectures: Array<{ id: string; lecture_date: string; start_time: string; end_time: string }> = [];
+
+    for (const lec of synced) {
+      const identityKey = lectureIdentityKey({
+        batch_name: lec.batch_name,
+        module_name: lec.module_name,
+        lecture_name: lec.lecture_name,
+        lecture_date: lec.lecture_date,
+        start_time: lec.start_time
+      });
+      const exactCurriculumObjective =
+        curriculumMap.get(`${lec.batch_name}::${lec.lecture_name.toLowerCase()}`) ?? "";
+      const existingObjective = existingLearningObjectiveMap.get(identityKey) ?? "";
+      const payload = {
+        user_id: profile.user_id,
+        batch_name: lec.batch_name,
+        module_name: lec.module_name,
+        lecture_name: lec.lecture_name,
+        learning_objective: exactCurriculumObjective || existingObjective,
+        lecture_date: lec.lecture_date,
+        start_time: lec.start_time,
+        end_time: lec.end_time,
+        session_link: lec.session_link
+      };
+
+      const existingLecture = existingLectureByIdentity.get(identityKey);
+      const query = existingLecture
+        ? supabase
+            .from("lectures")
+            .update(payload)
+            .eq("id", existingLecture.id)
+            .select("id, lecture_date, start_time, end_time")
+            .single()
+        : supabase
+            .from("lectures")
+            .insert(payload)
+            .select("id, lecture_date, start_time, end_time")
+            .single();
+
+      const { data: syncedLecture, error: lectureError } = await query;
+      if (lectureError || !syncedLecture) {
+        console.error("  [sync] Lecture save failed:", lectureError?.message);
+        continue;
+      }
+      upsertedLectures.push(syncedLecture);
     }
 
     console.log(`  Upserted ${upsertedLectures.length} lecture(s).`);

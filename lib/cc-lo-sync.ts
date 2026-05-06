@@ -10,6 +10,18 @@ function normalizeKey(value: string) {
   return value.trim().toLowerCase();
 }
 
+function extractLmsLectureId(sessionLink: string | null | undefined) {
+  if (!sessionLink) return null;
+
+  try {
+    const id = new URL(sessionLink).searchParams.get("id");
+    return id && /^\d+$/.test(id) ? id : null;
+  } catch {
+    const match = sessionLink.match(/[?&]id=(\d+)/);
+    return match?.[1] ?? null;
+  }
+}
+
 function lectureIdentityKey(input: {
   batch_name: string;
   module_name: string;
@@ -41,6 +53,19 @@ type CacheRow = {
   concludes: string | null;
 };
 
+type CandidateLectureRow = {
+  user_id: string;
+  batch_name: string;
+  module_name: string;
+  lecture_name: string;
+  learning_objective: string;
+  lecture_date: string;
+  start_time: string;
+  end_time: string;
+  session_link: string;
+  lms_lecture_id: string;
+};
+
 export async function upsertAssignedLecturesFromCache(options?: {
   batchIds?: number[];
   ccUserIds?: string[];
@@ -48,8 +73,9 @@ export async function upsertAssignedLecturesFromCache(options?: {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
-  const weekStart = `${now.startOf("week").toISODate()!}T00:00:00+00:00`;
-  const weekEnd = `${now.startOf("week").plus({ days: 8 }).toISODate()!}T00:00:00+00:00`;
+  const lookback = now.weekday === 1 ? 2 : 0;
+  const windowStartDate = now.startOf("week").minus({ days: lookback }).toISODate()!;
+  const windowStart = `${windowStartDate}T00:00:00+00:00`;
 
   let assignmentQuery = supabase
     .from("cc_batch_assignments")
@@ -71,18 +97,16 @@ export async function upsertAssignedLecturesFromCache(options?: {
   const batchNames = [...new Set(typedAssignments.map((row) => row.batch_name))];
   const ccUserIds = [...new Set(typedAssignments.map((row) => row.cc_user_id))];
 
-  const { data: cacheRows, error: cacheError } = await supabase
+  const { data: activeCacheRows, error: cacheError } = await supabase
     .from("lms_lecture_cache")
     .select("batch_id, lecture_id, title, module, schedule, concludes")
     .in("batch_id", batchIds)
     .neq("module", "general")
     .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
-    .gte("schedule", weekStart)
-    .lte("schedule", weekEnd)
+    .gte("schedule", windowStart)
     .order("schedule", { ascending: true });
 
   if (cacheError) throw new Error(cacheError.message);
-  if (!cacheRows?.length) return { lecturesUpserted: 0, objectivesMatched: 0 };
 
   const { data: curriculums, error: curriculumError } = await supabase
     .from("batch_curriculums")
@@ -120,8 +144,21 @@ export async function upsertAssignedLecturesFromCache(options?: {
     ]);
   }
 
-  const candidateRows = (cacheRows as CacheRow[])
-    .filter((row) => row.schedule && row.concludes)
+  const activeLmsIdsByUserBatch = new Map<string, Set<string>>();
+  for (const row of (activeCacheRows ?? []) as CacheRow[]) {
+    const assignmentsForBatch = assignmentByBatch.get(row.batch_id) ?? [];
+    for (const assignment of assignmentsForBatch) {
+      const key = `${assignment.cc_user_id}::${assignment.batch_name}`;
+      const ids = activeLmsIdsByUserBatch.get(key) ?? new Set<string>();
+      ids.add(String(row.lecture_id));
+      activeLmsIdsByUserBatch.set(key, ids);
+    }
+  }
+
+  const candidateRows: CandidateLectureRow[] = ((activeCacheRows ?? []) as CacheRow[])
+    .filter((row): row is CacheRow & { schedule: string; concludes: string } =>
+      Boolean(row.schedule && row.concludes)
+    )
     .flatMap((row) => {
       const assignmentsForBatch = assignmentByBatch.get(row.batch_id) ?? [];
       return assignmentsForBatch.map((assignment) => {
@@ -144,25 +181,24 @@ export async function upsertAssignedLecturesFromCache(options?: {
           lecture_date: lectureDate,
           start_time: startTime,
           end_time: end.toFormat("HH:mm:ss"),
-          session_link: `${LMS_DETAIL_BASE}?id=${row.lecture_id}`
+          session_link: `${LMS_DETAIL_BASE}?id=${row.lecture_id}`,
+          lms_lecture_id: String(row.lecture_id)
         };
       });
     });
 
-  if (candidateRows.length === 0) return { lecturesUpserted: 0, objectivesMatched: 0 };
-
   const { data: existingRows, error: existingError } = await supabase
     .from("lectures")
-    .select("id, user_id, batch_name, module_name, lecture_name, lecture_date, start_time, learning_objective")
+    .select("id, user_id, batch_name, module_name, lecture_name, lecture_date, start_time, learning_objective, session_link")
     .in("user_id", ccUserIds)
     .in("batch_name", batchNames)
     .is("archived_at", null)
-    .gte("lecture_date", now.startOf("week").toISODate()!)
-    .lt("lecture_date", now.startOf("week").plus({ days: 8 }).toISODate()!);
+    .gte("lecture_date", windowStartDate);
 
   if (existingError) throw new Error(existingError.message);
 
   const existingObjectiveMap = new Map<string, string>();
+  const existingByLmsKey = new Map<string, (typeof existingRows)[number]>();
   for (const lecture of existingRows ?? []) {
     existingObjectiveMap.set(
       `${lecture.user_id}::${lectureIdentityKey({
@@ -174,27 +210,91 @@ export async function upsertAssignedLecturesFromCache(options?: {
       })}`,
       String(lecture.learning_objective ?? "").trim()
     );
+
+    const lmsLectureId = extractLmsLectureId((lecture as Record<string, unknown>).session_link as string | null);
+    if (lmsLectureId) {
+      existingByLmsKey.set(`${lecture.user_id}::${lecture.batch_name}::${lmsLectureId}`, lecture);
+    }
   }
 
-  const rowsToUpsert = candidateRows.map((row) => ({
-    ...row,
-    learning_objective:
+  let staleArchived = 0;
+  for (const lecture of existingRows ?? []) {
+    const lmsLectureId = extractLmsLectureId((lecture as Record<string, unknown>).session_link as string | null);
+    if (!lmsLectureId) continue;
+
+    const activeIds = activeLmsIdsByUserBatch.get(`${lecture.user_id}::${lecture.batch_name}`);
+    if (!activeIds || activeIds.has(lmsLectureId)) continue;
+
+    const { error: archiveError } = await supabase
+      .from("lectures")
+      .update({ archived_at: now.toISO() })
+      .eq("id", lecture.id);
+
+    if (archiveError) throw new Error(archiveError.message);
+    staleArchived++;
+  }
+
+  const rowsToInsert: CandidateLectureRow[] = [];
+  const rowsToMatch = [];
+
+  for (const row of candidateRows) {
+    const existingByLms = existingByLmsKey.get(`${row.user_id}::${row.batch_name}::${row.lms_lecture_id}`);
+    const existingLearningObjective =
+      existingByLms ? String(existingByLms.learning_objective ?? "").trim() : "";
+    const learningObjective =
       row.learning_objective ||
+      existingLearningObjective ||
       existingObjectiveMap.get(`${row.user_id}::${lectureIdentityKey(row)}`) ||
-      ""
-  }));
+      "";
 
-  const { data: upsertedRows, error: upsertError } = await supabase
-    .from("lectures")
-    .upsert(rowsToUpsert, {
-      onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time"
-    })
-    .select("id, user_id, batch_name, lecture_name, learning_objective");
+    if (existingByLms) {
+      const { data: updatedRow, error: updateError } = await supabase
+        .from("lectures")
+        .update({
+          batch_name: row.batch_name,
+          module_name: row.module_name,
+          lecture_name: row.lecture_name,
+          learning_objective: learningObjective,
+          lecture_date: row.lecture_date,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          session_link: row.session_link
+        })
+        .eq("id", existingByLms.id)
+        .select("id, user_id, batch_name, lecture_name, learning_objective")
+        .single();
 
-  if (upsertError) throw new Error(upsertError.message);
+      if (updateError) throw new Error(updateError.message);
+      if (updatedRow) rowsToMatch.push(updatedRow);
+      continue;
+    }
+
+    rowsToInsert.push({
+      ...row,
+      learning_objective: learningObjective
+    });
+  }
+
+  let insertedRows: Array<{ id: string; user_id: string; batch_name: string; lecture_name: string; learning_objective: string | null }> = [];
+
+  if (rowsToInsert.length > 0) {
+    const { data: upsertedRows, error: upsertError } = await supabase
+      .from("lectures")
+      .upsert(
+        rowsToInsert.map(({ lms_lecture_id: _lmsLectureId, ...row }) => row),
+        {
+          onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time"
+        }
+      )
+      .select("id, user_id, batch_name, lecture_name, learning_objective");
+
+    if (upsertError) throw new Error(upsertError.message);
+    insertedRows = upsertedRows ?? [];
+  }
 
   let objectivesMatched = 0;
-  for (const lecture of upsertedRows ?? []) {
+  const syncedRows = [...rowsToMatch, ...insertedRows];
+  for (const lecture of syncedRows) {
     if (String(lecture.learning_objective ?? "").trim()) continue;
 
     const userEntries = userCurriculumByUserBatch.get(`${lecture.user_id}::${lecture.batch_name}`) ?? [];
@@ -214,7 +314,8 @@ export async function upsertAssignedLecturesFromCache(options?: {
   }
 
   return {
-    lecturesUpserted: upsertedRows?.length ?? 0,
-    objectivesMatched
+    lecturesUpserted: syncedRows.length,
+    objectivesMatched,
+    staleArchived
   };
 }

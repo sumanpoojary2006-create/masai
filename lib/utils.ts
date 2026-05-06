@@ -23,8 +23,8 @@ export function isLateCompletion(completedAt: string | null, deadline: string) {
 export function statusClasses(status: TaskStatus, isLate = false) {
   if (status === "completed") {
     if (isLate) {
-      // Uploaded after deadline — yellow text on green background
-      return "bg-emerald-100 text-amber-600 ring-emerald-200 dark:bg-emerald-900/30 dark:text-amber-300 dark:ring-emerald-800";
+      // Uploaded after deadline — keep completed semantics but show delayed accent.
+      return "bg-amber-100 text-amber-700 ring-amber-200 dark:bg-amber-950/45 dark:text-amber-300 dark:ring-amber-700/70";
     }
     // Uploaded on time — green
     return "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:ring-emerald-800";

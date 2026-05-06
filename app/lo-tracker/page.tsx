@@ -7,6 +7,7 @@ import { LoTrackerClient } from "@/components/lo-tracker-client";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
+import { upsertAssignedLecturesFromCache } from "@/lib/cc-lo-sync";
 import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 import { getLoTrackerData } from "@/lib/queries";
 import { LoTrackerRow } from "@/lib/types";
@@ -32,6 +33,7 @@ export default async function LoTrackerPage() {
   let loadError: string | null = null;
 
   try {
+    await upsertAssignedLecturesFromCache({ ccUserIds: [user.id] });
     rows = await getLoTrackerData(user.id);
   } catch (error) {
     loadError = error instanceof Error ? error.message : "Unable to load LO tracker data.";
