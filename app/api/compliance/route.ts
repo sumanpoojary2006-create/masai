@@ -1,15 +1,9 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { DateTime } from "luxon";
-
-import { getCurrentUser, getUserProfile } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { syncAssignedBatchesCache, syncTaskStatusesFromLms } from "@/lib/automation";
-import { getAppTimezone } from "@/lib/env";
-import { getCCLectures } from "@/lib/queries";
-import { sendManualPendingDigest } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
-import { TASK_TYPES } from "@/lib/constants";
 
 export async function POST() {
   try {
@@ -26,9 +20,6 @@ export async function POST() {
       );
     }
 
-    const timezone = getAppTimezone();
-    const today = DateTime.now().setZone(timezone).toISODate();
-
     // Sync LMS state into both the tasks table (CC-configured lectures) and
     // lms_lecture_cache (admin-batch lectures) so the digest reflects live LMS state.
     const syncResult = await syncTaskStatusesFromLms(user.id);
@@ -43,57 +34,6 @@ export async function POST() {
     const ccBatchIds = [...new Set((ccAssignments ?? []).map((a) => a.batch_id as number))];
     if (ccBatchIds.length > 0) {
       await syncAssignedBatchesCache(ccBatchIds);
-    }
-
-    // getCCLectures reads from lms_lecture_cache (covers both CC-configured and
-    // admin-batch lectures), so the pending digest includes all admin-batch tasks.
-    const [lectures, userProfile] = await Promise.all([
-      getCCLectures(user.id),
-      getUserProfile(user.id)
-    ]);
-    const pendingItems = lectures.flatMap((lecture) =>
-      TASK_TYPES.flatMap((taskType) => {
-        const task = lecture.tasks[taskType];
-
-        if (!task || task.status !== "pending") {
-          return [];
-        }
-
-        const deadlineDate = DateTime.fromISO(task.deadline, { zone: timezone }).toISODate();
-
-        if (today && deadlineDate !== today) {
-          return [];
-        }
-
-        return [
-          {
-            lecture: {
-              id: lecture.id,
-              user_id: lecture.user_id,
-              batch_name: lecture.batch_name,
-              module_name: lecture.module_name,
-              lecture_name: lecture.lecture_name,
-              learning_objective: lecture.learning_objective ?? "",
-              session_link: lecture.session_link ?? "",
-              lecture_date: lecture.lecture_date,
-              start_time: lecture.start_time,
-              end_time: lecture.end_time
-            },
-            taskType,
-            deadline: task.deadline
-          }
-        ];
-      })
-    );
-
-    // Send Slack digest — non-fatal so sync succeeds even if Slack isn't configured.
-    let slackSent = 0;
-    try {
-      slackSent = await sendManualPendingDigest(pendingItems, {
-        mentionUserId: userProfile?.slack_member_id
-      });
-    } catch (slackError) {
-      console.error("[compliance/sync] Slack digest failed:", slackError);
     }
 
     // Dispatch GitHub Actions compliance workflow — non-fatal so sync succeeds
@@ -134,13 +74,9 @@ export async function POST() {
       result: {
         checkedLectures: syncResult.checkedLectures,
         trackedResources: 0,
-        updatedTasks: syncResult.updatedTasks,
-        alertsSent: slackSent
+        updatedTasks: syncResult.updatedTasks
       },
-      message:
-        slackSent > 0
-          ? "Pending reminder sent to Slack. Dashboard updated with latest LMS state."
-          : "Dashboard updated with latest LMS state."
+      message: "Dashboard updated with latest LMS state."
     });
   } catch (error) {
     return NextResponse.json(

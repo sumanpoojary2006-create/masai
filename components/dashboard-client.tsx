@@ -200,7 +200,6 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
             checkedLectures: number;
             trackedResources: number;
             updatedTasks: number;
-            alertsSent: number;
           };
         } = {};
 
@@ -220,7 +219,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         setSyncStatus("success");
         if (payload.result) {
           setMessage(
-            `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated · ${payload.result.alertsSent} Slack alert(s) sent.`
+            `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated.`
           );
         } else {
           setMessage(payload.message ?? "Compliance sync completed.");

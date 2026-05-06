@@ -8,7 +8,6 @@ import { getCurrentUser, getUserProfile } from "@/lib/auth";
 import { getAppTimezone, nowIST } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { scrapeLectureSummary } from "@/lib/lms-scraper";
-import { sendLoSyncSlackNotification } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 
 interface ActionResult {
@@ -201,18 +200,6 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
       const reason = analyzeErr instanceof Error ? analyzeErr.message : "Analysis failed";
       results.push({ lectureId, lectureName, status: "error", reason: reason.slice(0, 200) });
     }
-  }
-
-  // Send Slack notification (best-effort)
-  try {
-    const { data: profileRow } = await supabase
-      .from("user_profiles").select("slack_member_id").eq("user_id", userId).single();
-    sendLoSyncSlackNotification({
-      analyzeResults: results,
-      slackMemberId: profileRow?.slack_member_id ?? null
-    }).catch(() => undefined);
-  } catch {
-    // non-fatal
   }
 
   return results;
