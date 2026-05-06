@@ -44,24 +44,31 @@ function renderBatchGroup(items: ResourceItem[], bullet: string): string[] {
   return lines;
 }
 
-function buildMessage(dateLabel: string, bucket: CoordinatorBucket): string | null {
-  if (bucket.completed.length === 0 && bucket.pending.length === 0) return null;
+function buildMessage(
+  dateLabel: string,
+  bucket: CoordinatorBucket,
+  type: "normal" | "alert"
+): string | null {
+  const isAlert = type === "alert";
+
+  // Alert mode: skip coordinators with nothing pending
+  if (isAlert && bucket.pending.length === 0) return null;
+  // Normal mode: skip coordinators with nothing at all
+  if (!isAlert && bucket.completed.length === 0 && bucket.pending.length === 0) return null;
 
   const mention = bucket.slackMemberId ? `<@${bucket.slackMemberId}>` : `*${bucket.email}*`;
-  const lines: string[] = [
-    mention,
-    "📋 *Masai Resource Status — Admin Push*",
-    `🗓️ ${dateLabel}`,
-    ""
-  ];
 
-  if (bucket.completed.length > 0) {
+  const lines: string[] = isAlert
+    ? [mention, "🚨 *Masai Resource Alert — Pending Resources*", `🗓️ ${dateLabel}`, ""]
+    : [mention, "📋 *Masai Resource Status — Admin Push*",       `🗓️ ${dateLabel}`, ""];
+
+  if (!isAlert && bucket.completed.length > 0) {
     lines.push("✅ *Completed*");
     lines.push(...renderBatchGroup(bucket.completed, "• ✅"));
   }
   if (bucket.pending.length > 0) {
-    lines.push("⏳ *Pending*");
-    lines.push(...renderBatchGroup(bucket.pending, "• ⏳"));
+    lines.push(isAlert ? "🚨 *Action required — upload before 3:00 PM*" : "⏳ *Pending*");
+    lines.push(...renderBatchGroup(bucket.pending, isAlert ? "• 🚨" : "• ⏳"));
   }
 
   return lines.join("\n").trim();
@@ -79,7 +86,7 @@ async function postToSlack(webhookUrl: string, text: string) {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) {
@@ -87,6 +94,15 @@ export async function POST() {
     }
     if (!(await hasAdminAccess(user.id))) {
       return NextResponse.json({ message: "Admin access required." }, { status: 403 });
+    }
+
+    // "normal" → completed + pending  |  "alert" → pending only
+    let notificationType: "normal" | "alert" = "normal";
+    try {
+      const body = await request.json();
+      if (body?.type === "alert") notificationType = "alert";
+    } catch {
+      // no body or invalid JSON — default to normal
     }
 
     const webhookUrl = process.env.SLACK_WEBHOOK_URL;
@@ -324,7 +340,7 @@ export async function POST() {
     const errors: string[] = [];
 
     for (const [, bucket] of buckets) {
-      const message = buildMessage(dateLabel, bucket);
+      const message = buildMessage(dateLabel, bucket, notificationType);
       if (!message) { skipped++; continue; }
 
       try {
@@ -343,11 +359,13 @@ export async function POST() {
       );
     }
 
+    const typeLabel = notificationType === "alert" ? "alert (pending only)" : "notification (completed + pending)";
     return NextResponse.json({
-      message: `DB check complete — cache updated (${cacheUpdates} row(s) refreshed). Slack notification sent to ${sent} coordinator(s).${skipped > 0 ? ` ${skipped} skipped (no deadlines today).` : ""}`,
+      message: `DB check complete — cache updated (${cacheUpdates} row(s) refreshed). Slack ${typeLabel} sent to ${sent} coordinator(s).${skipped > 0 ? ` ${skipped} skipped (nothing to report).` : ""}`,
       sent,
       skipped,
-      cacheUpdates
+      cacheUpdates,
+      type: notificationType
     });
   } catch (error) {
     console.error("[push-slack-notification] Error:", error);
