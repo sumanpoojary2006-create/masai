@@ -1,11 +1,6 @@
-export const runtime = "nodejs";
-export const maxDuration = 120; // Playwright needs up to 2 min
-
 import { NextResponse } from "next/server";
-import { nowIST } from "@/lib/env";
 
-import { getCurrentUser, getUserProfile } from "@/lib/auth";
-import { scrapeLectureSummary } from "@/lib/lms-scraper";
+import { getCurrentUser } from "@/lib/auth";
 import { createServerSupabase } from "@/lib/supabase";
 
 export async function POST(
@@ -21,72 +16,39 @@ export async function POST(
     const { lectureId } = await context.params;
     const supabase = createServerSupabase();
 
-    // Fetch lecture + user profile (for LMS credentials)
-    const [lectureResult, profile] = await Promise.all([
-      supabase
-        .from("lectures")
-        .select("id, lecture_name, session_link")
-        .eq("id", lectureId)
-        .eq("user_id", user.id)
-        .maybeSingle(),
-      getUserProfile(user.id, { includePassword: true })
-    ]);
+    // Verify the lecture belongs to this user
+    const { data: lecture, error: lectureError } = await supabase
+      .from("lectures")
+      .select("id")
+      .eq("id", lectureId)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (lectureResult.error) throw new Error(lectureResult.error.message);
-    if (!lectureResult.data) {
+    if (lectureError) throw new Error(lectureError.message);
+    if (!lecture) {
       return NextResponse.json({ message: "Lecture not found." }, { status: 404 });
     }
 
-    const lecture = lectureResult.data;
-    const sessionLink = (lecture as Record<string, unknown>).session_link as string ?? "";
+    // Read transcript from DB
+    const { data: report, error: reportError } = await supabase
+      .from("lo_reports")
+      .select("transcript")
+      .eq("lecture_id", lectureId)
+      .maybeSingle();
 
-    if (!sessionLink) {
+    if (reportError) throw new Error(reportError.message);
+
+    const transcript = report?.transcript?.trim() ?? "";
+    if (!transcript) {
       return NextResponse.json(
-        { message: "No session link set for this lecture. Add one first." },
-        { status: 400 }
+        { message: "No summary available yet. It will be fetched automatically after the session ends." },
+        { status: 404 }
       );
     }
-
-    if (!sessionLink.includes("masaischool.com")) {
-      return NextResponse.json(
-        { message: "Session link must be a masaischool.com URL." },
-        { status: 400 }
-      );
-    }
-
-    if (!profile?.lms_username || !profile?.lms_password) {
-      return NextResponse.json(
-        { message: "LMS credentials not configured in your profile." },
-        { status: 400 }
-      );
-    }
-
-    // Scrape the summary
-    const summary = await scrapeLectureSummary(sessionLink, {
-      username: profile.lms_username,
-      password: profile.lms_password
-    });
-
-    // Save to lo_reports (upsert so existing reports are updated)
-    const { error: upsertError } = await supabase.from("lo_reports").upsert(
-      {
-        lecture_id: lectureId,
-        user_id: user.id,
-        transcript: summary,
-        status: "pending",
-        covered_los: [],
-        missing_los: [],
-        generated_at: null,
-        updated_at: nowIST()
-      },
-      { onConflict: "lecture_id" }
-    );
-
-    if (upsertError) throw new Error(upsertError.message);
 
     return NextResponse.json({
       message: "Summary fetched successfully.",
-      transcript: summary
+      transcript
     });
   } catch (error) {
     return NextResponse.json(
