@@ -9,7 +9,6 @@ import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
 import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
 import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
-import { sendSlackAlerts } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import {
   AlertType,
@@ -305,7 +304,7 @@ function chooseAlertTypes(
 }
 
 function describeRun(summary: ComplianceRunSummary) {
-  return `Checked ${summary.checkedLectures} lectures, tracked ${summary.trackedResources} LMS resources, updated ${summary.updatedTasks} tasks, and sent ${summary.alertsSent} Slack message(s).`;
+  return `Checked ${summary.checkedLectures} lectures, tracked ${summary.trackedResources} LMS resources, updated ${summary.updatedTasks} tasks.`;
 }
 
 /**
@@ -905,10 +904,6 @@ export async function runComplianceCheck(options?: {
     // Admin-batch alerts are already deduped via cache flags in previousTask.status check above.
     const alertsToSend = [...ccAlertsToSend, ...adminCandidateAlerts];
 
-    const alertsSent = await sendSlackAlerts(alertsToSend, {
-      mentionUserId: profile.slack_member_id
-    });
-
     // Only persist alert_events for CC-configured lectures (tasks.id UUID FK).
     if (ccAlertsToSend.length > 0) {
       const { error: persistAlertError } = await supabase.from("alert_events").insert(
@@ -927,15 +922,9 @@ export async function runComplianceCheck(options?: {
     summary.checkedLectures += allLectures.length;
     summary.trackedResources += mergedTrackingRecords.length;
     summary.updatedTasks += updatedTaskCount;
-    summary.alertsSent += alertsSent;
 
     console.log(
-      `${profile.email} (CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}) => ${describeRun({
-        checkedLectures: allLectures.length,
-        trackedResources: mergedTrackingRecords.length,
-        updatedTasks: updatedTaskCount,
-        alertsSent
-      })}`
+      `${profile.email} (CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}) => checked ${allLectures.length} lectures, tracked ${mergedTrackingRecords.length} resources, updated ${updatedTaskCount} tasks`
     );
     console.log(
       alertsToSend.map((alert) => `${TASK_LABELS[alert.taskType]} => ${alert.alertType}`).join(", ")

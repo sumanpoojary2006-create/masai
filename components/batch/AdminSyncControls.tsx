@@ -33,9 +33,10 @@ function useAdminAction(endpoint: string) {
 export function AdminSyncControls() {
   const sync = useAdminAction("/api/admin/sync-week");
   const compliance = useAdminAction("/api/admin/compliance");
+  const slackPush = useAdminAction("/api/admin/push-slack-notification");
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-3">
       <ActionCard
         title="Sync This Week's Lectures"
         description="Pull the latest sessions from LMS for all users and refresh their dashboards."
@@ -49,7 +50,7 @@ export function AdminSyncControls() {
       />
       <ActionCard
         title="Sync Up — Compliance Check"
-        description="Run compliance check for all users and send Slack notifications for pending or missed resources."
+        description="Run compliance check for all users and update resource statuses from LMS."
         buttonLabel="Sync Up"
         loadingLabel="Running…"
         state={compliance.state}
@@ -57,6 +58,17 @@ export function AdminSyncControls() {
         onTrigger={compliance.trigger}
         borderColor="#065f46"
         buttonStyle={{ background: '#059669', color: '#fff' }}
+      />
+      <ActionCard
+        title="Push Slack Notification"
+        description="Run a DB check and send completed and pending resource status to all coordinators on Slack."
+        buttonLabel="Push Slack Notification"
+        loadingLabel="Sending…"
+        state={slackPush.state}
+        message={slackPush.message}
+        onTrigger={slackPush.trigger}
+        borderColor="#7c3aed"
+        buttonStyle={{ background: '#7c3aed', color: '#fff' }}
       />
     </div>
   );

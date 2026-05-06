@@ -8,7 +8,6 @@ import { getCurrentUser } from "@/lib/auth";
 import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone } from "@/lib/env";
 import { checkLmsTasksForLecture } from "@/lib/lms-db";
-import { sendManualPendingDigest } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LectureRecord, TaskType } from "@/lib/types";
 
@@ -196,40 +195,7 @@ export async function POST() {
     const pendingItems = await getPendingItemsFromCache();
     console.log(`[sync-up] Pending items with passed deadlines: ${pendingItems.length}`);
 
-    // Step 2: Send per-CC Slack notifications so each CC is @mentioned with their own items
-    let slackSent = false;
-    if (pendingItems.length > 0) {
-      const itemsByCC = new Map<string, PendingDigestItemWithCC[]>();
-      for (const item of pendingItems) {
-        const list = itemsByCC.get(item.cc_user_id) ?? [];
-        list.push(item);
-        itemsByCC.set(item.cc_user_id, list);
-      }
-
-      const { data: ccProfiles } = await supabase
-        .from("user_profiles")
-        .select("user_id, slack_member_id")
-        .in("user_id", [...itemsByCC.keys()]);
-      const slackIdByUser = new Map<string, string | null>(
-        (ccProfiles ?? []).map((p) => [p.user_id as string, p.slack_member_id as string | null])
-      );
-
-      for (const [ccUserId, items] of itemsByCC) {
-        const mentionUserId = slackIdByUser.get(ccUserId) ?? null;
-        try {
-          await sendManualPendingDigest(
-            items as unknown as Parameters<typeof sendManualPendingDigest>[0],
-            { mentionUserId }
-          );
-          slackSent = true;
-          console.log(`[sync-up] Slack sent for CC ${ccUserId} (mention: ${mentionUserId ?? "none"}) — ${items.length} item(s)`);
-        } catch (slackErr) {
-          console.error(`[sync-up] Slack send failed for CC ${ccUserId}:`, slackErr);
-        }
-      }
-    }
-
-    // Step 3: Dispatch GitHub Actions for the deeper compliance check (tasks table)
+    // Step 2: Dispatch GitHub Actions for the deeper compliance check (tasks table)
     const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
     const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
     const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
@@ -245,11 +211,10 @@ export async function POST() {
     }
 
     return NextResponse.json({
-      message: slackSent
-        ? `Compliance check complete. Slack notification sent for ${pendingItems.length} pending item(s).`
+      message: pendingItems.length > 0
+        ? `Compliance check complete. ${pendingItems.length} pending item(s) found.`
         : "Compliance check complete. No overdue pending items — all resources are on track!",
-      pendingCount: pendingItems.length,
-      slackSent
+      pendingCount: pendingItems.length
     });
   } catch (error) {
     console.error("[sync-up] Error:", error);

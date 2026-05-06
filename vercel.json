@@ -1,18 +1,6 @@
 {
   "crons": [
     {
-      "path": "/api/slack/resources-reminder/11am",
-      "schedule": "30 5 * * 1-6"
-    },
-    {
-      "path": "/api/slack/resources-reminder/1pm",
-      "schedule": "30 7 * * 1-6"
-    },
-    {
-      "path": "/api/slack/resources-reminder/230pm",
-      "schedule": "0 9 * * 1-6"
-    },
-    {
       "path": "/api/admin/cc-management/sync-all-lectures",
       "schedule": "30 20 * * 6"
     }

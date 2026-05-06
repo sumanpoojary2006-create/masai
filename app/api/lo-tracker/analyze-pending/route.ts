@@ -5,7 +5,6 @@ import { nowIST } from "@/lib/env";
 
 import { getCurrentUser } from "@/lib/auth";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { sendLoSyncSlackNotification } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 
 export interface AnalyzePendingResult {
@@ -132,25 +131,6 @@ export async function POST() {
 
     const analyzed = results.filter((r) => r.status === "analyzed").length;
     const failed = results.filter((r) => r.status === "error").length;
-
-    // Look up Slack member ID for the user (best-effort)
-    let slackMemberId: string | null = null;
-    try {
-      const { data: profileRow } = await supabase
-        .from("user_profiles")
-        .select("slack_member_id")
-        .eq("user_id", user.id)
-        .single();
-      slackMemberId = profileRow?.slack_member_id ?? null;
-    } catch {
-      // non-fatal — proceed without mention
-    }
-
-    // Send Slack notification (best-effort — never block the response)
-    sendLoSyncSlackNotification({
-      analyzeResults: results,
-      slackMemberId
-    }).catch((err) => console.error("[analyze-pending] Slack notification failed:", err));
 
     return NextResponse.json({
       message: `${analyzed} analyzed, ${failed} failed.`,

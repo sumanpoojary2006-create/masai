@@ -7,7 +7,6 @@ import { getCurrentUser } from "@/lib/auth";
 import { nowIST } from "@/lib/env";
 import { getAppTimezone } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { sendLoSyncSlackNotification } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 import { LoReport } from "@/lib/types";
 
@@ -138,31 +137,6 @@ export async function POST(
       .maybeSingle();
 
     if (saveError) throw new Error(saveError.message);
-
-    // Look up Slack member ID for the user (best-effort)
-    let slackMemberId: string | null = null;
-    try {
-      const { data: profileRow } = await supabase
-        .from("user_profiles")
-        .select("slack_member_id")
-        .eq("user_id", user.id)
-        .single();
-      slackMemberId = profileRow?.slack_member_id ?? null;
-    } catch {
-      // non-fatal
-    }
-
-    // Send Slack notification (best-effort)
-    sendLoSyncSlackNotification({
-      analyzeResults: [{
-        lectureName: lecture.lecture_name,
-        status: "analyzed",
-        coveredCount: result.covered_los.length,
-        missingCount: result.missing_los.length,
-        reason: result.fallback ? "⚠ Gemini quota exhausted — keyword matching used" : undefined
-      }],
-      slackMemberId
-    }).catch((err) => console.error("[manual-analyze] Slack notification failed:", err));
 
     return NextResponse.json({
       message: "LO analysis complete.",
