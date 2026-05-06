@@ -198,50 +198,6 @@ export interface LmsTaskCheck {
   session_link: string | null;
 }
 
-/**
- * Strip common prefixes so "Faculty Session 25 - Fine-Tuning LLMs" →
- * "Fine-Tuning LLMs" for fuzzy matching (title-based fallback only).
- */
-function extractTopic(name: string): string {
-  return name
-    .replace(
-      /^(faculty\s+session\s*[-–]?\s*\d+\s*(?:[-–]\s*)?|im\s+session\s+\d+\s*(?:[-–]\s*)?|academic\s+session\s*\d*\s*(?:[-–]\s*)?|tutorial\s+session\s*[-–]?\s*\d*\s*(?:[-–]\s*)?)/i,
-      ""
-    )
-    .trim();
-}
-
-function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/&/g, " and ")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-const STOPWORDS = new Set([
-  "and", "the", "with", "for", "from", "into", "using", "via",
-  "its", "are", "was", "has", "have", "had", "that", "this",
-  "data", "session", "lecture", "introduction", "intro", "basics",
-  "advanced", "overview", "part", "workshop"
-]);
-
-/**
- * Returns true if `readingTitle` is semantically close to the live
- * session `topic`. Uses strict substring match first, then a 70%
- * keyword-overlap on meaningful (non-stopword) words only.
- */
-function titleMatches(readingTitle: string, topic: string): boolean {
-  if (!topic) return false;
-  const r = normalize(readingTitle);
-  const t = normalize(topic);
-  if (r.includes(t) || t.includes(r)) return true;
-  // Only match on meaningful words (length >= 4, not a stopword)
-  const words = t.split(" ").filter((w) => w.length >= 4 && !STOPWORDS.has(w));
-  if (words.length === 0) return false;
-  const hit = words.filter((w) => r.includes(w)).length;
-  return hit / words.length >= 0.7;
-}
 
 /**
  * Check whether the LMS DB already has pre-read, lecture notes, and/or an
@@ -253,13 +209,10 @@ function titleMatches(readingTitle: string, topic: string): boolean {
  *      (e.g. Supabase: "IM Session 33 - Topic A", LMS: "IM Session 33 - Topic B")
  *   3. Date proximity ±1 day + tracked category — absorbs IST→UTC date drift
  *
- * Resource lookup (in priority order):
- *   1. data.associatedLecture.id — direct link set by faculty, immune to renames
- *   2. Fuzzy title match in a ±14/+7 day window — fallback for resources
- *      uploaded without an associatedLecture link
- *
- * Both lookups run independently per resource type so a partial association
- * result never blocks the title fallback for the remaining missing types.
+ * Resource lookup:
+ *   data.associatedLecture.id only — resources must be explicitly linked to the
+ *   live lecture. Title-based matching is intentionally excluded to prevent
+ *   false positives.
  *
  * @param batchId      LMS numeric batch id
  * @param lectureName  Name as stored in our Supabase lectures table
@@ -357,52 +310,6 @@ export async function checkLmsTasksForLecture(
     if ((assocAssigns as Array<{ created_at: string }>).length > 0) {
       assignment = true;
       assignment_at = (assocAssigns as Array<{ created_at: string }>)[0].created_at;
-    }
-  }
-
-  // ── Step 3: title-based fallback for any type still not found ────────────
-  // Runs for resources uploaded without an associatedLecture link, or when the
-  // lmsId could not be resolved.
-  if (!preread || !notes || !assignment) {
-    const topic = extractTopic(lectureName);
-
-    const base = new Date(lectureDate);
-    const windowStart = new Date(base);
-    windowStart.setDate(windowStart.getDate() - 14);
-    const windowEnd = new Date(base);
-    windowEnd.setDate(windowEnd.getDate() + 7);
-    const startStr = windowStart.toISOString().slice(0, 10);
-    const endStr   = windowEnd.toISOString().slice(0, 10);
-
-    const [readingRows] = await conn.query<RowDataPacket[]>(
-      `SELECT title, category, created_at FROM lectures
-       WHERE batch_id = ? AND type = 'reading'
-         AND category IN ('pre-reads', 'Pre Reads', 'notes')
-         AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
-      [batchId, startStr, endStr]
-    );
-
-    const [assignRows] = await conn.query<RowDataPacket[]>(
-      `SELECT title, created_at FROM assignments
-       WHERE batch_id = ? AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
-      [batchId, startStr, endStr]
-    );
-
-    for (const row of readingRows as Array<{ title: string; category: string; created_at: string }>) {
-      if (!titleMatches(row.title, topic)) continue;
-      const cat = row.category.toLowerCase();
-      if (cat.includes("pre") && !preread) { preread = true; preread_at = row.created_at; }
-      else if (cat === "notes" && !notes) { notes = true; notes_at = row.created_at; }
-    }
-
-    if (!assignment) {
-      for (const row of assignRows as Array<{ title: string; created_at: string }>) {
-        if (titleMatches(row.title, topic)) {
-          assignment = true;
-          assignment_at = row.created_at;
-          break;
-        }
-      }
     }
   }
 
