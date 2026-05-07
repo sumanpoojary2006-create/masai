@@ -1,13 +1,13 @@
 export const runtime = "nodejs";
-export const maxDuration = 300; // inline Playwright scrape can take a while
+export const maxDuration = 120;
 
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 
-import { getCurrentUser, getUserProfile } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { getAppTimezone, nowIST } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { scrapeLectureSummary } from "@/lib/lms-scraper";
+import { extractLmsLectureIdFromUrl, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { createServerSupabase } from "@/lib/supabase";
 
 interface ActionResult {
@@ -52,7 +52,7 @@ async function dispatchGitHubWorkflow(userId: string): Promise<{ ok: boolean; me
 
 /**
  * Inline sync: for each lecture that has started ≥ 45 min ago and has a session_link
- * but no stored transcript, scrape the LMS summary and run LO analysis.
+ * but no stored transcript, fetch the summary from the LMS MySQL DB and run LO analysis.
  * Also re-analyzes any "pending" transcripts that already exist.
  */
 async function inlineSync(userId: string): Promise<ActionResult[]> {
@@ -86,13 +86,6 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
     (existingReports ?? []).map((r) => [r.lecture_id, { transcript: r.transcript ?? "", status: r.status }])
   );
 
-  // Get LMS credentials
-  const profile = await getUserProfile(userId, { includePassword: true });
-  if (!profile?.lms_username || !profile?.lms_password) {
-    // No credentials — only analyze already-fetched transcripts
-    return analyzeExistingTranscripts(userId, lectures, reportByLecture, supabase);
-  }
-
   const results: ActionResult[] = [];
 
   for (const lecture of lectures) {
@@ -115,7 +108,6 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
     const hasTranscript = Boolean(existing?.transcript?.trim());
     const isCompleted = existing?.status === "completed";
 
-    // If already completed with a transcript, skip
     if (isCompleted && hasTranscript) {
       results.push({ lectureId, lectureName, status: "skipped", reason: "Already analyzed." });
       continue;
@@ -123,37 +115,38 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
 
     let transcript = existing?.transcript ?? "";
 
-    // Try to fetch transcript from LMS if we have a session link and no transcript yet
+    // Fetch transcript from LMS MySQL DB if not already stored
     if (!hasTranscript && sessionLink && sessionLink.includes("masaischool.com")) {
-      try {
-        transcript = await scrapeLectureSummary(sessionLink, {
-          username: profile.lms_username,
-          password: profile.lms_password
-        });
-
-        // Store transcript
-        await supabase.from("lo_reports").upsert(
-          {
-            lecture_id: lectureId,
-            user_id: userId,
-            transcript,
-            status: "pending",
-            covered_los: [],
-            missing_los: [],
-            generated_at: null,
-            updated_at: nowIST()
-          },
-          { onConflict: "lecture_id" }
-        );
-      } catch (scrapeErr) {
-        const reason = scrapeErr instanceof Error ? scrapeErr.message : "Scrape failed";
-        results.push({ lectureId, lectureName, status: "error", reason: reason.slice(0, 200) });
-        continue;
+      const lmsId = extractLmsLectureIdFromUrl(sessionLink);
+      if (lmsId) {
+        try {
+          const fetched = await fetchLectureSummaryFromDb(lmsId);
+          if (fetched) {
+            transcript = fetched;
+            await supabase.from("lo_reports").upsert(
+              {
+                lecture_id: lectureId,
+                user_id: userId,
+                transcript,
+                status: "pending",
+                covered_los: [],
+                missing_los: [],
+                generated_at: null,
+                updated_at: nowIST()
+              },
+              { onConflict: "lecture_id" }
+            );
+          }
+        } catch (dbErr) {
+          const reason = dbErr instanceof Error ? dbErr.message : "LMS DB query failed";
+          results.push({ lectureId, lectureName, status: "error", reason: reason.slice(0, 200) });
+          continue;
+        }
       }
     }
 
     if (!transcript.trim()) {
-      results.push({ lectureId, lectureName, status: "skipped", reason: "No summary available yet. Try again after the session ends." });
+      results.push({ lectureId, lectureName, status: "skipped", reason: "No summary in LMS database yet. It may still be generating." });
       continue;
     }
 
@@ -205,51 +198,6 @@ async function inlineSync(userId: string): Promise<ActionResult[]> {
   return results;
 }
 
-async function analyzeExistingTranscripts(
-  userId: string,
-  lectures: { id: string; lecture_name: string; learning_objective: unknown }[],
-  reportByLecture: Map<string, { transcript: string; status: string }>,
-  supabase: ReturnType<typeof createServerSupabase>
-): Promise<ActionResult[]> {
-  const results: ActionResult[] = [];
-
-  for (const lecture of lectures) {
-    const existing = reportByLecture.get(lecture.id);
-    if (!existing?.transcript?.trim() || existing.status === "completed") {
-      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: existing?.status === "completed" ? "Already analyzed." : "No transcript yet." });
-      continue;
-    }
-
-    const learningObjective = (lecture.learning_objective as string) ?? "";
-    if (!learningObjective.trim()) {
-      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "No Learning Objectives set." });
-      continue;
-    }
-
-    try {
-      const analysis = await analyzeLosFromTranscript(learningObjective, existing.transcript);
-      await supabase.from("lo_reports").upsert(
-        {
-          lecture_id: lecture.id,
-          user_id: userId,
-          transcript: existing.transcript,
-          covered_los: analysis.covered_los,
-          missing_los: analysis.missing_los,
-          status: "completed",
-          fallback: analysis.fallback ?? false,
-          generated_at: nowIST(),
-          updated_at: nowIST()
-        },
-        { onConflict: "lecture_id" }
-      );
-      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "analyzed", coveredCount: analysis.covered_los.length, missingCount: analysis.missing_los.length });
-    } catch (err) {
-      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "error", reason: err instanceof Error ? err.message.slice(0, 200) : "Analysis failed" });
-    }
-  }
-
-  return results;
-}
 
 export async function POST() {
   try {

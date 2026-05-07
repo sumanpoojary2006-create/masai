@@ -7,7 +7,8 @@ import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-url
 import { checkLmsTasksForLecture } from "@/lib/lms-db";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
+import { resolveSessionLinks } from "@/lib/lms-scraper";
+import { extractLmsLectureIdFromUrl, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
 import { createServerSupabase } from "@/lib/supabase";
 import {
@@ -326,7 +327,7 @@ export interface SummaryFetchResult {
 }
 
 export async function fetchAndAnalyzePendingSummaries(
-  profile: Pick<AutomationProfile, "user_id" | "lms_username" | "lms_password" | "email">
+  profile: Pick<AutomationProfile, "user_id" | "email">
 ): Promise<SummaryFetchResult[]> {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
@@ -392,13 +393,22 @@ export async function fetchAndAnalyzePendingSummaries(
     }
 
     const sessionLink = String(lecture.session_link ?? "").trim();
-    console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from ${sessionLink}`);
+    const lmsId = extractLmsLectureIdFromUrl(sessionLink);
+    if (!lmsId) {
+      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "Could not parse LMS lecture ID from session link" });
+      continue;
+    }
+
+    console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from LMS DB (id=${lmsId})`);
 
     try {
-      const summary = await scrapeLectureSummary(sessionLink, {
-        username: profile.lms_username,
-        password: profile.lms_password
-      });
+      const summary = await fetchLectureSummaryFromDb(lmsId);
+
+      if (!summary) {
+        console.log(`[lo-auto] "${lecture.lecture_name}" → no summary in LMS DB yet`);
+        results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "Summary not yet available in LMS database" });
+        continue;
+      }
 
       // ── Step 1: Save transcript immediately so it's never lost on analysis failure ──
       await supabase.from("lo_reports").upsert(

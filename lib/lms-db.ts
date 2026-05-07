@@ -120,6 +120,54 @@ export async function fetchWeekLecturesFromDb(
 }
 
 /**
+ * Extract the numeric LMS lecture id from a session link URL.
+ * Supports both /lectures/detail/?id=123 and /lectures/123 formats.
+ */
+export function extractLmsLectureIdFromUrl(sessionLink: string): number | null {
+  const queryIdMatch = sessionLink.match(/[?&]id=(\d+)/);
+  const pathIdMatch = sessionLink.match(/\/lectures\/(\d+)/);
+  const match = queryIdMatch ?? pathIdMatch;
+  if (!match) return null;
+  const id = parseInt(match[1], 10);
+  return isNaN(id) ? null : id;
+}
+
+/**
+ * Fetch the Zoom AI meeting summary for a lecture from the LMS MySQL DB.
+ * The summary is stored in the `data` JSON column under various field names.
+ * Returns null if not found or not yet generated.
+ */
+export async function fetchLectureSummaryFromDb(lmsLectureId: number): Promise<string | null> {
+  const conn = await getConn();
+
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT data FROM lectures WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    [lmsLectureId]
+  );
+
+  const row = (rows as RowDataPacket[])[0];
+  if (!row?.data) return null;
+
+  const parsed: Record<string, unknown> =
+    typeof row.data === "string" ? JSON.parse(row.data) : (row.data as Record<string, unknown>);
+
+  // Try common field names used by LMS/Zoom integrations
+  const candidate =
+    parsed?.summary ??
+    parsed?.zoom_summary ??
+    parsed?.meeting_summary ??
+    parsed?.recording_summary ??
+    parsed?.transcript ??
+    null;
+
+  if (typeof candidate === "string" && candidate.trim().length > 50) {
+    return candidate.trim();
+  }
+
+  return null;
+}
+
+/**
  * Convert an HHMM integer (e.g. 2000, 2130) to an "HH:mm:ss" string.
  */
 export function hhmmToTimeStr(val: number): string {
