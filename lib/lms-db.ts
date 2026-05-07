@@ -133,38 +133,24 @@ export function extractLmsLectureIdFromUrl(sessionLink: string): number | null {
 }
 
 /**
- * Fetch the Zoom AI meeting summary for a lecture from the LMS MySQL DB.
- * The summary is stored in the `data` JSON column under various field names.
- * Returns null if not found or not yet generated.
+ * Fetch the AI-generated meeting summary (or transcript) for a lecture
+ * from the LMS `lectures_ai` table.
+ * Returns null if the row doesn't exist yet (summary not yet generated).
  */
 export async function fetchLectureSummaryFromDb(lmsLectureId: number): Promise<string | null> {
   const conn = await getConn();
 
   const [rows] = await conn.query<RowDataPacket[]>(
-    `SELECT data FROM lectures WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    `SELECT summary, transcript FROM lectures_ai WHERE lectureId = ? LIMIT 1`,
     [lmsLectureId]
   );
 
   const row = (rows as RowDataPacket[])[0];
-  if (!row?.data) return null;
+  if (!row) return null;
 
-  const parsed: Record<string, unknown> =
-    typeof row.data === "string" ? JSON.parse(row.data) : (row.data as Record<string, unknown>);
-
-  // Try common field names used by LMS/Zoom integrations
-  const candidate =
-    parsed?.summary ??
-    parsed?.zoom_summary ??
-    parsed?.meeting_summary ??
-    parsed?.recording_summary ??
-    parsed?.transcript ??
-    null;
-
-  if (typeof candidate === "string" && candidate.trim().length > 50) {
-    return candidate.trim();
-  }
-
-  return null;
+  // Prefer the AI summary; fall back to raw transcript if summary not yet generated
+  const text = (row.summary as string | null) ?? (row.transcript as string | null) ?? "";
+  return text.trim().length > 50 ? text.trim() : null;
 }
 
 /**
