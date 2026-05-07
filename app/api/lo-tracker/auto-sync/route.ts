@@ -1,5 +1,5 @@
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 /**
  * POST /api/lo-tracker/auto-sync
@@ -7,7 +7,7 @@ export const maxDuration = 300;
  * Called by Vercel Cron every 30 minutes on weekdays.
  * For each CC user who has lectures that started 45–180 minutes ago
  * and don't yet have a completed lo_report, fetches the LMS summary
- * and runs LO analysis.
+ * from the LMS MySQL DB and runs LO analysis.
  *
  * Protected by CRON_SECRET (set as Vercel env var).
  */
@@ -17,7 +17,7 @@ import { DateTime } from "luxon";
 
 import { getAppTimezone, nowIST } from "@/lib/env";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { scrapeLectureSummary } from "@/lib/lms-scraper";
+import { extractLmsLectureIdFromUrl, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { createServerSupabase } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
@@ -72,43 +72,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "All lectures already analyzed.", processed: 0 });
   }
 
-  // Batch-fetch LMS credentials for all affected users
-  const userIds = [...new Set(pending.map((l) => l.user_id))];
-  const { data: profiles } = await supabase
-    .from("user_profiles")
-    .select("user_id, lms_username, lms_password")
-    .in("user_id", userIds);
-
-  const credsByUser = new Map(
-    (profiles ?? []).map((p) => [p.user_id, { username: p.lms_username, password: p.lms_password }])
-  );
-
   let processed = 0;
   let errors = 0;
 
   for (const lecture of pending) {
     const sessionLink = (lecture as Record<string, unknown>).session_link as string ?? "";
     const learningObjective = (lecture as Record<string, unknown>).learning_objective as string ?? "";
-    const creds = credsByUser.get(lecture.user_id);
 
-    if (!sessionLink || !sessionLink.includes("masaischool.com") || !creds?.username || !creds?.password) {
-      continue;
-    }
+    if (!sessionLink || !sessionLink.includes("masaischool.com")) continue;
 
     if (!learningObjective.trim()) {
-      console.log(`[auto-sync] No LO for "${lecture.lecture_name}" — skipping analysis`);
+      console.log(`[auto-sync] No LO for "${lecture.lecture_name}" — skipping`);
       continue;
     }
 
+    const lmsId = extractLmsLectureIdFromUrl(sessionLink);
+    if (!lmsId) continue;
+
     try {
-      const transcript = await scrapeLectureSummary(sessionLink, {
-        username: creds.username,
-        password: creds.password
-      });
+      const transcript = await fetchLectureSummaryFromDb(lmsId);
 
-      if (!transcript.trim()) continue;
+      if (!transcript?.trim()) {
+        console.log(`[auto-sync] No summary yet in LMS DB for "${lecture.lecture_name}"`);
+        continue;
+      }
 
-      // Store transcript and mark as pending
+      // Store transcript
       await supabase.from("lo_reports").upsert(
         {
           lecture_id: lecture.id,

@@ -120,6 +120,40 @@ export async function fetchWeekLecturesFromDb(
 }
 
 /**
+ * Extract the numeric LMS lecture id from a session link URL.
+ * Supports both /lectures/detail/?id=123 and /lectures/123 formats.
+ */
+export function extractLmsLectureIdFromUrl(sessionLink: string): number | null {
+  const queryIdMatch = sessionLink.match(/[?&]id=(\d+)/);
+  const pathIdMatch = sessionLink.match(/\/lectures\/(\d+)/);
+  const match = queryIdMatch ?? pathIdMatch;
+  if (!match) return null;
+  const id = parseInt(match[1], 10);
+  return isNaN(id) ? null : id;
+}
+
+/**
+ * Fetch the AI-generated meeting summary (or transcript) for a lecture
+ * from the LMS `lectures_ai` table.
+ * Returns null if the row doesn't exist yet (summary not yet generated).
+ */
+export async function fetchLectureSummaryFromDb(lmsLectureId: number): Promise<string | null> {
+  const conn = await getConn();
+
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT summary, transcript FROM lectures_ai WHERE lectureId = ? LIMIT 1`,
+    [lmsLectureId]
+  );
+
+  const row = (rows as RowDataPacket[])[0];
+  if (!row) return null;
+
+  // Prefer the AI summary; fall back to raw transcript if summary not yet generated
+  const text = (row.summary as string | null) ?? (row.transcript as string | null) ?? "";
+  return text.trim().length > 50 ? text.trim() : null;
+}
+
+/**
  * Convert an HHMM integer (e.g. 2000, 2130) to an "HH:mm:ss" string.
  */
 export function hhmmToTimeStr(val: number): string {
