@@ -143,25 +143,43 @@ async function syncFoundResourcesToCache(
   supabase: ReturnType<typeof import("@/lib/supabase").createServerSupabase>,
   trackingRecords: LmsTrackingRecord[]
 ): Promise<void> {
-  // Group records by (lmsBatchId, lmsLectureId)
-  const byLecture = new Map<string, { batchId: number; lectureId: number; preread: boolean; notes: boolean; assignment: boolean }>();
+  const byLectureWithTs = new Map<string, {
+    batchId: number; lectureId: number;
+    preread: boolean; notes: boolean; assignment: boolean;
+    prereadAt: string | null; notesAt: string | null; assignmentAt: string | null;
+  }>();
 
   for (const r of trackingRecords) {
     if (!r.found || !r.lmsBatchId || !r.lmsLectureId) continue;
     const key = `${r.lmsBatchId}:${r.lmsLectureId}`;
-    const entry = byLecture.get(key) ?? { batchId: r.lmsBatchId, lectureId: r.lmsLectureId, preread: false, notes: false, assignment: false };
-    if (r.resourceType === "preread") entry.preread = true;
-    if (r.resourceType === "notes") entry.notes = true;
-    if (r.resourceType === "assignment") entry.assignment = true;
-    byLecture.set(key, entry);
+    const entry = byLectureWithTs.get(key) ?? {
+      batchId: r.lmsBatchId, lectureId: r.lmsLectureId,
+      preread: false, notes: false, assignment: false,
+      prereadAt: null, notesAt: null, assignmentAt: null
+    };
+    if (r.resourceType === "preread") { entry.preread = true; entry.prereadAt = r.uploadedAt ?? null; }
+    if (r.resourceType === "notes") { entry.notes = true; entry.notesAt = r.uploadedAt ?? null; }
+    if (r.resourceType === "assignment") { entry.assignment = true; entry.assignmentAt = r.uploadedAt ?? null; }
+    byLectureWithTs.set(key, entry);
   }
 
-  for (const entry of byLecture.values()) {
-    const patch: Record<string, boolean> = {};
+  for (const entry of byLectureWithTs.values()) {
+    const patch: Record<string, boolean | string> = {};
     if (entry.preread) patch.preread_uploaded = true;
     if (entry.notes) patch.notes_uploaded = true;
     if (entry.assignment) patch.assignment_uploaded = true;
     if (Object.keys(patch).length === 0) continue;
+
+    const { data: existing } = await supabase
+      .from("lms_lecture_cache")
+      .select("preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
+      .eq("batch_id", entry.batchId)
+      .eq("lecture_id", entry.lectureId)
+      .single();
+
+    if (entry.prereadAt && !existing?.preread_uploaded_at) patch.preread_uploaded_at = entry.prereadAt;
+    if (entry.notesAt && !existing?.notes_uploaded_at) patch.notes_uploaded_at = entry.notesAt;
+    if (entry.assignmentAt && !existing?.assignment_uploaded_at) patch.assignment_uploaded_at = entry.assignmentAt;
 
     const { error } = await supabase
       .from("lms_lecture_cache")
@@ -1185,12 +1203,40 @@ export async function syncAssignedBatchesCache(
     if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
 
     // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
+    // Also store the earliest upload timestamp, but only overwrite NULL (never replace an existing ts).
     for (const l of lectures) {
-      const patch: Record<string, boolean> = {};
+      const patch: Record<string, boolean | string> = {};
       if (l.preread_uploaded) patch.preread_uploaded = true;
       if (l.notes_uploaded) patch.notes_uploaded = true;
       if (l.assignment_uploaded) patch.assignment_uploaded = true;
       if (Object.keys(patch).length === 0) continue;
+
+      const { data: existing } = await supabase
+        .from("lms_lecture_cache")
+        .select("preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
+        .eq("batch_id", batchId)
+        .eq("lecture_id", l.lecture_id)
+        .single();
+
+      const timezone = getAppTimezone();
+      const toIso = (dtStr: string | null | undefined) => {
+        if (!dtStr) return null;
+        const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+        return dt.isValid ? dt.toISO() : null;
+      };
+
+      if (l.preread_uploaded_at && !existing?.preread_uploaded_at) {
+        const iso = toIso(l.preread_uploaded_at);
+        if (iso) patch.preread_uploaded_at = iso;
+      }
+      if (l.notes_uploaded_at && !existing?.notes_uploaded_at) {
+        const iso = toIso(l.notes_uploaded_at);
+        if (iso) patch.notes_uploaded_at = iso;
+      }
+      if (l.assignment_uploaded_at && !existing?.assignment_uploaded_at) {
+        const iso = toIso(l.assignment_uploaded_at);
+        if (iso) patch.assignment_uploaded_at = iso;
+      }
 
       const { error: flagErr } = await supabase
         .from("lms_lecture_cache")

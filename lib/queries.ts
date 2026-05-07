@@ -793,7 +793,7 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
 
   const { data, error } = await supabase
     .from("lms_lecture_cache")
-    .select("id, batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
+    .select("id, batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
     .in("batch_id", batchIds)
     .neq("module", "general")
     .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
@@ -807,6 +807,11 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
   // section for the same live session. Merge compliance flags with OR.
   type CacheRow = (typeof data)[number];
   const dedupMap = new Map<string, CacheRow>();
+  const earliestTs = (a: string | null | undefined, b: string | null | undefined): string | null => {
+    if (!a) return b ?? null;
+    if (!b) return a;
+    return a < b ? a : b;
+  };
   for (const row of data ?? []) {
     const key = `${row.batch_id}::${row.schedule}::${row.title}`;
     const existing = dedupMap.get(key);
@@ -818,6 +823,9 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
         preread_uploaded: existing.preread_uploaded || row.preread_uploaded,
         notes_uploaded: existing.notes_uploaded || row.notes_uploaded,
         assignment_uploaded: existing.assignment_uploaded || row.assignment_uploaded,
+        preread_uploaded_at: earliestTs(existing.preread_uploaded_at, row.preread_uploaded_at),
+        notes_uploaded_at: earliestTs(existing.notes_uploaded_at, row.notes_uploaded_at),
+        assignment_uploaded_at: earliestTs(existing.assignment_uploaded_at, row.assignment_uploaded_at),
       });
     }
   }
@@ -833,13 +841,13 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
     const startTime = dt.toFormat("HH:mm:ss");
     const endTime = end.toFormat("HH:mm:ss");
 
-    const makeTask = (type: TaskType, uploaded: boolean): TaskRecord => ({
+    const makeTask = (type: TaskType, uploaded: boolean, uploadedAt: string | null | undefined): TaskRecord => ({
       id: `${lectureId}-${type}`,
       lecture_id: lectureId,
       type,
       deadline: computeDeadline(type, lectureDate, startTime, endTime),
       status: uploaded ? "completed" : "pending",
-      completed_at: null,
+      completed_at: (uploaded && uploadedAt) ? uploadedAt : null,
     });
 
     return {
@@ -854,9 +862,9 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
       start_time: startTime,
       end_time: endTime,
       tasks: {
-        preread: makeTask("preread", row.preread_uploaded),
-        notes: makeTask("notes", row.notes_uploaded),
-        assignment: makeTask("assignment", row.assignment_uploaded),
+        preread: makeTask("preread", row.preread_uploaded, row.preread_uploaded_at),
+        notes: makeTask("notes", row.notes_uploaded, row.notes_uploaded_at),
+        assignment: makeTask("assignment", row.assignment_uploaded, row.assignment_uploaded_at),
       },
     } satisfies DashboardLecture;
   });

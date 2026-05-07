@@ -43,6 +43,9 @@ export type LmsLectureCompliance = {
   preread_uploaded: boolean;
   notes_uploaded: boolean;
   assignment_uploaded: boolean;
+  preread_uploaded_at: string | null;
+  notes_uploaded_at: string | null;
+  assignment_uploaded_at: string | null;
 };
 
 /** Query 2.8 — all active batches for lms_batch_cache sync */
@@ -78,35 +81,35 @@ export async function fetchBatchCompliance(batchId: number): Promise<LmsLectureC
         l.schedule,
         l.concludes,
 
-        EXISTS (
-          SELECT 1 FROM lectures pr
+        (
+          SELECT MIN(pr.created_at) FROM lectures pr
           WHERE pr.category IN ('pre-reads', 'Pre Reads')
             AND (
               JSON_EXTRACT(pr.data, '$.associatedLecture.id') = l.id
               OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(pr.data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(l.id))
             )
             AND pr.deleted_at IS NULL
-        ) AS preread_uploaded,
+        ) AS preread_uploaded_at,
 
-        EXISTS (
-          SELECT 1 FROM lectures nt
+        (
+          SELECT MIN(nt.created_at) FROM lectures nt
           WHERE nt.category  = 'notes'
             AND (
               JSON_EXTRACT(nt.data, '$.associatedLecture.id') = l.id
               OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(nt.data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(l.id))
             )
             AND nt.deleted_at IS NULL
-        ) AS notes_uploaded,
+        ) AS notes_uploaded_at,
 
-        EXISTS (
-          SELECT 1 FROM assignments a
+        (
+          SELECT MIN(a.created_at) FROM assignments a
           WHERE a.batch_id   = l.batch_id
             AND (
               JSON_EXTRACT(a.data, '$.associatedLecture[0].id') = l.id
               OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(a.data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(l.id))
             )
             AND a.deleted_at IS NULL
-        ) AS assignment_uploaded
+        ) AS assignment_uploaded_at
 
       FROM lectures l
       WHERE
@@ -118,16 +121,30 @@ export async function fetchBatchCompliance(batchId: number): Promise<LmsLectureC
       [batchId]
     );
 
-    return (rows as mysql.RowDataPacket[]).map((r) => ({
-      lecture_id: r.lecture_id,
-      lecture_title: r.lecture_title,
-      module: r.module ?? null,
-      section_id: r.section_id ?? null,
-      schedule: r.schedule ?? null,
-      concludes: r.concludes ?? null,
-      preread_uploaded: Boolean(r.preread_uploaded),
-      notes_uploaded: Boolean(r.notes_uploaded),
-      assignment_uploaded: Boolean(r.assignment_uploaded)
-    }));
+    return (rows as mysql.RowDataPacket[]).map((r) => {
+      const prereadeAt = r.preread_uploaded_at instanceof Date
+        ? r.preread_uploaded_at.toISOString().replace("T", " ").replace(/\.\d+Z$/, "")
+        : (r.preread_uploaded_at ?? null);
+      const notesAt = r.notes_uploaded_at instanceof Date
+        ? r.notes_uploaded_at.toISOString().replace("T", " ").replace(/\.\d+Z$/, "")
+        : (r.notes_uploaded_at ?? null);
+      const assignAt = r.assignment_uploaded_at instanceof Date
+        ? r.assignment_uploaded_at.toISOString().replace("T", " ").replace(/\.\d+Z$/, "")
+        : (r.assignment_uploaded_at ?? null);
+      return {
+        lecture_id: r.lecture_id,
+        lecture_title: r.lecture_title,
+        module: r.module ?? null,
+        section_id: r.section_id ?? null,
+        schedule: r.schedule ?? null,
+        concludes: r.concludes ?? null,
+        preread_uploaded: prereadeAt !== null,
+        notes_uploaded: notesAt !== null,
+        assignment_uploaded: assignAt !== null,
+        preread_uploaded_at: prereadeAt,
+        notes_uploaded_at: notesAt,
+        assignment_uploaded_at: assignAt,
+      };
+    });
   });
 }
