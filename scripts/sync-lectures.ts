@@ -222,6 +222,12 @@ async function main() {
         })
       )
     );
+    // Name-only keys to detect rescheduled lectures (same lecture, different date).
+    const syncedNameKeys = new Set(
+      synced.map((lecture) =>
+        `${lecture.batch_name.trim().toLowerCase()}::${lecture.module_name.trim().toLowerCase()}::${lecture.lecture_name.trim().toLowerCase()}`
+      )
+    );
     const configuredBatchNames = profile.batch_configs.map((config) => config.batch_name);
     const { data: currentWeekLectures, error: currentWeekLecturesError } = await supabase
       .from("lectures")
@@ -267,6 +273,50 @@ async function main() {
           console.error("  [sync] Failed to archive stale lectures:", archiveError.message);
         } else {
           console.log(`  Archived ${staleLectures.length} stale lecture(s) not present in LMS current-week sync.`);
+        }
+      }
+    }
+
+    // Detect rescheduled lectures: same lecture name in the synced result but with a DIFFERENT
+    // date — the old record sits outside the current-week window and won't be caught by the
+    // stale cleanup above.  Query all non-archived lectures for this user across these batches
+    // and archive any whose name matches a synced lecture but whose date/time differs.
+    const { data: allActiveLectures, error: allActiveErr } = await supabase
+      .from("lectures")
+      .select("id, batch_name, module_name, lecture_name, lecture_date, start_time")
+      .eq("user_id", profile.user_id)
+      .is("archived_at", null)
+      .in("batch_name", configuredBatchNames);
+
+    if (allActiveErr) {
+      console.error("  [sync] Failed to fetch active lectures for reschedule check:", allActiveErr.message);
+    } else {
+      const rescheduledIds: string[] = [];
+      for (const existing of allActiveLectures ?? []) {
+        const nameKey = `${existing.batch_name.trim().toLowerCase()}::${(existing.module_name ?? "").trim().toLowerCase()}::${existing.lecture_name.trim().toLowerCase()}`;
+        const fullKey = lectureIdentityKey({
+          batch_name: existing.batch_name,
+          module_name: existing.module_name ?? "",
+          lecture_name: existing.lecture_name,
+          lecture_date: existing.lecture_date,
+          start_time: existing.start_time
+        });
+        // Archive if this lecture name is in the new sync but with a different date/time
+        if (syncedNameKeys.has(nameKey) && !syncedKeys.has(fullKey)) {
+          rescheduledIds.push(existing.id);
+        }
+      }
+
+      if (rescheduledIds.length > 0) {
+        const { error: rescheduleArchiveError } = await supabase
+          .from("lectures")
+          .update({ archived_at: now.toUTC().toISO() })
+          .in("id", rescheduledIds);
+
+        if (rescheduleArchiveError) {
+          console.error("  [sync] Failed to archive rescheduled lectures:", rescheduleArchiveError.message);
+        } else {
+          console.log(`  Archived ${rescheduledIds.length} rescheduled lecture(s) with updated dates.`);
         }
       }
     }

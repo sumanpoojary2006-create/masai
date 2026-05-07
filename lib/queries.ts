@@ -168,6 +168,9 @@ async function syncCCWeeklyLectures(
     if (!dedupMap.has(key)) dedupMap.set(key, row);
   }
 
+  const LMS_URL = "https://experience-admin.masaischool.com";
+  const batchNames = [...new Set(assignments.map((a) => a.batch_name as string))];
+
   // Map to lecture rows for upsert
   const lectureRows = [...dedupMap.values()].map((row) => {
     const dt = DateTime.fromISO(row.schedule as string).setZone(timezone);
@@ -178,23 +181,65 @@ async function syncCCWeeklyLectures(
       module_name: (row.module as string) ?? "",
       lecture_name: row.title as string,
       learning_objective: "",
-      session_link: "",
+      session_link: `${LMS_URL}/lectures/detail/?id=${row.lecture_id}`,
       lecture_date: dt.toISODate()!,
       start_time: dt.toFormat("HH:mm:ss"),
       end_time: end.toFormat("HH:mm:ss")
     };
   });
 
+  // Before upserting, detect and archive rescheduled lectures.
+  // When a lecture's date changes in the LMS, the old DB record has a different
+  // lecture_date than what we're about to sync. Archive those stale records so
+  // the upsert creates a fresh entry with the correct date.
+  const { data: existingLectures } = await supabase
+    .from("lectures")
+    .select("id, batch_name, module_name, lecture_name, lecture_date, start_time")
+    .eq("user_id", userId)
+    .is("archived_at", null)
+    .in("batch_name", batchNames);
+
+  if (existingLectures?.length) {
+    const newFullKeys = new Set(
+      lectureRows.map((r) => `${r.batch_name}::${r.module_name}::${r.lecture_name}::${r.lecture_date}::${r.start_time}`)
+    );
+    const newNameKeys = new Set(
+      lectureRows.map((r) => `${r.batch_name}::${r.module_name}::${r.lecture_name}`)
+    );
+
+    const staleIds: string[] = [];
+    for (const existing of existingLectures) {
+      const nameKey = `${existing.batch_name}::${(existing.module_name ?? "")}::${existing.lecture_name}`;
+      const fullKey = `${nameKey}::${existing.lecture_date}::${existing.start_time}`;
+      // Archive if this lecture name is in the new sync but with a different date/time
+      if (newNameKeys.has(nameKey) && !newFullKeys.has(fullKey)) {
+        staleIds.push(existing.id);
+      }
+    }
+
+    if (staleIds.length > 0) {
+      await supabase
+        .from("lectures")
+        .update({ archived_at: DateTime.now().setZone(timezone).toISO() })
+        .in("id", staleIds);
+      console.log(`[syncCCWeeklyLectures] Archived ${staleIds.length} rescheduled lecture(s) for user ${userId}`);
+    }
+  }
+
   // Insert new rows only — never overwrite session_link or learning_objective
-  await supabase
+  const { error: upsertError } = await supabase
     .from("lectures")
     .upsert(lectureRows, {
       onConflict: "user_id,batch_name,module_name,lecture_name,lecture_date,start_time",
       ignoreDuplicates: true
     });
 
+  if (upsertError) {
+    console.error("[syncCCWeeklyLectures] Upsert failed:", upsertError.message);
+    throw new Error(`Failed to sync lectures: ${upsertError.message}`);
+  }
+
   // Backfill learning_objective from global curriculum for rows that still have none
-  const batchNames = [...new Set(assignments.map((a) => a.batch_name as string))];
   const { data: curriculums } = await supabase
     .from("batch_curriculums")
     .select("batch_name, lecture_name, learning_objective")
