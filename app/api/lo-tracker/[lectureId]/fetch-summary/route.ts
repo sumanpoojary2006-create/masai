@@ -41,7 +41,7 @@ export async function POST(
     const transcript = report?.transcript?.trim() ?? "";
     if (!transcript) {
       return NextResponse.json(
-        { message: "No summary available yet. It will be fetched automatically after the session ends." },
+        { message: "No summary in database yet. Click 'Sync Transcripts' to fetch it from LMS." },
         { status: 404 }
       );
     }
