@@ -17,7 +17,7 @@ export function StatusPill({ task }: { task: TaskRecord }) {
         lateCompletion
       )}`}
     >
-      {task.status}
+      {lateCompletion ? "delayed" : task.status}
     </span>
   );
 }
