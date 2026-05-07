@@ -149,8 +149,7 @@ export default async function CCDashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/lo-tracker" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">LO Tracker</Link>
-          <Link href="/batch-details/dashboard" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Batch Details</Link>
-          <Link href="/weekly-report" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Weekly Report</Link>
+<Link href="/weekly-report" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Weekly Report</Link>
           <Link href="/profile" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Profile</Link>
           <ThemeToggle />
           <LogoutButton />
