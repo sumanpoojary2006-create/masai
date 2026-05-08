@@ -988,7 +988,20 @@ export async function runComplianceCheck(options?: {
  * specific user). Does NOT send any Slack alerts — use this before sending
  * a scheduled reminder so the DB reflects the latest LMS state.
  */
-export async function syncTaskStatusesFromLms(userId?: string): Promise<{ updatedTasks: number; checkedLectures: number }> {
+export type SyncUpdateItem = {
+  lectureName: string;
+  batchName: string;
+  taskType: string;
+  completedAt?: string | null;
+  deadline?: string;
+};
+
+export async function syncTaskStatusesFromLms(userId?: string): Promise<{
+  updatedTasks: number;
+  checkedLectures: number;
+  newlyCompleted: SyncUpdateItem[];
+  pendingToday: SyncUpdateItem[];
+}> {
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const supabase = createServerSupabase();
@@ -996,6 +1009,8 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
 
   let totalUpdated = 0;
   let totalLectures = 0;
+  const allNewlyCompleted: SyncUpdateItem[] = [];
+  const allPendingToday: SyncUpdateItem[] = [];
 
   for (const profile of profiles) {
     // === PATH A: CC self-configured lectures ===
@@ -1161,12 +1176,37 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
       );
     }
 
+    const profileNewlyCompleted: SyncUpdateItem[] = [];
+    const profilePendingToday: SyncUpdateItem[] = [];
+
     const ccTaskUpdates = allLectures
       .filter((l) => ccBatchLectureIds.has(l.id))
       .flatMap((lecture) =>
         lecture.tasks.map((task) => {
           const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
           const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
+
+          if (task.status !== "completed" && resolved.status === "completed") {
+            profileNewlyCompleted.push({
+              lectureName: lecture.lecture_name,
+              batchName: lecture.batch_name,
+              taskType: task.type,
+              completedAt: resolved.completedAt ?? null,
+            });
+          }
+
+          if (resolved.status === "pending" && task.deadline) {
+            const deadlineDt = DateTime.fromISO(task.deadline, { zone: timezone });
+            if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
+              profilePendingToday.push({
+                lectureName: lecture.lecture_name,
+                batchName: lecture.batch_name,
+                taskType: task.type,
+                deadline: task.deadline,
+              });
+            }
+          }
+
           return {
             id: task.id,
             lecture_id: task.lecture_id,
@@ -1179,6 +1219,9 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
         })
       );
 
+    allNewlyCompleted.push(...profileNewlyCompleted);
+    allPendingToday.push(...profilePendingToday);
+
     const { data: updated } = ccTaskUpdates.length > 0
       ? await supabase.from("tasks").upsert(ccTaskUpdates, { onConflict: "id" }).select("id")
       : { data: [] };
@@ -1189,7 +1232,12 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     console.log(`[lms-sync] ${profile.email}: CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}, total lectures: ${allLectures.length}, updated ${updated?.length ?? 0} tasks`);
   }
 
-  return { updatedTasks: totalUpdated, checkedLectures: totalLectures };
+  return {
+    updatedTasks: totalUpdated,
+    checkedLectures: totalLectures,
+    newlyCompleted: allNewlyCompleted,
+    pendingToday: allPendingToday,
+  };
 }
 
 /**

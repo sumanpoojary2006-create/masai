@@ -4,6 +4,7 @@ export const maxDuration = 60; // seconds — compliance sync can take 20-30 s
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { syncAssignedBatchesCache, syncTaskStatusesFromLms } from "@/lib/automation";
+import { sendSyncUpdateAlert } from "@/lib/slack";
 import { createServerSupabase } from "@/lib/supabase";
 
 export async function POST() {
@@ -28,14 +29,25 @@ export async function POST() {
     // Also sync lms_lecture_cache for admin-batch assignments so dashboard status
     // reflects reality without waiting for the nightly admin sync.
     const supabase = createServerSupabase();
-    const { data: ccAssignments } = await supabase
-      .from("cc_batch_assignments")
-      .select("batch_id")
-      .eq("cc_user_id", user.id);
+    const [{ data: ccAssignments }, { data: profileRow }] = await Promise.all([
+      supabase.from("cc_batch_assignments").select("batch_id").eq("cc_user_id", user.id),
+      supabase.from("user_profiles").select("slack_member_id").eq("user_id", user.id).single(),
+    ]);
+
     const ccBatchIds = [...new Set((ccAssignments ?? []).map((a) => a.batch_id as number))];
     if (ccBatchIds.length > 0) {
       await syncAssignedBatchesCache(ccBatchIds);
     }
+
+    // Send targeted Slack notification only to this CC — newly completed + pending today.
+    const slackMemberId = (profileRow as { slack_member_id?: string | null } | null)?.slack_member_id ?? null;
+    await sendSyncUpdateAlert({
+      newlyCompleted: syncResult.newlyCompleted,
+      pendingToday: syncResult.pendingToday,
+      slackMemberId,
+    }).catch((err) => {
+      console.error("[compliance/sync] Slack notification failed:", err);
+    });
 
     // Dispatch GitHub Actions compliance workflow — non-fatal so sync succeeds
     // even when the token is missing (e.g. local dev or staging environments).
