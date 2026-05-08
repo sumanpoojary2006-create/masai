@@ -9,6 +9,7 @@ import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
 import { TaskStatus } from "@/lib/types";
 import { CCManagementTab } from "@/components/admin/CCManagementTab";
+import { TopProgressBar } from "@/components/top-progress-bar";
 
 type ExportedData = {
   leaderboardCsv?: string;
@@ -477,8 +478,14 @@ export function AdminDashboardClient({
     try {
       const res = await fetch("/api/admin/sync-week", { method: "POST" });
       const json = await res.json();
-      setSyncState(res.ok ? "success" : "error");
-      setSyncMsg(json.message ?? (res.ok ? "Done." : "Failed."));
+      if (res.ok) {
+        setSyncState("success");
+        setSyncMsg(json.message ?? "Done.");
+        window.location.reload();
+      } else {
+        setSyncState("error");
+        setSyncMsg(json.message ?? "Failed.");
+      }
     } catch { setSyncState("error"); setSyncMsg("Network error."); }
   }
 
@@ -487,8 +494,14 @@ export function AdminDashboardClient({
     try {
       const res = await fetch("/api/admin/compliance", { method: "POST" });
       const json = await res.json();
-      setComplianceState(res.ok ? "success" : "error");
-      setComplianceMsg(json.message ?? (res.ok ? "Done." : "Failed."));
+      if (res.ok) {
+        setComplianceState("success");
+        setComplianceMsg(json.message ?? "Done.");
+        window.location.reload();
+      } else {
+        setComplianceState("error");
+        setComplianceMsg(json.message ?? "Failed.");
+      }
     } catch { setComplianceState("error"); setComplianceMsg("Network error."); }
   }
 
@@ -496,7 +509,11 @@ export function AdminDashboardClient({
     document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  const isAnyLoading = syncState === "loading" || complianceState === "loading";
+
   const inner = (
+    <>
+      <TopProgressBar isLoading={isAnyLoading} />
     <div className={embedded ? "flex gap-6" : "mx-auto flex max-w-[1600px] gap-6 px-4 py-5 sm:px-6 xl:px-8"}>
         <aside className="sticky top-5 hidden h-[calc(100vh-2.5rem)] w-72 flex-col justify-between rounded-[30px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] xl:flex">
           <div className="space-y-8">
@@ -1056,6 +1073,7 @@ export function AdminDashboardClient({
           </section>
         </main>
       </div>
+    </>
   );
 
   if (embedded) return <div className="text-white">{inner}</div>;
