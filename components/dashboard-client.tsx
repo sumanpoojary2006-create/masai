@@ -184,57 +184,51 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     });
   }
 
-  function handleSync() {
-    startTransition(async () => {
-      setIsSyncing(true);
-      setSyncStatus("idle");
-      setMessage(null);
+  async function handleSync() {
+    // Keep setIsSyncing outside startTransition so React flushes it immediately
+    // and the progress bar renders before the fetch begins.
+    setIsSyncing(true);
+    setSyncStatus("idle");
+    setMessage(null);
+
+    try {
+      const response = await fetch("/api/compliance", { method: "POST" });
+
+      let payload: {
+        message?: string;
+        result?: {
+          checkedLectures: number;
+          trackedResources: number;
+          updatedTasks: number;
+        };
+      } = {};
 
       try {
-        const response = await fetch("/api/compliance", {
-          method: "POST"
-        });
-
-        let payload: {
-          message?: string;
-          result?: {
-            checkedLectures: number;
-            trackedResources: number;
-            updatedTasks: number;
-          };
-        } = {};
-
-        try {
-          payload = await response.json();
-        } catch {
-          // Server returned a non-JSON response (e.g. a Vercel error page).
-        }
-
-        if (!response.ok) {
-          setSyncStatus("error");
-          setMessage(payload.message ?? "Unable to run compliance sync.");
-          setIsSyncing(false);
-          return;
-        }
-
-        setSyncStatus("success");
-        if (payload.result) {
-          setMessage(
-            `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated.`
-          );
-        } else {
-          setMessage(payload.message ?? "Compliance sync completed.");
-        }
-
-        setIsSyncing(false);
-        // Hard reload so server re-fetches fresh data from the database.
-        window.location.reload();
+        payload = await response.json();
       } catch {
-        setSyncStatus("error");
-        setMessage("Unable to run compliance sync. Please try again.");
-        setIsSyncing(false);
+        // non-JSON response (e.g. Vercel error page)
       }
-    });
+
+      if (!response.ok) {
+        setSyncStatus("error");
+        setMessage(payload.message ?? "Unable to run compliance sync.");
+        setIsSyncing(false);
+        return;
+      }
+
+      setSyncStatus("success");
+      setMessage(
+        payload.result
+          ? `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated.`
+          : (payload.message ?? "Compliance sync completed.")
+      );
+      setIsSyncing(false);
+      window.location.reload();
+    } catch {
+      setSyncStatus("error");
+      setMessage("Unable to run compliance sync. Please try again.");
+      setIsSyncing(false);
+    }
   }
 
   function renderTaskCell(lecture: DashboardLecture, type: "preread" | "notes" | "assignment") {
@@ -430,49 +424,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                   )}
                 </div>
 
-                {/* Sync progress strip */}
-                {isSyncing && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-                    <div className="mb-2 flex items-center gap-2">
-                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
-                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400">
-                        Syncing
-                      </span>
-                    </div>
-                    {/* Progress bar */}
-                    <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                      <div
-                        className="h-full rounded-full bg-teal-500 transition-all duration-700 ease-out dark:bg-teal-400"
-                        style={{ width: `${((syncStep + 1) / SYNC_STEPS.length) * 100}%` }}
-                      />
-                    </div>
-                    {/* Step list */}
-                    <ol className="space-y-1">
-                      {SYNC_STEPS.map((label, index) => (
-                        <li key={label} className="flex items-center gap-2 text-xs">
-                          {index < syncStep ? (
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-teal-500 text-[10px] font-bold text-white dark:bg-teal-400">✓</span>
-                          ) : index === syncStep ? (
-                            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
-                          ) : (
-                            <span className="h-4 w-4 shrink-0 rounded-full border border-slate-300 dark:border-slate-600" />
-                          )}
-                          <span
-                            className={
-                              index < syncStep
-                                ? "text-teal-600 line-through dark:text-teal-400"
-                                : index === syncStep
-                                ? "font-semibold text-ink"
-                                : "text-slate-400 dark:text-slate-500"
-                            }
-                          >
-                            {label}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+                {/* Sync feedback banner (error only — success triggers reload) */}
 
                 {/* Sync feedback banner */}
                 {!isSyncing && message && (
@@ -811,6 +763,50 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       </section>
 
     </div>
+
+    {/* Full-screen sync overlay — shown while compliance sync is running */}
+    {isSyncing && (
+      <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-8 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
+            <span className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400">
+              Syncing…
+            </span>
+          </div>
+          <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div
+              className="h-full rounded-full bg-teal-500 transition-all duration-700 ease-out dark:bg-teal-400"
+              style={{ width: `${syncProgressPct}%` }}
+            />
+          </div>
+          <ol className="space-y-2">
+            {SYNC_STEPS.map((label, index) => (
+              <li key={label} className="flex items-center gap-3 text-sm">
+                {index < syncStep ? (
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-500 text-[11px] font-bold text-white dark:bg-teal-400">✓</span>
+                ) : index === syncStep ? (
+                  <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
+                ) : (
+                  <span className="h-5 w-5 shrink-0 rounded-full border border-slate-300 dark:border-slate-600" />
+                )}
+                <span
+                  className={
+                    index < syncStep
+                      ? "text-teal-600 line-through dark:text-teal-400"
+                      : index === syncStep
+                      ? "font-semibold text-ink"
+                      : "text-slate-400 dark:text-slate-500"
+                  }
+                >
+                  {label}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    )}
     </>
   );
 }

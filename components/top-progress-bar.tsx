@@ -16,19 +16,20 @@ export function TopProgressBar({
   useEffect(() => {
     if (isLoading) {
       setVisible(true);
-      setWidth(progress ?? 0);
+      if (progress !== undefined) {
+        setWidth(progress);
+      }
     } else {
-      // Flash to 100 % then fade out
       setWidth(100);
       const t = setTimeout(() => setVisible(false), 500);
       return () => clearTimeout(t);
     }
   }, [isLoading, progress]);
 
-  // Indeterminate animation: crawl to ~85 % while loading
+  // Indeterminate crawl while loading with no explicit progress
   useEffect(() => {
     if (!isLoading || progress !== undefined) return;
-    const targets = [15, 35, 55, 70, 80, 85];
+    const targets = [20, 40, 58, 72, 83, 90];
     let i = 0;
     setWidth(targets[i]);
     const interval = setInterval(() => {
@@ -41,9 +42,9 @@ export function TopProgressBar({
   if (!visible) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-[9999] h-1">
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[9999] h-1.5">
       <div
-        className="h-full bg-teal-500 shadow-[0_0_8px_rgba(20,184,166,0.7)] transition-all duration-500 ease-out dark:bg-teal-400"
+        className="h-full bg-teal-500 shadow-[0_0_10px_rgba(20,184,166,0.8)] transition-all duration-500 ease-out dark:bg-teal-400"
         style={{ width: `${width}%` }}
       />
     </div>
