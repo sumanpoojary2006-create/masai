@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 
 import { StatusPill } from "@/components/status-pill";
+import { TopProgressBar } from "@/components/top-progress-bar";
 import { formatDeadline, formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { DashboardLecture, TaskStatus } from "@/lib/types";
 
@@ -226,7 +227,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         }
 
         setIsSyncing(false);
-        router.refresh();
+        // Hard reload so server re-fetches fresh data from the database.
+        window.location.reload();
       } catch {
         setSyncStatus("error");
         setMessage("Unable to run compliance sync. Please try again.");
@@ -270,8 +272,12 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     return lecture.id;
   }
 
+  const syncProgressPct = ((syncStep + 1) / SYNC_STEPS.length) * 100;
+
   if (lectures.length === 0) {
     return (
+      <>
+        <TopProgressBar isLoading={isSyncing} progress={isSyncing ? syncProgressPct : undefined} />
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel dark:border-slate-700 dark:bg-slate-800/40">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
           No Data Yet
@@ -306,10 +312,13 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
           </div>
         )}
       </div>
+      </>
     );
   }
 
   return (
+    <>
+      <TopProgressBar isLoading={isSyncing} progress={isSyncing ? syncProgressPct : undefined} />
     <div className="space-y-8">
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
         <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-6">
@@ -802,5 +811,6 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       </section>
 
     </div>
+    </>
   );
 }
