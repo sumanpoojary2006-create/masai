@@ -166,3 +166,8 @@ html[data-theme="dark"] .text-ink {
     text-wrap: balance;
   }
 }
+
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}

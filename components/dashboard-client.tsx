@@ -24,12 +24,11 @@ const TASK_LABELS = {
 
 const APP_TIMEZONE = "Asia/Kolkata";
 
-const SYNC_STEPS = [
+const SYNC_MESSAGES = [
   "Pulling LMS task statuses…",
   "Syncing batch cache…",
   "Checking pending deadlines…",
   "Sending Slack digest…",
-  "Finalizing…"
 ];
 
 type TodayTaskItem = {
@@ -54,25 +53,16 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<"idle" | "success" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
-  const [syncStep, setSyncStep] = useState(0);
+  const [syncMsgIdx, setSyncMsgIdx] = useState(0);
   const [isPending, startTransition] = useTransition();
-  const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (isSyncing) {
-      setSyncStep(0);
-      stepIntervalRef.current = setInterval(() => {
-        setSyncStep((prev) => Math.min(prev + 1, SYNC_STEPS.length - 1));
-      }, 1800);
-    } else {
-      if (stepIntervalRef.current) {
-        clearInterval(stepIntervalRef.current);
-        stepIntervalRef.current = null;
-      }
-    }
-    return () => {
-      if (stepIntervalRef.current) clearInterval(stepIntervalRef.current);
-    };
+    if (!isSyncing) return;
+    setSyncMsgIdx(0);
+    const id = setInterval(() => {
+      setSyncMsgIdx((prev) => (prev + 1) % SYNC_MESSAGES.length);
+    }, 2200);
+    return () => clearInterval(id);
   }, [isSyncing]);
 
   const batches = [...new Set(lectures.map((lecture) => lecture.batch_name))].sort();
@@ -280,12 +270,10 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     return lecture.id;
   }
 
-  const syncProgressPct = ((syncStep + 1) / SYNC_STEPS.length) * 100;
-
   if (lectures.length === 0) {
     return (
       <>
-        <TopProgressBar isLoading={isSyncing} progress={isSyncing ? syncProgressPct : undefined} />
+        <TopProgressBar isLoading={isSyncing} />
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel dark:border-slate-700 dark:bg-slate-800/40">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
           No Data Yet
@@ -311,12 +299,9 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
         {isSyncing && (
           <div className="mx-auto mt-4 w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left dark:border-slate-700 dark:bg-slate-800/60">
             <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-              <div
-                className="h-full rounded-full bg-teal-500 transition-all duration-700 ease-out dark:bg-teal-400"
-                style={{ width: `${((syncStep + 1) / SYNC_STEPS.length) * 100}%` }}
-              />
+              <div className="h-full w-2/5 animate-indeterminate rounded-full bg-teal-500 dark:bg-teal-400" />
             </div>
-            <p className="text-xs font-medium text-ink">{SYNC_STEPS[syncStep]}</p>
+            <p className="text-xs font-medium text-ink">{SYNC_MESSAGES[syncMsgIdx]}</p>
           </div>
         )}
       </div>
@@ -326,7 +311,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
   return (
     <>
-      <TopProgressBar isLoading={isSyncing} progress={isSyncing ? syncProgressPct : undefined} />
+      <TopProgressBar isLoading={isSyncing} />
     <div className="space-y-8">
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
         <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-6">
@@ -778,46 +763,23 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
     </div>
 
-    {/* Full-screen sync overlay — shown while compliance sync is running */}
+    {/* Full-screen sync overlay */}
     {isSyncing && (
       <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-        <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-8 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-          <div className="mb-5 flex items-center gap-3">
+        <div className="w-full max-w-xs rounded-3xl border border-slate-200 bg-white px-8 py-10 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-6 flex items-center gap-3">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
             <span className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400">
               Syncing…
             </span>
           </div>
+          {/* Indeterminate animated bar */}
           <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-            <div
-              className="h-full rounded-full bg-teal-500 transition-all duration-700 ease-out dark:bg-teal-400"
-              style={{ width: `${syncProgressPct}%` }}
-            />
+            <div className="h-full w-2/5 animate-indeterminate rounded-full bg-teal-500 dark:bg-teal-400" />
           </div>
-          <ol className="space-y-2">
-            {SYNC_STEPS.map((label, index) => (
-              <li key={label} className="flex items-center gap-3 text-sm">
-                {index < syncStep ? (
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-500 text-[11px] font-bold text-white dark:bg-teal-400">✓</span>
-                ) : index === syncStep ? (
-                  <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
-                ) : (
-                  <span className="h-5 w-5 shrink-0 rounded-full border border-slate-300 dark:border-slate-600" />
-                )}
-                <span
-                  className={
-                    index < syncStep
-                      ? "text-teal-600 line-through dark:text-teal-400"
-                      : index === syncStep
-                      ? "font-semibold text-ink"
-                      : "text-slate-400 dark:text-slate-500"
-                  }
-                >
-                  {label}
-                </span>
-              </li>
-            ))}
-          </ol>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {SYNC_MESSAGES[syncMsgIdx]}
+          </p>
         </div>
       </div>
     )}

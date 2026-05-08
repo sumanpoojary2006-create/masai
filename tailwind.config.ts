@@ -16,6 +16,15 @@ const config: Config = {
         ember: "#f97316",
         rose: "#dc2626"
       },
+      keyframes: {
+        indeterminate: {
+          "0%":   { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(350%)" },
+        },
+      },
+      animation: {
+        indeterminate: "indeterminate 1.4s ease-in-out infinite",
+      },
       boxShadow: {
         panel: "0 18px 60px rgba(15, 23, 42, 0.08)"
       },
