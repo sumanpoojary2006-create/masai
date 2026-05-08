@@ -339,10 +339,11 @@ export async function checkLmsTasksForLecture(
     }
   }
 
-  // ── Step 3: title-based fallback for any type still not found ────────────
-  // Runs for resources uploaded without an associatedLecture link, or when the
-  // lmsId could not be resolved.
-  if (!preread || !notes || !assignment) {
+  // ── Step 3: title-based fallback — only when lmsId could not be resolved ────
+  // When we have a valid lmsId we trust only the associatedLecture.id link from
+  // Step 2 so that resources belonging to a *different* lecture with a similar
+  // topic (e.g. another "Decision Trees" session) are never picked up by mistake.
+  if (!lmsId && (!preread || !notes || !assignment)) {
     const topic = extractTopic(lectureName);
 
     const base = new Date(lectureDate);
