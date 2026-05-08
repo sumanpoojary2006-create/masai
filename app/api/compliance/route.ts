@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const maxDuration = 60; // seconds — compliance sync can take 20-30 s
 
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";

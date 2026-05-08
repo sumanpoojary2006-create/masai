@@ -185,14 +185,23 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   }
 
   async function handleSync() {
-    // Keep setIsSyncing outside startTransition so React flushes it immediately
-    // and the progress bar renders before the fetch begins.
     setIsSyncing(true);
     setSyncStatus("idle");
     setMessage(null);
 
+    // Safety net: reload after 58 s regardless of API outcome so the
+    // user never gets permanently stuck on the overlay.
+    const safetyTimer = setTimeout(() => window.location.reload(), 58_000);
+
     try {
-      const response = await fetch("/api/compliance", { method: "POST" });
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), 55_000);
+
+      const response = await fetch("/api/compliance", {
+        method: "POST",
+        signal: controller.signal
+      });
+      clearTimeout(abortTimer);
 
       let payload: {
         message?: string;
@@ -208,6 +217,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       } catch {
         // non-JSON response (e.g. Vercel error page)
       }
+
+      clearTimeout(safetyTimer);
 
       if (!response.ok) {
         setSyncStatus("error");
@@ -225,9 +236,12 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       setIsSyncing(false);
       window.location.reload();
     } catch {
+      clearTimeout(safetyTimer);
       setSyncStatus("error");
-      setMessage("Unable to run compliance sync. Please try again.");
+      setMessage("Sync is taking longer than expected. Reloading…");
       setIsSyncing(false);
+      // Reload anyway — partial sync may have updated some tasks.
+      setTimeout(() => window.location.reload(), 2_000);
     }
   }
 
