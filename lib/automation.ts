@@ -164,33 +164,53 @@ async function syncFoundResourcesToCache(
     byLectureWithTs.set(key, entry);
   }
 
-  for (const entry of byLectureWithTs.values()) {
-    const patch: Record<string, boolean | string> = {};
-    if (entry.preread) patch.preread_uploaded = true;
-    if (entry.notes) patch.notes_uploaded = true;
-    if (entry.assignment) patch.assignment_uploaded = true;
-    if (Object.keys(patch).length === 0) continue;
+  const entries = [...byLectureWithTs.values()].filter(
+    (e) => e.preread || e.notes || e.assignment
+  );
+  if (entries.length === 0) return;
 
-    const { data: existing } = await supabase
+  // Group by batchId so we can fetch existing timestamps per batch in one query
+  const byBatch = new Map<number, typeof entries>();
+  for (const e of entries) {
+    const list = byBatch.get(e.batchId) ?? [];
+    list.push(e);
+    byBatch.set(e.batchId, list);
+  }
+
+  for (const [batchId, batchEntries] of byBatch) {
+    const { data: existingRows } = await supabase
       .from("lms_lecture_cache")
-      .select("preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
-      .eq("batch_id", entry.batchId)
-      .eq("lecture_id", entry.lectureId)
-      .single();
+      .select("lecture_id, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
+      .eq("batch_id", batchId)
+      .in("lecture_id", batchEntries.map((e) => e.lectureId));
 
-    if (entry.prereadAt && !existing?.preread_uploaded_at) patch.preread_uploaded_at = entry.prereadAt;
-    if (entry.notesAt && !existing?.notes_uploaded_at) patch.notes_uploaded_at = entry.notesAt;
-    if (entry.assignmentAt && !existing?.assignment_uploaded_at) patch.assignment_uploaded_at = entry.assignmentAt;
+    const existingMap = new Map(
+      (existingRows ?? []).map((r) => [r.lecture_id as number, r])
+    );
 
-    const { error } = await supabase
-      .from("lms_lecture_cache")
-      .update(patch)
-      .eq("batch_id", entry.batchId)
-      .eq("lecture_id", entry.lectureId);
+    await Promise.all(
+      batchEntries.map(async (entry) => {
+        const patch: Record<string, boolean | string> = {};
+        if (entry.preread) patch.preread_uploaded = true;
+        if (entry.notes) patch.notes_uploaded = true;
+        if (entry.assignment) patch.assignment_uploaded = true;
 
-    if (error) {
-      console.warn(`[cache-sync] Failed to update lms_lecture_cache for batch=${entry.batchId} lecture=${entry.lectureId}: ${error.message}`);
-    }
+        const existing = existingMap.get(entry.lectureId);
+        if (entry.prereadAt && !existing?.preread_uploaded_at) patch.preread_uploaded_at = entry.prereadAt;
+        if (entry.notesAt && !existing?.notes_uploaded_at) patch.notes_uploaded_at = entry.notesAt;
+        if (entry.assignmentAt && !existing?.assignment_uploaded_at) patch.assignment_uploaded_at = entry.assignmentAt;
+
+        const { error } = await supabase
+          .from("lms_lecture_cache")
+          .update(patch)
+          .eq("batch_id", batchId)
+          .eq("lecture_id", entry.lectureId);
+
+        if (error) {
+          console.warn(`[cache-sync] Failed to update lms_lecture_cache for batch=${batchId} lecture=${entry.lectureId}: ${error.message}`);
+        }
+      })
+    );
   }
 }
 
@@ -1213,51 +1233,66 @@ export async function syncAssignedBatchesCache(
     if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
 
     // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
-    // Also store the earliest upload timestamp, but only overwrite NULL (never replace an existing ts).
-    for (const l of lectures) {
-      const patch: Record<string, boolean | string> = {};
-      if (l.preread_uploaded) patch.preread_uploaded = true;
-      if (l.notes_uploaded) patch.notes_uploaded = true;
-      if (l.assignment_uploaded) patch.assignment_uploaded = true;
-      if (Object.keys(patch).length === 0) continue;
+    // Batch the timestamp SELECT into one query per batch to avoid N+1 round trips.
+    const timezone = getAppTimezone();
+    const toIso = (dtStr: string | null | undefined) => {
+      if (!dtStr) return null;
+      const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+      return dt.isValid ? dt.toISO() : null;
+    };
 
-      const { data: existing } = await supabase
-        .from("lms_lecture_cache")
-        .select("preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
-        .eq("batch_id", batchId)
-        .eq("lecture_id", l.lecture_id)
-        .single();
-
-      const timezone = getAppTimezone();
-      const toIso = (dtStr: string | null | undefined) => {
-        if (!dtStr) return null;
-        const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
-        return dt.isValid ? dt.toISO() : null;
-      };
-
-      if (l.preread_uploaded_at && !existing?.preread_uploaded_at) {
-        const iso = toIso(l.preread_uploaded_at);
-        if (iso) patch.preread_uploaded_at = iso;
-      }
-      if (l.notes_uploaded_at && !existing?.notes_uploaded_at) {
-        const iso = toIso(l.notes_uploaded_at);
-        if (iso) patch.notes_uploaded_at = iso;
-      }
-      if (l.assignment_uploaded_at && !existing?.assignment_uploaded_at) {
-        const iso = toIso(l.assignment_uploaded_at);
-        if (iso) patch.assignment_uploaded_at = iso;
-      }
-
-      const { error: flagErr } = await supabase
-        .from("lms_lecture_cache")
-        .update(patch)
-        .eq("batch_id", batchId)
-        .eq("lecture_id", l.lecture_id);
-
-      if (flagErr) {
-        console.warn(`[cache-sync] Flag update failed batch=${batchId} lecture=${l.lecture_id}: ${flagErr.message}`);
-      }
+    const flaggedLectures = lectures.filter(
+      (l) => l.preread_uploaded || l.notes_uploaded || l.assignment_uploaded
+    );
+    if (flaggedLectures.length === 0) {
+      lecturesSynced += lectures.length;
+      continue;
     }
+
+    // One SELECT for all lectures in this batch instead of one per lecture
+    const { data: existingRows } = await supabase
+      .from("lms_lecture_cache")
+      .select("lecture_id, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
+      .eq("batch_id", batchId)
+      .in("lecture_id", flaggedLectures.map((l) => l.lecture_id));
+
+    const existingMap = new Map(
+      (existingRows ?? []).map((r) => [r.lecture_id as number, r])
+    );
+
+    // Run the updates in parallel rather than sequentially
+    await Promise.all(
+      flaggedLectures.map(async (l) => {
+        const patch: Record<string, boolean | string> = {};
+        if (l.preread_uploaded) patch.preread_uploaded = true;
+        if (l.notes_uploaded) patch.notes_uploaded = true;
+        if (l.assignment_uploaded) patch.assignment_uploaded = true;
+
+        const existing = existingMap.get(l.lecture_id);
+        if (l.preread_uploaded_at && !existing?.preread_uploaded_at) {
+          const iso = toIso(l.preread_uploaded_at);
+          if (iso) patch.preread_uploaded_at = iso;
+        }
+        if (l.notes_uploaded_at && !existing?.notes_uploaded_at) {
+          const iso = toIso(l.notes_uploaded_at);
+          if (iso) patch.notes_uploaded_at = iso;
+        }
+        if (l.assignment_uploaded_at && !existing?.assignment_uploaded_at) {
+          const iso = toIso(l.assignment_uploaded_at);
+          if (iso) patch.assignment_uploaded_at = iso;
+        }
+
+        const { error: flagErr } = await supabase
+          .from("lms_lecture_cache")
+          .update(patch)
+          .eq("batch_id", batchId)
+          .eq("lecture_id", l.lecture_id);
+
+        if (flagErr) {
+          console.warn(`[cache-sync] Flag update failed batch=${batchId} lecture=${l.lecture_id}: ${flagErr.message}`);
+        }
+      })
+    );
 
     lecturesSynced += lectures.length;
     console.log(`[cache-sync] Batch ${batchId}: ${lectures.length} lectures synced`);
