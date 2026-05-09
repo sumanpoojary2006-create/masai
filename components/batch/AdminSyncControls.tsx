@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 
+import { TopProgressBar } from "@/components/top-progress-bar";
+
 type ActionState = "idle" | "loading" | "success" | "error";
 
-function useAdminAction(endpoint: string, body?: Record<string, unknown>) {
+function useAdminAction(endpoint: string, body?: Record<string, unknown>, onSuccess?: () => void) {
   const [state, setState] = useState<ActionState>("idle");
   const [message, setMessage] = useState("");
 
@@ -24,6 +26,7 @@ function useAdminAction(endpoint: string, body?: Record<string, unknown>) {
       } else {
         setState("success");
         setMessage(json.message ?? "Done.");
+        onSuccess?.();
       }
     } catch {
       setState("error");
@@ -35,12 +38,20 @@ function useAdminAction(endpoint: string, body?: Record<string, unknown>) {
 }
 
 export function AdminSyncControls() {
-  const sync       = useAdminAction("/api/admin/sync-week");
-  const compliance = useAdminAction("/api/admin/compliance");
+  const sync       = useAdminAction("/api/admin/sync-week",               undefined,              () => window.location.reload());
+  const compliance = useAdminAction("/api/admin/compliance",              undefined,              () => window.location.reload());
   const slackPush  = useAdminAction("/api/admin/push-slack-notification", { type: "normal" });
   const slackAlert = useAdminAction("/api/admin/push-slack-notification", { type: "alert" });
 
+  const isAnyLoading =
+    sync.state === "loading" ||
+    compliance.state === "loading" ||
+    slackPush.state === "loading" ||
+    slackAlert.state === "loading";
+
   return (
+    <>
+    <TopProgressBar isLoading={isAnyLoading} />
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <ActionCard
         title="Sync This Week's Lectures"
@@ -89,6 +100,7 @@ export function AdminSyncControls() {
         badge="Pending Only"
       />
     </div>
+    </>
   );
 }
 
