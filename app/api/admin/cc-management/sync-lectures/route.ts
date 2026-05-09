@@ -47,9 +47,34 @@ export async function POST(request: Request) {
 
     if (error) throw new Error(error.message);
 
+    // Delete lectures that no longer exist in the LMS for this batch.
+    const currentLectureIds = new Set(lectures.map((l) => l.lecture_id));
+
+    const { data: cachedRows } = await supabase
+      .from("lms_lecture_cache")
+      .select("lecture_id")
+      .eq("batch_id", batchId);
+
+    const staleLectureIds = (cachedRows ?? [])
+      .map((r) => r.lecture_id as number)
+      .filter((id) => !currentLectureIds.has(id));
+
+    if (staleLectureIds.length > 0) {
+      await supabase.from("lms_lecture_cache").delete().in("lecture_id", staleLectureIds).eq("batch_id", batchId);
+
+      // Also remove from the lectures table — session_link encodes the LMS lecture id
+      for (const lectureId of staleLectureIds) {
+        await supabase
+          .from("lectures")
+          .delete()
+          .like("session_link", `%/lectures/detail/?id=${lectureId}`);
+      }
+    }
+
     return NextResponse.json({
-      message: `Synced ${lectures.length} lectures for batch ${batchId}.`,
-      synced: lectures.length
+      message: `Synced ${lectures.length} lectures for batch ${batchId}. Removed ${staleLectureIds.length} deleted lecture(s).`,
+      synced: lectures.length,
+      removed: staleLectureIds.length
     });
   } catch (err) {
     return NextResponse.json(

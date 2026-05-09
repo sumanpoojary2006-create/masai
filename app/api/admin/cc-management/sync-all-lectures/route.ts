@@ -24,6 +24,8 @@ async function syncAll() {
 
   let lecturesSynced = 0;
 
+  let lecturesRemoved = 0;
+
   for (const batchId of batchIds) {
     const lectures = await fetchBatchCompliance(batchId);
     if (lectures.length === 0) continue;
@@ -47,9 +49,34 @@ async function syncAll() {
 
     if (error) throw new Error(`Batch ${batchId}: ${error.message}`);
     lecturesSynced += lectures.length;
+
+    // Delete lectures that no longer exist in the LMS for this batch.
+    const currentLectureIds = new Set(lectures.map((l) => l.lecture_id));
+
+    const { data: cachedRows } = await supabase
+      .from("lms_lecture_cache")
+      .select("lecture_id")
+      .eq("batch_id", batchId);
+
+    const staleLectureIds = (cachedRows ?? [])
+      .map((r) => r.lecture_id as number)
+      .filter((id) => !currentLectureIds.has(id));
+
+    if (staleLectureIds.length > 0) {
+      await supabase.from("lms_lecture_cache").delete().in("lecture_id", staleLectureIds).eq("batch_id", batchId);
+
+      for (const lectureId of staleLectureIds) {
+        await supabase
+          .from("lectures")
+          .delete()
+          .like("session_link", `%/lectures/detail/?id=${lectureId}`);
+      }
+
+      lecturesRemoved += staleLectureIds.length;
+    }
   }
 
-  return { batchesSynced: batchIds.length, lecturesSynced };
+  return { batchesSynced: batchIds.length, lecturesSynced, lecturesRemoved };
 }
 
 function isCronAuthorized(request: NextRequest) {
@@ -67,7 +94,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await syncAll();
-    console.log(`[sync-all-lectures] Cron complete: ${result.batchesSynced} batches, ${result.lecturesSynced} lectures`);
+    console.log(`[sync-all-lectures] Cron complete: ${result.batchesSynced} batches, ${result.lecturesSynced} synced, ${result.lecturesRemoved} removed`);
     return NextResponse.json({ message: "Sync complete.", ...result });
   } catch (err) {
     console.error("[sync-all-lectures] Cron failed:", err);
