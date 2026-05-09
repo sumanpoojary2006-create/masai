@@ -55,6 +55,7 @@ async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
     .select("batch_id, lecture_id, title, schedule, preread_uploaded, notes_uploaded, assignment_uploaded")
     .or("preread_uploaded.eq.false,notes_uploaded.eq.false,assignment_uploaded.eq.false")
     .neq("module", "general")
+    .neq("module", "csbt")
     .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
     .gte("schedule", rangeStart)
     .lt("schedule", rangeEnd);

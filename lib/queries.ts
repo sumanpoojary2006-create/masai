@@ -153,6 +153,7 @@ async function syncCCWeeklyLectures(
     .select("batch_id, lecture_id, title, module, schedule, concludes")
     .in("batch_id", batchIds)
     .neq("module", "general")
+    .neq("module", "csbt")
     .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd);
@@ -796,6 +797,7 @@ export async function getCCLectures(userId: string): Promise<DashboardLecture[]>
     .select("id, batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
     .in("batch_id", batchIds)
     .neq("module", "general")
+    .neq("module", "csbt")
     .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd)
@@ -909,6 +911,7 @@ export async function getCacheLecturesForProfile(userId: string): Promise<CacheL
     )
     .in("batch_id", batchIds)
     .neq("module", "general")
+    .neq("module", "csbt")
     .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd)

@@ -169,6 +169,7 @@ export async function POST(request: Request) {
       .select("batch_id, lecture_id, title, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
       .in("batch_id", batchIds)
       .neq("module", "general")
+      .neq("module", "csbt")
       .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
       .gte("schedule", rangeStart)
       .lt("schedule", rangeEnd);

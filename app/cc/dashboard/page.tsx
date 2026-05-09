@@ -89,6 +89,7 @@ export default async function CCDashboardPage() {
     .from("lms_lecture_cache")
     .select("id, batch_id, lecture_id, title, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
     .in("batch_id", batchIds)
+    .neq("module", "csbt")
     .gte("schedule", weekStart)
     .lte("schedule", weekEnd)
     .order("schedule", { ascending: false });
