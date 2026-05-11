@@ -1219,6 +1219,37 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{
         })
       );
 
+    // Also detect newly completed and pending-today for Path B (admin-batch cache lectures).
+    // These don't have rows in the tasks table so they're excluded from ccTaskUpdates above,
+    // but the CC dashboard shows them — they must contribute to the Slack notification.
+    for (const lecture of pathBLectures) {
+      for (const task of lecture.tasks) {
+        const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
+        const resolved = nextStatus(task, tracking, now, new Set());
+
+        if (task.status !== "completed" && resolved.status === "completed") {
+          profileNewlyCompleted.push({
+            lectureName: lecture.lecture_name,
+            batchName: lecture.batch_name,
+            taskType: task.type,
+            completedAt: resolved.completedAt ?? null,
+          });
+        }
+
+        if (resolved.status === "pending" && task.deadline) {
+          const deadlineDt = DateTime.fromISO(task.deadline, { zone: timezone });
+          if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
+            profilePendingToday.push({
+              lectureName: lecture.lecture_name,
+              batchName: lecture.batch_name,
+              taskType: task.type,
+              deadline: task.deadline,
+            });
+          }
+        }
+      }
+    }
+
     allNewlyCompleted.push(...profileNewlyCompleted);
     allPendingToday.push(...profilePendingToday);
 

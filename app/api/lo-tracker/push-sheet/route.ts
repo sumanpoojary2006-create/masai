@@ -1,9 +1,11 @@
 export const runtime = "nodejs";
 
+import { DateTime } from "luxon";
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { formatLectureDate } from "@/lib/deadlines";
+import { getAppTimezone } from "@/lib/env";
 import { pushToGoogleSheet, type SheetBatch } from "@/lib/google-sheets";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -69,28 +71,59 @@ export async function POST() {
       byBatch[l.batch_name].push(l);
     }
 
+    const timezone = getAppTimezone();
+
+    // Returns the Monday of the ISO week containing the given date string.
+    function weekStart(dateStr: string): string {
+      return DateTime.fromISO(dateStr, { zone: timezone }).startOf("week").toISODate()!;
+    }
+
+    function weekLabel(mondayIso: string): string {
+      const start = DateTime.fromISO(mondayIso, { zone: timezone });
+      const end = start.plus({ days: 6 });
+      return `📅 Week of ${start.toFormat("dd MMM")} – ${end.toFormat("dd MMM yyyy")}`;
+    }
+
     const batches: SheetBatch[] = Object.keys(byBatch)
       .sort()
       .map((batchName) => {
-        const rows = byBatch[batchName].map((l) => {
-          const report = resolveReport(l.lo_reports);
-          const covered = report?.status === "completed" ? (report.covered_los ?? []) : [];
-          const missing = report?.status === "completed" ? (report.missing_los ?? []) : [];
-          const total = covered.length + missing.length;
-          const pct = total > 0 ? `${Math.round((covered.length / total) * 100)}%` : "—";
+        // Group lectures by their ISO week (keyed by Monday's date).
+        const byWeek = new Map<string, LectureRow[]>();
+        for (const l of byBatch[batchName]) {
+          const key = weekStart(l.lecture_date);
+          if (!byWeek.has(key)) byWeek.set(key, []);
+          byWeek.get(key)!.push(l);
+        }
 
-          return [
-            l.lecture_name,
-            formatLectureDate(l.lecture_date),
-            l.session_link ?? "",
-            l.learning_objective ?? "",
-            pct,
-            covered.join("\n"),
-            missing.join("\n")
-          ];
-        });
+        const rows: string[][] = [HEADER];
 
-        return { name: batchName, rows: [HEADER, ...rows] };
+        for (const [monday, weekLectures] of [...byWeek.entries()].sort()) {
+          // Week header row — spans all columns, rest are empty.
+          rows.push([weekLabel(monday), "", "", "", "", "", ""]);
+
+          for (const l of weekLectures) {
+            const report = resolveReport(l.lo_reports);
+            const covered = report?.status === "completed" ? (report.covered_los ?? []) : [];
+            const missing = report?.status === "completed" ? (report.missing_los ?? []) : [];
+            const total = covered.length + missing.length;
+            const pct = total > 0 ? `${Math.round((covered.length / total) * 100)}%` : "—";
+
+            rows.push([
+              l.lecture_name,
+              formatLectureDate(l.lecture_date),
+              l.session_link ?? "",
+              l.learning_objective ?? "",
+              pct,
+              covered.join("\n"),
+              missing.join("\n")
+            ]);
+          }
+
+          // Blank separator row between weeks.
+          rows.push(["", "", "", "", "", "", ""]);
+        }
+
+        return { name: batchName, rows };
       });
 
     await pushToGoogleSheet({ batches });
