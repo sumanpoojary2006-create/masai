@@ -1,181 +1,11 @@
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 import { NextResponse } from "next/server";
-import { DateTime } from "luxon";
 
 import { hasAdminAccess } from "@/lib/admin-access";
 import { getCurrentUser } from "@/lib/auth";
-import { computeDeadline } from "@/lib/deadlines";
-import { getAppTimezone } from "@/lib/env";
-import { checkLmsTasksForLecture } from "@/lib/lms-db";
-import { createServerSupabase } from "@/lib/supabase";
-import { LectureRecord, TaskType } from "@/lib/types";
-
-type PendingDigestItemWithCC = {
-  lecture: Pick<LectureRecord, "lecture_name" | "lecture_date" | "batch_name">;
-  taskType: TaskType;
-  deadline: string;
-  cc_user_id: string;
-};
-
-/**
- * Build pending digest items from lms_lecture_cache, tagged with the CC user
- * responsible for each batch so the caller can mention them in Slack.
- * Only includes resources whose deadline falls today and is still not uploaded.
- */
-async function getPendingItemsFromCache(): Promise<PendingDigestItemWithCC[]> {
-  const supabase = createServerSupabase();
-  const timezone = getAppTimezone();
-  const now = DateTime.now().setZone(timezone);
-
-  // Batch id → { batch_name, cc_user_id }
-  const { data: assignments, error: aErr } = await supabase
-    .from("cc_batch_assignments")
-    .select("batch_id, batch_name, cc_user_id");
-  if (aErr) throw new Error(aErr.message);
-
-  const batchInfoById = new Map<number, { batchName: string; ccUserId: string }>(
-    (assignments ?? []).map((a) => [
-      a.batch_id as number,
-      { batchName: a.batch_name as string, ccUserId: a.cc_user_id as string }
-    ])
-  );
-
-  // Fetch lectures from ±2 days around today to cover all cases where the
-  // deadline falls today:
-  //   • pre-read deadline = day before lecture  → tomorrow's lectures
-  //   • notes/assignment deadline = day after   → yesterday's lectures
-  //   • Monday lecture pre-read is due Saturday → widen by 2 days on each side
-  const rangeStart = `${now.minus({ days: 2 }).toISODate()!}T00:00:00+00:00`;
-  const rangeEnd = `${now.plus({ days: 2 }).toISODate()!}T00:00:00+00:00`;
-
-  // Cache rows with at least one resource pending in the ±2-day window
-  const { data: cacheRows, error: cErr } = await supabase
-    .from("lms_lecture_cache")
-    .select("batch_id, lecture_id, title, schedule, preread_uploaded, notes_uploaded, assignment_uploaded")
-    .or("preread_uploaded.eq.false,notes_uploaded.eq.false,assignment_uploaded.eq.false")
-    .neq("module", "general")
-    .neq("module", "csbt")
-    .or("title.ilike.Faculty Session%,title.ilike.IM Session%,title.ilike.Academic Session%")
-    .gte("schedule", rangeStart)
-    .lt("schedule", rangeEnd);
-
-  if (cErr) throw new Error(cErr.message);
-
-  // Deduplicate by (batch_name, title, schedule) — not batch_id — because a
-  // parent batch can have many section sub-batches (M1_101, M1_102, …), each
-  // with their own batch_id in lms_lecture_cache. Keying by batch_id would
-  // produce one notification per section. We also collect every section's
-  // batch_id so the live LMS check can try each one: the pre-read/notes/
-  // assignment may live in any section's batch in the LMS.
-  type CacheRow = NonNullable<typeof cacheRows>[number];
-  type DedupEntry = {
-    row: CacheRow;
-    batchInfo: { batchName: string; ccUserId: string };
-    sectionBatchIds: number[];
-  };
-  const dedupMap = new Map<string, DedupEntry>();
-  for (const row of cacheRows ?? []) {
-    const batchInfo = batchInfoById.get(row.batch_id as number);
-    if (!batchInfo) continue;
-    const key = `${batchInfo.batchName}::${row.schedule}::${row.title}`;
-    const existing = dedupMap.get(key);
-    if (!existing) {
-      dedupMap.set(key, { row, batchInfo, sectionBatchIds: [row.batch_id as number] });
-    } else {
-      existing.sectionBatchIds.push(row.batch_id as number);
-      existing.row = {
-        ...existing.row,
-        preread_uploaded: existing.row.preread_uploaded || row.preread_uploaded,
-        notes_uploaded: existing.row.notes_uploaded || row.notes_uploaded,
-        assignment_uploaded: existing.row.assignment_uploaded || row.assignment_uploaded,
-      };
-    }
-  }
-
-  const pendingItems: PendingDigestItemWithCC[] = [];
-
-  for (const { row, batchInfo, sectionBatchIds } of dedupMap.values()) {
-    if (!row.schedule) continue;
-
-    const schedDt = DateTime.fromISO(row.schedule as string, { zone: timezone });
-    if (!schedDt.isValid) continue;
-
-    const lectureDate = schedDt.toISODate()!;
-    const startTime = schedDt.toFormat("HH:mm:ss");
-
-    // Do a fresh LMS check across ALL section batch_ids so stale cache flags
-    // don't cause false "pending" alerts and cross-section uploads are caught.
-    let prereadUploaded = Boolean(row.preread_uploaded);
-    let notesUploaded = Boolean(row.notes_uploaded);
-    let assignmentUploaded = Boolean(row.assignment_uploaded);
-
-    for (const batchId of sectionBatchIds) {
-      if (prereadUploaded && notesUploaded && assignmentUploaded) break;
-      try {
-        const check = await checkLmsTasksForLecture(batchId, row.title as string, lectureDate);
-        prereadUploaded = prereadUploaded || check.preread;
-        notesUploaded = notesUploaded || check.notes;
-        assignmentUploaded = assignmentUploaded || check.assignment;
-
-        // Promote cache flags false→true as a side effect so the dashboard stays in sync.
-        const patch: Record<string, boolean> = {};
-        if (check.preread && !row.preread_uploaded) patch.preread_uploaded = true;
-        if (check.notes && !row.notes_uploaded) patch.notes_uploaded = true;
-        if (check.assignment && !row.assignment_uploaded) patch.assignment_uploaded = true;
-        if (Object.keys(patch).length > 0) {
-          await supabase
-            .from("lms_lecture_cache")
-            .update(patch)
-            .eq("batch_id", batchId)
-            .eq("lecture_id", row.lecture_id as number);
-        }
-      } catch (err) {
-        console.warn(`[sync-up] Live LMS check failed for "${row.title}" batch=${batchId} — skipping:`, err instanceof Error ? err.message : err);
-      }
-    }
-
-    const lectureInfo = {
-      lecture_name: row.title as string,
-      lecture_date: lectureDate,
-      batch_name: batchInfo.batchName
-    };
-
-    const types: Array<{ type: TaskType; uploaded: boolean }> = [
-      { type: "preread", uploaded: prereadUploaded },
-      { type: "notes", uploaded: notesUploaded },
-      { type: "assignment", uploaded: assignmentUploaded }
-    ];
-
-    for (const { type, uploaded } of types) {
-      if (uploaded) continue;
-      const deadline = computeDeadline(type, lectureDate, startTime, startTime);
-      const deadlineDt = DateTime.fromISO(deadline, { zone: timezone });
-      if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
-        pendingItems.push({ lecture: lectureInfo, taskType: type, deadline, cc_user_id: batchInfo.ccUserId });
-      }
-    }
-  }
-
-  return pendingItems;
-}
-
-function dispatchGitHubActions(token: string, repo: string, ref: string) {
-  const [owner, repoName] = repo.split("/");
-  return fetch(
-    `https://api.github.com/repos/${owner}/${repoName}/actions/workflows/compliance-check.yml/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-        "X-GitHub-Api-Version": "2022-11-28"
-      },
-      body: JSON.stringify({ ref, inputs: { target_user_id: "" } })
-    }
-  );
-}
+import { syncTaskStatusesFromLms } from "@/lib/automation";
 
 export async function POST() {
   try {
@@ -187,38 +17,28 @@ export async function POST() {
       return NextResponse.json({ message: "Admin access required." }, { status: 403 });
     }
 
-    const supabase = createServerSupabase();
+    // Sync LMS state into both lms_lecture_cache and the tasks table for ALL CC profiles.
+    // This is the same logic the CC-side /api/compliance uses, but scoped to every user.
+    const syncResult = await syncTaskStatusesFromLms();
 
-    // Step 1: Build pending digest from the existing cache (scoped to current week).
-    // Cache is kept fresh by the weekly auto-sync and the "Sync All Lectures" button —
-    // re-syncing here caused sequential MySQL queries for every assigned batch and
-    // routinely timed out the Vercel function before any response was sent.
-    const pendingItems = await getPendingItemsFromCache();
-    console.log(`[sync-up] Pending items with passed deadlines: ${pendingItems.length}`);
-
-    // Step 2: Dispatch GitHub Actions for the deeper compliance check (tasks table)
-    const githubToken = process.env.GITHUB_WORKFLOW_TOKEN;
-    const githubRepo = process.env.GITHUB_REPO ?? "sumanpoojary2006-create/masai";
-    const githubRef = process.env.GITHUB_WORKFLOW_REF ?? "main";
-
-    if (githubToken) {
-      const ghRes = await dispatchGitHubActions(githubToken, githubRepo, githubRef);
-      if (!ghRes.ok) {
-        const body = await ghRes.text();
-        console.error(`[sync-up] GitHub Actions dispatch failed: ${body}`);
-      } else {
-        console.log("[sync-up] GitHub Actions compliance check dispatched");
-      }
-    }
+    console.log(
+      `[admin/compliance] Checked ${syncResult.checkedLectures} lectures, updated ${syncResult.updatedTasks} tasks, ${syncResult.newlyCompleted.length} newly completed.`
+    );
 
     return NextResponse.json({
-      message: pendingItems.length > 0
-        ? `Compliance check complete. ${pendingItems.length} pending item(s) found.`
-        : "Compliance check complete. No overdue pending items — all resources are on track!",
-      pendingCount: pendingItems.length
+      message:
+        syncResult.newlyCompleted.length > 0
+          ? `Sync complete. ${syncResult.updatedTasks} tasks updated · ${syncResult.newlyCompleted.length} newly completed.`
+          : syncResult.pendingToday.length > 0
+          ? `Sync complete. ${syncResult.updatedTasks} tasks updated · ${syncResult.pendingToday.length} still pending today.`
+          : `Sync complete. All resources are on track — no overdue pending items.`,
+      checkedLectures: syncResult.checkedLectures,
+      updatedTasks: syncResult.updatedTasks,
+      newlyCompleted: syncResult.newlyCompleted.length,
+      pendingToday: syncResult.pendingToday.length,
     });
   } catch (error) {
-    console.error("[sync-up] Error:", error);
+    console.error("[admin/compliance] Error:", error);
     return NextResponse.json(
       { message: error instanceof Error ? error.message : "Sync Up failed." },
       { status: 500 }
