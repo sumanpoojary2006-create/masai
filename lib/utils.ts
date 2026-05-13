@@ -7,17 +7,27 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function isLateCompletion(completedAt: string | null, deadline: string) {
-  if (!completedAt) return false;
-
-  const completedAtMs = Date.parse(completedAt);
+export function isLateCompletion(completedAt: string | null, deadline: string, lastCheckedAt?: string | null) {
   const deadlineMs = Date.parse(deadline);
-
-  if (Number.isNaN(completedAtMs) || Number.isNaN(deadlineMs)) return false;
+  if (Number.isNaN(deadlineMs)) return false;
 
   // Use a 5-minute grace period to be generous (e.g. sync delay)
   const GRACE_MS = 5 * 60_000;
-  return completedAtMs > deadlineMs + GRACE_MS;
+
+  if (completedAt) {
+    const completedAtMs = Date.parse(completedAt);
+    if (Number.isNaN(completedAtMs)) return false;
+    return completedAtMs > deadlineMs + GRACE_MS;
+  }
+
+  // Fallback: if we first confirmed completion after the deadline, treat as late.
+  // This covers cases where the LMS doesn't return an upload timestamp.
+  if (lastCheckedAt) {
+    const checkedMs = Date.parse(lastCheckedAt);
+    if (!Number.isNaN(checkedMs)) return checkedMs > deadlineMs + GRACE_MS;
+  }
+
+  return false;
 }
 
 export function statusClasses(status: TaskStatus, isLate = false) {
