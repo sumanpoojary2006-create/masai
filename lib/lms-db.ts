@@ -313,17 +313,17 @@ export async function checkLmsTasksForLecture(
     )`;
 
     const [assocReadings] = await conn.query<RowDataPacket[]>(
-      `SELECT title, category, created_at FROM lectures
+      `SELECT title, category, GREATEST(created_at, COALESCE(schedule, created_at)) AS effective_at FROM lectures
        WHERE batch_id = ? AND type = 'reading'
          AND category IN ('pre-reads', 'Pre Reads', 'notes')
          AND deleted_at IS NULL AND ${assocClause}`,
       [batchId, lmsId, lmsId]
     );
 
-    for (const row of assocReadings as Array<{ title: string; category: string; created_at: string }>) {
+    for (const row of assocReadings as Array<{ title: string; category: string; effective_at: string }>) {
       const cat = row.category.toLowerCase();
-      if (cat.includes("pre")) { preread = true; preread_at = row.created_at; }
-      else if (cat === "notes") { notes = true; notes_at = row.created_at; }
+      if (cat.includes("pre")) { preread = true; preread_at = row.effective_at; }
+      else if (cat === "notes") { notes = true; notes_at = row.effective_at; }
     }
 
     const [assocAssigns] = await conn.query<RowDataPacket[]>(
@@ -355,7 +355,7 @@ export async function checkLmsTasksForLecture(
     const endStr   = windowEnd.toISOString().slice(0, 10);
 
     const [readingRows] = await conn.query<RowDataPacket[]>(
-      `SELECT title, category, created_at FROM lectures
+      `SELECT title, category, GREATEST(created_at, COALESCE(schedule, created_at)) AS effective_at FROM lectures
        WHERE batch_id = ? AND type = 'reading'
          AND category IN ('pre-reads', 'Pre Reads', 'notes')
          AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
@@ -368,11 +368,11 @@ export async function checkLmsTasksForLecture(
       [batchId, startStr, endStr]
     );
 
-    for (const row of readingRows as Array<{ title: string; category: string; created_at: string }>) {
+    for (const row of readingRows as Array<{ title: string; category: string; effective_at: string }>) {
       if (!titleMatches(row.title, topic)) continue;
       const cat = row.category.toLowerCase();
-      if (cat.includes("pre") && !preread) { preread = true; preread_at = row.created_at; }
-      else if (cat === "notes" && !notes) { notes = true; notes_at = row.created_at; }
+      if (cat.includes("pre") && !preread) { preread = true; preread_at = row.effective_at; }
+      else if (cat === "notes" && !notes) { notes = true; notes_at = row.effective_at; }
     }
 
     if (!assignment) {
