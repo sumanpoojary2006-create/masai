@@ -778,16 +778,16 @@ export async function runComplianceCheck(options?: {
         const stickyCompleted =
           task.status === "completed" || stickyCompletedTaskIds.has(task.id);
 
+        const freshLmsCheck = record && !(record.rawPayload as Record<string, unknown>)?.skipped && !(record.rawPayload as Record<string, unknown>)?.error;
         return {
           lectureId: lecture.id,
           resourceType: task.type,
           found: Boolean(record?.found || existingRow?.found || stickyCompleted),
-          uploadedAt:
-            earliestTimestamp([
-              record?.uploadedAt ?? null,
-              existingRow?.uploaded_at ?? null,
-              task.completed_at ?? null
-            ]) ?? null,
+          // When we have a valid fresh LMS reading, use it directly (even if null)
+          // so a schedule-based effective time can override a stale stored timestamp.
+          uploadedAt: freshLmsCheck
+            ? (record!.uploadedAt ?? null)
+            : (earliestTimestamp([existingRow?.uploaded_at ?? null, task.completed_at ?? null]) ?? null),
           rawPayload:
             record?.rawPayload ??
             ((existingRow?.raw_payload as Record<string, unknown> | null) ?? {
@@ -1140,16 +1140,14 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{
         const existingRow = existingTrackingMap.get(key);
         const stickyCompleted = task.status === "completed" || stickyCompletedTaskIds.has(task.id);
 
+        const freshLmsCheck = record && !(record.rawPayload as Record<string, unknown>)?.skipped && !(record.rawPayload as Record<string, unknown>)?.error;
         return {
           lectureId: lecture.id,
           resourceType: task.type,
           found: Boolean(record?.found || existingRow?.found || stickyCompleted),
-          uploadedAt:
-            earliestTimestamp([
-              record?.uploadedAt ?? null,
-              existingRow?.uploaded_at ?? null,
-              task.completed_at ?? null
-            ]) ?? null,
+          uploadedAt: freshLmsCheck
+            ? (record!.uploadedAt ?? null)
+            : (earliestTimestamp([existingRow?.uploaded_at ?? null, task.completed_at ?? null]) ?? null),
           rawPayload: record?.rawPayload ?? ((existingRow?.raw_payload as Record<string, unknown> | null) ?? { scraperMissed: true })
         };
       })
