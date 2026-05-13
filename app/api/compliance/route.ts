@@ -22,12 +22,11 @@ export async function POST() {
       );
     }
 
-    // Sync LMS state into both the tasks table (CC-configured lectures) and
-    // lms_lecture_cache (admin-batch lectures) so the digest reflects live LMS state.
-    const syncResult = await syncTaskStatusesFromLms(user.id);
-
-    // Also sync lms_lecture_cache for admin-batch assignments so dashboard status
-    // reflects reality without waiting for the nightly admin sync.
+    // Fetch CC batch assignments and profile in parallel so we can refresh the
+    // cache schedule BEFORE computing deadlines in syncTaskStatusesFromLms.
+    // Order matters: if a session was rescheduled, syncAssignedBatchesCache must
+    // update lms_lecture_cache.schedule first so the deadline computation below
+    // uses the new lecture date and doesn't report stale "pending today" items.
     const supabase = createServerSupabase();
     const [{ data: ccAssignments }, { data: profileRow }] = await Promise.all([
       supabase.from("cc_batch_assignments").select("batch_id").eq("cc_user_id", user.id),
@@ -38,6 +37,11 @@ export async function POST() {
     if (ccBatchIds.length > 0) {
       await syncAssignedBatchesCache(ccBatchIds);
     }
+
+    // Sync LMS state into both the tasks table (CC-configured lectures) and
+    // lms_lecture_cache (admin-batch lectures) so the digest reflects live LMS state.
+    // Runs after syncAssignedBatchesCache so schedule dates are current.
+    const syncResult = await syncTaskStatusesFromLms(user.id);
 
     // Send targeted Slack notification only to this CC — newly completed + pending today.
     const slackMemberId = (profileRow as { slack_member_id?: string | null } | null)?.slack_member_id ?? null;
