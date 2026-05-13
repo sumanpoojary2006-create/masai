@@ -7,7 +7,7 @@ export function StatusPill({ task }: { task: TaskRecord }) {
   const deadlinePassed = !Number.isNaN(deadlineMs) && now > deadlineMs;
 
   const lateCompletion =
-    task.status === "completed" && isLateCompletion(task.completed_at, task.deadline);
+    task.status === "completed" && isLateCompletion(task.completed_at, task.deadline, task.last_checked_at);
 
   // Derive effective display status: pending past deadline → missed
   const effectiveStatus =
