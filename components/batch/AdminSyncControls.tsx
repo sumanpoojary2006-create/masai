@@ -47,9 +47,9 @@ function useAdminAction(endpoint: string, body?: Record<string, unknown>, onSucc
 
 export function AdminSyncControls() {
   const sync       = useAdminAction("/api/admin/sync-week",               undefined,              () => window.location.reload());
-  const compliance = useAdminAction("/api/admin/compliance",              undefined,              () => window.location.reload());
   const slackPush  = useAdminAction("/api/admin/push-slack-notification", { type: "normal" });
   const slackAlert = useAdminAction("/api/admin/push-slack-notification", { type: "alert" });
+  const compliance = useAdminAction("/api/admin/compliance",              undefined,              () => { slackPush.trigger(); window.location.reload(); });
 
   const [syncStep, setSyncStep] = useState(0);
   const stepIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -94,7 +94,7 @@ export function AdminSyncControls() {
       />
       <ActionCard
         title="Sync Up — Compliance Check"
-        description="Run compliance check for all users and update resource statuses from LMS."
+        description="Run compliance check for all users, update resource statuses from LMS, and automatically push Slack notifications."
         buttonLabel="Sync Up"
         loadingLabel="Running…"
         state={compliance.state}
