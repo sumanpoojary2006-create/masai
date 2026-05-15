@@ -34,14 +34,32 @@ export async function POST() {
     ]);
 
     const ccBatchIds = [...new Set((ccAssignments ?? []).map((a) => a.batch_id as number))];
+
+    // Snapshot the pre-sync upload flags so syncTaskStatusesFromLms can detect
+    // newly-completed Path B tasks. syncAssignedBatchesCache updates these flags
+    // before syncTaskStatusesFromLms runs, which would otherwise make every just-
+    // completed admin-batch task appear "already completed" and hide it from the
+    // Slack "Newly Completed" section.
+    let preSyncCompletedKeys = new Set<string>();
     if (ccBatchIds.length > 0) {
+      const { data: preSync } = await supabase
+        .from("lms_lecture_cache")
+        .select("batch_id, lecture_id, preread_uploaded, notes_uploaded, assignment_uploaded")
+        .in("batch_id", ccBatchIds);
+
+      for (const row of preSync ?? []) {
+        if (row.preread_uploaded)    preSyncCompletedKeys.add(`${row.batch_id}:${row.lecture_id}:preread`);
+        if (row.notes_uploaded)      preSyncCompletedKeys.add(`${row.batch_id}:${row.lecture_id}:notes`);
+        if (row.assignment_uploaded) preSyncCompletedKeys.add(`${row.batch_id}:${row.lecture_id}:assignment`);
+      }
+
       await syncAssignedBatchesCache(ccBatchIds);
     }
 
     // Sync LMS state into both the tasks table (CC-configured lectures) and
     // lms_lecture_cache (admin-batch lectures) so the digest reflects live LMS state.
     // Runs after syncAssignedBatchesCache so schedule dates are current.
-    const syncResult = await syncTaskStatusesFromLms(user.id);
+    const syncResult = await syncTaskStatusesFromLms(user.id, { preSyncCompletedKeys });
 
     // Send targeted Slack notification only to this CC — newly completed + pending today.
     const slackMemberId = (profileRow as { slack_member_id?: string | null } | null)?.slack_member_id ?? null;
