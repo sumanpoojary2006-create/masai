@@ -996,12 +996,16 @@ export type SyncUpdateItem = {
   deadline?: string;
 };
 
-export async function syncTaskStatusesFromLms(userId?: string): Promise<{
+export async function syncTaskStatusesFromLms(
+  userId?: string,
+  options?: { preSyncCompletedKeys?: Set<string> }
+): Promise<{
   updatedTasks: number;
   checkedLectures: number;
   newlyCompleted: SyncUpdateItem[];
   pendingToday: SyncUpdateItem[];
 }> {
+  const preSyncCompletedKeys = options?.preSyncCompletedKeys ?? new Set<string>();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const supabase = createServerSupabase();
@@ -1220,12 +1224,25 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{
     // Also detect newly completed and pending-today for Path B (admin-batch cache lectures).
     // These don't have rows in the tasks table so they're excluded from ccTaskUpdates above,
     // but the CC dashboard shows them — they must contribute to the Slack notification.
+    //
+    // We use preSyncCompletedKeys (snapshot taken before syncAssignedBatchesCache ran) to
+    // determine whether a task was already completed before this sync. task.status is derived
+    // from the cache AFTER syncAssignedBatchesCache already updated the flags, so it cannot
+    // reliably distinguish "was pending before this sync" from "was already completed".
+    const lectureIdToBatchId = new Map(uniqueCacheLectures.map((cl) => [cl.lectureId, cl.lmsBatchId]));
+
     for (const lecture of pathBLectures) {
+      const batchId = lectureIdToBatchId.get(lecture.id);
       for (const task of lecture.tasks) {
         const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
         const resolved = nextStatus(task, tracking, now, new Set());
 
-        if (task.status !== "completed" && resolved.status === "completed") {
+        const preSyncKey = batchId != null ? `${batchId}:${task.lecture_id}:${task.type}` : null;
+        const wasAlreadyCompleted = preSyncKey != null
+          ? preSyncCompletedKeys.has(preSyncKey)
+          : task.status === "completed";
+
+        if (!wasAlreadyCompleted && resolved.status === "completed") {
           profileNewlyCompleted.push({
             lectureName: lecture.lecture_name,
             batchName: lecture.batch_name,
