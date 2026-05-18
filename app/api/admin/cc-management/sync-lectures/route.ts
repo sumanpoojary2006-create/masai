@@ -8,6 +8,39 @@ import { mysqlDateToIST, nowIST } from "@/lib/env";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { createServerSupabase } from "@/lib/supabase";
 
+export async function DELETE(request: Request) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+    const isAdmin = await hasAdminAccess(user.id);
+    if (!isAdmin) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+
+    const { lectureId } = (await request.json()) as { lectureId?: number };
+    if (!lectureId) {
+      return NextResponse.json({ message: "lectureId is required." }, { status: 400 });
+    }
+
+    const supabase = createServerSupabase();
+    const { error, count } = await supabase
+      .from("lms_lecture_cache")
+      .delete({ count: "exact" })
+      .eq("lecture_id", lectureId);
+
+    if (error) throw new Error(error.message);
+
+    return NextResponse.json({
+      message: `Deleted ${count ?? 0} cache row(s) for lecture_id ${lectureId}.`,
+      deleted: count ?? 0,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { message: err instanceof Error ? err.message : "Delete failed." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
