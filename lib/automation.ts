@@ -1326,6 +1326,32 @@ export async function syncAssignedBatchesCache(
 
     if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
 
+    // Delete cache rows whose lecture_id no longer exists in the live LMS
+    // (lecture was deleted in LMS after it was cached here).
+    const liveLectureIds = new Set(lectures.map((l) => l.lecture_id));
+    const { data: cachedRows } = await supabase
+      .from("lms_lecture_cache")
+      .select("lecture_id")
+      .eq("batch_id", batchId);
+
+    const staleIds = (cachedRows ?? [])
+      .map((r) => r.lecture_id as number)
+      .filter((id) => !liveLectureIds.has(id));
+
+    if (staleIds.length > 0) {
+      const { error: delErr } = await supabase
+        .from("lms_lecture_cache")
+        .delete()
+        .eq("batch_id", batchId)
+        .in("lecture_id", staleIds);
+
+      if (delErr) {
+        console.warn(`[cache-sync] Stale delete failed batch=${batchId}: ${delErr.message}`);
+      } else {
+        console.log(`[cache-sync] Batch ${batchId}: removed ${staleIds.length} deleted lecture(s): ${staleIds.join(", ")}`);
+      }
+    }
+
     // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
     // Batch the timestamp SELECT into one query per batch to avoid N+1 round trips.
     const timezone = getAppTimezone();
