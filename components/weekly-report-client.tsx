@@ -11,11 +11,11 @@ const TASK_TYPES: TaskType[] = ["preread", "notes", "assignment"];
 function TaskChip({
   task
 }: {
-  task: { status: string; completed_at: string | null; deadline: string } | null;
+  task: { status: string; completed_at: string | null; deadline: string; last_checked_at?: string | null } | null;
 }) {
   if (!task) return <span className="text-xs text-slate-400 dark:text-slate-600">—</span>;
   const isLate =
-    task.status === "completed" && isLateCompletion(task.completed_at, task.deadline);
+    task.status === "completed" && isLateCompletion(task.completed_at, task.deadline, task.last_checked_at);
   const cls = statusClasses(task.status as "pending" | "completed" | "missed", isLate);
   return (
     <span

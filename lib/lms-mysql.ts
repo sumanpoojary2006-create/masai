@@ -82,7 +82,7 @@ export async function fetchBatchCompliance(batchId: number): Promise<LmsLectureC
         l.concludes,
 
         (
-          SELECT MIN(pr.created_at) FROM lectures pr
+          SELECT MIN(GREATEST(pr.created_at, COALESCE(pr.schedule, pr.created_at))) FROM lectures pr
           WHERE pr.category IN ('pre-reads', 'Pre Reads')
             AND (
               JSON_EXTRACT(pr.data, '$.associatedLecture.id') = l.id
@@ -92,7 +92,7 @@ export async function fetchBatchCompliance(batchId: number): Promise<LmsLectureC
         ) AS preread_uploaded_at,
 
         (
-          SELECT MIN(nt.created_at) FROM lectures nt
+          SELECT MIN(GREATEST(nt.created_at, COALESCE(nt.schedule, nt.created_at))) FROM lectures nt
           WHERE nt.category  = 'notes'
             AND (
               JSON_EXTRACT(nt.data, '$.associatedLecture.id') = l.id

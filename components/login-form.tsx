@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { createBrowserSupabase } from "@/lib/supabase-browser";
+import { TopProgressBar } from "@/components/top-progress-bar";
 
 export function LoginForm() {
   const router = useRouter();
@@ -29,12 +30,15 @@ export function LoginForm() {
         setMessage(error.message);
         setIsPending(false);
       } else {
-        router.push("/");
+        // Hard navigation so the server picks up the new session cookie immediately.
+        window.location.href = "/";
       }
     });
   }
 
   return (
+    <>
+      <TopProgressBar isLoading={isPending} />
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
         <h2 className="font-[var(--font-heading)] text-2xl font-bold text-ink">Login</h2>
@@ -82,5 +86,6 @@ export function LoginForm() {
         </Link>
       </p>
     </form>
+    </>
   );
 }

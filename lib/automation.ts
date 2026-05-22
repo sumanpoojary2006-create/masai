@@ -7,7 +7,8 @@ import { BatchUrlOverrides, deriveAssignmentBatchUrl } from "@/lib/lms-batch-url
 import { checkLmsTasksForLecture } from "@/lib/lms-db";
 import { fetchBatchCompliance } from "@/lib/lms-mysql";
 import { analyzeLosFromTranscript } from "@/lib/lo-analyzer";
-import { resolveSessionLinks, scrapeLectureSummary } from "@/lib/lms-scraper";
+import { resolveSessionLinks } from "@/lib/lms-scraper";
+import { extractLmsLectureIdFromUrl, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { getAutomationLectures, getAutomationProfiles, getCacheLecturesForProfile } from "@/lib/queries";
 import { createServerSupabase } from "@/lib/supabase";
 import {
@@ -163,33 +164,53 @@ async function syncFoundResourcesToCache(
     byLectureWithTs.set(key, entry);
   }
 
-  for (const entry of byLectureWithTs.values()) {
-    const patch: Record<string, boolean | string> = {};
-    if (entry.preread) patch.preread_uploaded = true;
-    if (entry.notes) patch.notes_uploaded = true;
-    if (entry.assignment) patch.assignment_uploaded = true;
-    if (Object.keys(patch).length === 0) continue;
+  const entries = [...byLectureWithTs.values()].filter(
+    (e) => e.preread || e.notes || e.assignment
+  );
+  if (entries.length === 0) return;
 
-    const { data: existing } = await supabase
+  // Group by batchId so we can fetch existing timestamps per batch in one query
+  const byBatch = new Map<number, typeof entries>();
+  for (const e of entries) {
+    const list = byBatch.get(e.batchId) ?? [];
+    list.push(e);
+    byBatch.set(e.batchId, list);
+  }
+
+  for (const [batchId, batchEntries] of byBatch) {
+    const { data: existingRows } = await supabase
       .from("lms_lecture_cache")
-      .select("preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
-      .eq("batch_id", entry.batchId)
-      .eq("lecture_id", entry.lectureId)
-      .single();
+      .select("lecture_id, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
+      .eq("batch_id", batchId)
+      .in("lecture_id", batchEntries.map((e) => e.lectureId));
 
-    if (entry.prereadAt && !existing?.preread_uploaded_at) patch.preread_uploaded_at = entry.prereadAt;
-    if (entry.notesAt && !existing?.notes_uploaded_at) patch.notes_uploaded_at = entry.notesAt;
-    if (entry.assignmentAt && !existing?.assignment_uploaded_at) patch.assignment_uploaded_at = entry.assignmentAt;
+    const existingMap = new Map(
+      (existingRows ?? []).map((r) => [r.lecture_id as number, r])
+    );
 
-    const { error } = await supabase
-      .from("lms_lecture_cache")
-      .update(patch)
-      .eq("batch_id", entry.batchId)
-      .eq("lecture_id", entry.lectureId);
+    await Promise.all(
+      batchEntries.map(async (entry) => {
+        const patch: Record<string, boolean | string> = {};
+        if (entry.preread) patch.preread_uploaded = true;
+        if (entry.notes) patch.notes_uploaded = true;
+        if (entry.assignment) patch.assignment_uploaded = true;
 
-    if (error) {
-      console.warn(`[cache-sync] Failed to update lms_lecture_cache for batch=${entry.batchId} lecture=${entry.lectureId}: ${error.message}`);
-    }
+        const existing = existingMap.get(entry.lectureId);
+        if (entry.prereadAt && !existing?.preread_uploaded_at) patch.preread_uploaded_at = entry.prereadAt;
+        if (entry.notesAt && !existing?.notes_uploaded_at) patch.notes_uploaded_at = entry.notesAt;
+        if (entry.assignmentAt && !existing?.assignment_uploaded_at) patch.assignment_uploaded_at = entry.assignmentAt;
+
+        const { error } = await supabase
+          .from("lms_lecture_cache")
+          .update(patch)
+          .eq("batch_id", batchId)
+          .eq("lecture_id", entry.lectureId);
+
+        if (error) {
+          console.warn(`[cache-sync] Failed to update lms_lecture_cache for batch=${batchId} lecture=${entry.lectureId}: ${error.message}`);
+        }
+      })
+    );
   }
 }
 
@@ -344,7 +365,7 @@ export interface SummaryFetchResult {
 }
 
 export async function fetchAndAnalyzePendingSummaries(
-  profile: Pick<AutomationProfile, "user_id" | "lms_username" | "lms_password" | "email">
+  profile: Pick<AutomationProfile, "user_id" | "email">
 ): Promise<SummaryFetchResult[]> {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
@@ -410,13 +431,22 @@ export async function fetchAndAnalyzePendingSummaries(
     }
 
     const sessionLink = String(lecture.session_link ?? "").trim();
-    console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from ${sessionLink}`);
+    const lmsId = extractLmsLectureIdFromUrl(sessionLink);
+    if (!lmsId) {
+      results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "Could not parse LMS lecture ID from session link" });
+      continue;
+    }
+
+    console.log(`[lo-sync] Fetching summary for "${lecture.lecture_name}" from LMS DB (id=${lmsId})`);
 
     try {
-      const summary = await scrapeLectureSummary(sessionLink, {
-        username: profile.lms_username,
-        password: profile.lms_password
-      });
+      const summary = await fetchLectureSummaryFromDb(lmsId);
+
+      if (!summary) {
+        console.log(`[lo-auto] "${lecture.lecture_name}" → no summary in LMS DB yet`);
+        results.push({ lectureId: lecture.id, lectureName: lecture.lecture_name, status: "skipped", reason: "Summary not yet available in LMS database" });
+        continue;
+      }
 
       // ── Step 1: Save transcript immediately so it's never lost on analysis failure ──
       await supabase.from("lo_reports").upsert(
@@ -748,16 +778,16 @@ export async function runComplianceCheck(options?: {
         const stickyCompleted =
           task.status === "completed" || stickyCompletedTaskIds.has(task.id);
 
+        const freshLmsCheck = record && !(record.rawPayload as Record<string, unknown>)?.skipped && !(record.rawPayload as Record<string, unknown>)?.error;
         return {
           lectureId: lecture.id,
           resourceType: task.type,
           found: Boolean(record?.found || existingRow?.found || stickyCompleted),
-          uploadedAt:
-            earliestTimestamp([
-              record?.uploadedAt ?? null,
-              existingRow?.uploaded_at ?? null,
-              task.completed_at ?? null
-            ]) ?? null,
+          // When we have a valid fresh LMS reading, use it directly (even if null)
+          // so a schedule-based effective time can override a stale stored timestamp.
+          uploadedAt: freshLmsCheck
+            ? (record!.uploadedAt ?? null)
+            : (earliestTimestamp([existingRow?.uploaded_at ?? null, task.completed_at ?? null]) ?? null),
           rawPayload:
             record?.rawPayload ??
             ((existingRow?.raw_payload as Record<string, unknown> | null) ?? {
@@ -958,7 +988,24 @@ export async function runComplianceCheck(options?: {
  * specific user). Does NOT send any Slack alerts — use this before sending
  * a scheduled reminder so the DB reflects the latest LMS state.
  */
-export async function syncTaskStatusesFromLms(userId?: string): Promise<{ updatedTasks: number; checkedLectures: number }> {
+export type SyncUpdateItem = {
+  lectureName: string;
+  batchName: string;
+  taskType: string;
+  completedAt?: string | null;
+  deadline?: string;
+};
+
+export async function syncTaskStatusesFromLms(
+  userId?: string,
+  options?: { preSyncCompletedKeys?: Set<string> }
+): Promise<{
+  updatedTasks: number;
+  checkedLectures: number;
+  newlyCompleted: SyncUpdateItem[];
+  pendingToday: SyncUpdateItem[];
+}> {
+  const preSyncCompletedKeys = options?.preSyncCompletedKeys ?? new Set<string>();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const supabase = createServerSupabase();
@@ -966,6 +1013,8 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
 
   let totalUpdated = 0;
   let totalLectures = 0;
+  const allNewlyCompleted: SyncUpdateItem[] = [];
+  const allPendingToday: SyncUpdateItem[] = [];
 
   for (const profile of profiles) {
     // === PATH A: CC self-configured lectures ===
@@ -1095,16 +1144,14 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
         const existingRow = existingTrackingMap.get(key);
         const stickyCompleted = task.status === "completed" || stickyCompletedTaskIds.has(task.id);
 
+        const freshLmsCheck = record && !(record.rawPayload as Record<string, unknown>)?.skipped && !(record.rawPayload as Record<string, unknown>)?.error;
         return {
           lectureId: lecture.id,
           resourceType: task.type,
           found: Boolean(record?.found || existingRow?.found || stickyCompleted),
-          uploadedAt:
-            earliestTimestamp([
-              record?.uploadedAt ?? null,
-              existingRow?.uploaded_at ?? null,
-              task.completed_at ?? null
-            ]) ?? null,
+          uploadedAt: freshLmsCheck
+            ? (record!.uploadedAt ?? null)
+            : (earliestTimestamp([existingRow?.uploaded_at ?? null, task.completed_at ?? null]) ?? null),
           rawPayload: record?.rawPayload ?? ((existingRow?.raw_payload as Record<string, unknown> | null) ?? { scraperMissed: true })
         };
       })
@@ -1131,12 +1178,37 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
       );
     }
 
+    const profileNewlyCompleted: SyncUpdateItem[] = [];
+    const profilePendingToday: SyncUpdateItem[] = [];
+
     const ccTaskUpdates = allLectures
       .filter((l) => ccBatchLectureIds.has(l.id))
       .flatMap((lecture) =>
         lecture.tasks.map((task) => {
           const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
           const resolved = nextStatus(task, tracking, now, stickyCompletedTaskIds);
+
+          if (task.status !== "completed" && resolved.status === "completed") {
+            profileNewlyCompleted.push({
+              lectureName: lecture.lecture_name,
+              batchName: lecture.batch_name,
+              taskType: task.type,
+              completedAt: resolved.completedAt ?? null,
+            });
+          }
+
+          if (resolved.status === "pending" && task.deadline) {
+            const deadlineDt = DateTime.fromISO(task.deadline, { zone: timezone });
+            if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
+              profilePendingToday.push({
+                lectureName: lecture.lecture_name,
+                batchName: lecture.batch_name,
+                taskType: task.type,
+                deadline: task.deadline,
+              });
+            }
+          }
+
           return {
             id: task.id,
             lecture_id: task.lecture_id,
@@ -1149,6 +1221,53 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
         })
       );
 
+    // Also detect newly completed and pending-today for Path B (admin-batch cache lectures).
+    // These don't have rows in the tasks table so they're excluded from ccTaskUpdates above,
+    // but the CC dashboard shows them — they must contribute to the Slack notification.
+    //
+    // We use preSyncCompletedKeys (snapshot taken before syncAssignedBatchesCache ran) to
+    // determine whether a task was already completed before this sync. task.status is derived
+    // from the cache AFTER syncAssignedBatchesCache already updated the flags, so it cannot
+    // reliably distinguish "was pending before this sync" from "was already completed".
+    const lectureIdToBatchId = new Map(uniqueCacheLectures.map((cl) => [cl.lectureId, cl.lmsBatchId]));
+
+    for (const lecture of pathBLectures) {
+      const batchId = lectureIdToBatchId.get(lecture.id);
+      for (const task of lecture.tasks) {
+        const tracking = trackingMap.get(trackingKey(task.lecture_id, task.type));
+        const resolved = nextStatus(task, tracking, now, new Set());
+
+        const preSyncKey = batchId != null ? `${batchId}:${task.lecture_id}:${task.type}` : null;
+        const wasAlreadyCompleted = preSyncKey != null
+          ? preSyncCompletedKeys.has(preSyncKey)
+          : task.status === "completed";
+
+        if (!wasAlreadyCompleted && resolved.status === "completed") {
+          profileNewlyCompleted.push({
+            lectureName: lecture.lecture_name,
+            batchName: lecture.batch_name,
+            taskType: task.type,
+            completedAt: resolved.completedAt ?? null,
+          });
+        }
+
+        if (resolved.status === "pending" && task.deadline) {
+          const deadlineDt = DateTime.fromISO(task.deadline, { zone: timezone });
+          if (deadlineDt.isValid && deadlineDt.hasSame(now, "day")) {
+            profilePendingToday.push({
+              lectureName: lecture.lecture_name,
+              batchName: lecture.batch_name,
+              taskType: task.type,
+              deadline: task.deadline,
+            });
+          }
+        }
+      }
+    }
+
+    allNewlyCompleted.push(...profileNewlyCompleted);
+    allPendingToday.push(...profilePendingToday);
+
     const { data: updated } = ccTaskUpdates.length > 0
       ? await supabase.from("tasks").upsert(ccTaskUpdates, { onConflict: "id" }).select("id")
       : { data: [] };
@@ -1159,7 +1278,12 @@ export async function syncTaskStatusesFromLms(userId?: string): Promise<{ update
     console.log(`[lms-sync] ${profile.email}: CC batches: ${lectures.length}, admin batches: ${pathBLectures.length}, total lectures: ${allLectures.length}, updated ${updated?.length ?? 0} tasks`);
   }
 
-  return { updatedTasks: totalUpdated, checkedLectures: totalLectures };
+  return {
+    updatedTasks: totalUpdated,
+    checkedLectures: totalLectures,
+    newlyCompleted: allNewlyCompleted,
+    pendingToday: allPendingToday,
+  };
 }
 
 /**
@@ -1203,51 +1327,66 @@ export async function syncAssignedBatchesCache(
     if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
 
     // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
-    // Also store the earliest upload timestamp, but only overwrite NULL (never replace an existing ts).
-    for (const l of lectures) {
-      const patch: Record<string, boolean | string> = {};
-      if (l.preread_uploaded) patch.preread_uploaded = true;
-      if (l.notes_uploaded) patch.notes_uploaded = true;
-      if (l.assignment_uploaded) patch.assignment_uploaded = true;
-      if (Object.keys(patch).length === 0) continue;
+    // Batch the timestamp SELECT into one query per batch to avoid N+1 round trips.
+    const timezone = getAppTimezone();
+    const toIso = (dtStr: string | null | undefined) => {
+      if (!dtStr) return null;
+      const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
+      return dt.isValid ? dt.toISO() : null;
+    };
 
-      const { data: existing } = await supabase
-        .from("lms_lecture_cache")
-        .select("preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
-        .eq("batch_id", batchId)
-        .eq("lecture_id", l.lecture_id)
-        .single();
-
-      const timezone = getAppTimezone();
-      const toIso = (dtStr: string | null | undefined) => {
-        if (!dtStr) return null;
-        const dt = DateTime.fromFormat(dtStr, "yyyy-MM-dd HH:mm:ss", { zone: timezone });
-        return dt.isValid ? dt.toISO() : null;
-      };
-
-      if (l.preread_uploaded_at && !existing?.preread_uploaded_at) {
-        const iso = toIso(l.preread_uploaded_at);
-        if (iso) patch.preread_uploaded_at = iso;
-      }
-      if (l.notes_uploaded_at && !existing?.notes_uploaded_at) {
-        const iso = toIso(l.notes_uploaded_at);
-        if (iso) patch.notes_uploaded_at = iso;
-      }
-      if (l.assignment_uploaded_at && !existing?.assignment_uploaded_at) {
-        const iso = toIso(l.assignment_uploaded_at);
-        if (iso) patch.assignment_uploaded_at = iso;
-      }
-
-      const { error: flagErr } = await supabase
-        .from("lms_lecture_cache")
-        .update(patch)
-        .eq("batch_id", batchId)
-        .eq("lecture_id", l.lecture_id);
-
-      if (flagErr) {
-        console.warn(`[cache-sync] Flag update failed batch=${batchId} lecture=${l.lecture_id}: ${flagErr.message}`);
-      }
+    const flaggedLectures = lectures.filter(
+      (l) => l.preread_uploaded || l.notes_uploaded || l.assignment_uploaded
+    );
+    if (flaggedLectures.length === 0) {
+      lecturesSynced += lectures.length;
+      continue;
     }
+
+    // One SELECT for all lectures in this batch instead of one per lecture
+    const { data: existingRows } = await supabase
+      .from("lms_lecture_cache")
+      .select("lecture_id, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at")
+      .eq("batch_id", batchId)
+      .in("lecture_id", flaggedLectures.map((l) => l.lecture_id));
+
+    const existingMap = new Map(
+      (existingRows ?? []).map((r) => [r.lecture_id as number, r])
+    );
+
+    // Run the updates in parallel rather than sequentially
+    await Promise.all(
+      flaggedLectures.map(async (l) => {
+        const patch: Record<string, boolean | string> = {};
+        if (l.preread_uploaded) patch.preread_uploaded = true;
+        if (l.notes_uploaded) patch.notes_uploaded = true;
+        if (l.assignment_uploaded) patch.assignment_uploaded = true;
+
+        const existing = existingMap.get(l.lecture_id);
+        if (l.preread_uploaded_at && !existing?.preread_uploaded_at) {
+          const iso = toIso(l.preread_uploaded_at);
+          if (iso) patch.preread_uploaded_at = iso;
+        }
+        if (l.notes_uploaded_at && !existing?.notes_uploaded_at) {
+          const iso = toIso(l.notes_uploaded_at);
+          if (iso) patch.notes_uploaded_at = iso;
+        }
+        if (l.assignment_uploaded_at && !existing?.assignment_uploaded_at) {
+          const iso = toIso(l.assignment_uploaded_at);
+          if (iso) patch.assignment_uploaded_at = iso;
+        }
+
+        const { error: flagErr } = await supabase
+          .from("lms_lecture_cache")
+          .update(patch)
+          .eq("batch_id", batchId)
+          .eq("lecture_id", l.lecture_id);
+
+        if (flagErr) {
+          console.warn(`[cache-sync] Flag update failed batch=${batchId} lecture=${l.lecture_id}: ${flagErr.message}`);
+        }
+      })
+    );
 
     lecturesSynced += lectures.length;
     console.log(`[cache-sync] Batch ${batchId}: ${lectures.length} lectures synced`);

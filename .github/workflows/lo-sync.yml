@@ -29,15 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
       - name: Run LO sync
         run: npx tsx scripts/run-lo-sync.ts
         env:
           TARGET_USER_ID: ${{ inputs.target_user_id }}
-          LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
-          LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -45,3 +40,7 @@ jobs:
           LO_SLACK_WEBHOOK_URL: ${{ secrets.LO_SLACK_WEBHOOK_URL }}
           APP_TIMEZONE: ${{ secrets.APP_TIMEZONE || 'Asia/Kolkata' }}
           LMS_PASSWORD_ENCRYPTION_KEY: ${{ secrets.LMS_PASSWORD_ENCRYPTION_KEY }}
+          LMS_DB_HOST: ${{ secrets.LMS_DB_HOST }}
+          LMS_DB_USER: ${{ secrets.LMS_DB_USER }}
+          LMS_DB_PASSWORD: ${{ secrets.LMS_DB_PASSWORD }}
+          LMS_DB_NAME: ${{ secrets.LMS_DB_NAME || 'prod_course' }}

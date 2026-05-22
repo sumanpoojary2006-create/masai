@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 
 import { StatusPill } from "@/components/status-pill";
+import { TopProgressBar } from "@/components/top-progress-bar";
 import { formatDeadline, formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { DashboardLecture, TaskStatus } from "@/lib/types";
 
@@ -28,7 +29,7 @@ const SYNC_STEPS = [
   "Syncing batch cache…",
   "Checking pending deadlines…",
   "Sending Slack digest…",
-  "Finalizing…"
+  "Wrapping up…",
 ];
 
 type TodayTaskItem = {
@@ -60,6 +61,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
   useEffect(() => {
     if (isSyncing) {
       setSyncStep(0);
+      // Advance one step every 1.8 s — stays on last step until API responds
       stepIntervalRef.current = setInterval(() => {
         setSyncStep((prev) => Math.min(prev + 1, SYNC_STEPS.length - 1));
       }, 1800);
@@ -183,56 +185,65 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
     });
   }
 
-  function handleSync() {
-    startTransition(async () => {
-      setIsSyncing(true);
-      setSyncStatus("idle");
-      setMessage(null);
+  async function handleSync() {
+    setIsSyncing(true);
+    setSyncStatus("idle");
+    setMessage(null);
+
+    // Safety net: reload after 58 s regardless of API outcome so the
+    // user never gets permanently stuck on the overlay.
+    const safetyTimer = setTimeout(() => window.location.reload(), 58_000);
+
+    try {
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), 55_000);
+
+      const response = await fetch("/api/compliance", {
+        method: "POST",
+        signal: controller.signal
+      });
+      clearTimeout(abortTimer);
+
+      let payload: {
+        message?: string;
+        result?: {
+          checkedLectures: number;
+          trackedResources: number;
+          updatedTasks: number;
+        };
+      } = {};
 
       try {
-        const response = await fetch("/api/compliance", {
-          method: "POST"
-        });
-
-        let payload: {
-          message?: string;
-          result?: {
-            checkedLectures: number;
-            trackedResources: number;
-            updatedTasks: number;
-          };
-        } = {};
-
-        try {
-          payload = await response.json();
-        } catch {
-          // Server returned a non-JSON response (e.g. a Vercel error page).
-        }
-
-        if (!response.ok) {
-          setSyncStatus("error");
-          setMessage(payload.message ?? "Unable to run compliance sync.");
-          setIsSyncing(false);
-          return;
-        }
-
-        setSyncStatus("success");
-        if (payload.result) {
-          setMessage(
-            `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated.`
-          );
-        } else {
-          setMessage(payload.message ?? "Compliance sync completed.");
-        }
-
-        setIsSyncing(false);
-        router.refresh();
+        payload = await response.json();
       } catch {
-        setSyncStatus("error");
-        setMessage("Unable to run compliance sync. Please try again.");
-        setIsSyncing(false);
+        // non-JSON response (e.g. Vercel error page)
       }
-    });
+
+      clearTimeout(safetyTimer);
+
+      if (!response.ok) {
+        setSyncStatus("error");
+        setMessage(payload.message ?? "Unable to run compliance sync.");
+        setIsSyncing(false);
+        return;
+      }
+
+      setSyncStatus("success");
+      setMessage(
+        payload.result
+          ? `Checked ${payload.result.checkedLectures} lectures · ${payload.result.updatedTasks} tasks updated.`
+          : (payload.message ?? "Compliance sync completed.")
+      );
+      setIsSyncing(false);
+      window.location.reload();
+    } catch {
+      clearTimeout(safetyTimer);
+      setSyncStatus("error");
+      setMessage("Sync is taking longer than expected. Reloading…");
+      setIsSyncing(false);
+      // Reload anyway — partial sync may have updated some tasks.
+      setTimeout(() => window.location.reload(), 2_000);
+    }
   }
 
   function renderTaskCell(lecture: DashboardLecture, type: "preread" | "notes" | "assignment") {
@@ -272,6 +283,8 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
   if (lectures.length === 0) {
     return (
+      <>
+        <TopProgressBar isLoading={isSyncing} />
       <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel dark:border-slate-700 dark:bg-slate-800/40">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
           No Data Yet
@@ -306,10 +319,13 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
           </div>
         )}
       </div>
+      </>
     );
   }
 
   return (
+    <>
+      <TopProgressBar isLoading={isSyncing} />
     <div className="space-y-8">
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
         <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-6">
@@ -421,49 +437,7 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
                   )}
                 </div>
 
-                {/* Sync progress strip */}
-                {isSyncing && (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
-                    <div className="mb-2 flex items-center gap-2">
-                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
-                      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400">
-                        Syncing
-                      </span>
-                    </div>
-                    {/* Progress bar */}
-                    <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                      <div
-                        className="h-full rounded-full bg-teal-500 transition-all duration-700 ease-out dark:bg-teal-400"
-                        style={{ width: `${((syncStep + 1) / SYNC_STEPS.length) * 100}%` }}
-                      />
-                    </div>
-                    {/* Step list */}
-                    <ol className="space-y-1">
-                      {SYNC_STEPS.map((label, index) => (
-                        <li key={label} className="flex items-center gap-2 text-xs">
-                          {index < syncStep ? (
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-teal-500 text-[10px] font-bold text-white dark:bg-teal-400">✓</span>
-                          ) : index === syncStep ? (
-                            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
-                          ) : (
-                            <span className="h-4 w-4 shrink-0 rounded-full border border-slate-300 dark:border-slate-600" />
-                          )}
-                          <span
-                            className={
-                              index < syncStep
-                                ? "text-teal-600 line-through dark:text-teal-400"
-                                : index === syncStep
-                                ? "font-semibold text-ink"
-                                : "text-slate-400 dark:text-slate-500"
-                            }
-                          >
-                            {label}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+                {/* Sync feedback banner (error only — success triggers reload) */}
 
                 {/* Sync feedback banner */}
                 {!isSyncing && message && (
@@ -802,5 +776,48 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
       </section>
 
     </div>
+
+    {/* Full-screen sync overlay */}
+    {isSyncing && (
+      <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-8 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
+            <span className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400">
+              Syncing…
+            </span>
+          </div>
+          <div className="mb-5 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div
+              className="h-full rounded-full bg-teal-500 transition-all duration-700 ease-out dark:bg-teal-400"
+              style={{ width: `${((syncStep + 1) / SYNC_STEPS.length) * 100}%` }}
+            />
+          </div>
+          <ol className="space-y-2">
+            {SYNC_STEPS.map((label, index) => (
+              <li key={label} className="flex items-center gap-3 text-sm">
+                {index < syncStep ? (
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-teal-500 text-[11px] font-bold text-white dark:bg-teal-400">✓</span>
+                ) : index === syncStep ? (
+                  <span className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-teal-300 border-t-teal-600 dark:border-teal-600 dark:border-t-teal-300" />
+                ) : (
+                  <span className="h-5 w-5 shrink-0 rounded-full border border-slate-300 dark:border-slate-600" />
+                )}
+                <span className={
+                  index < syncStep
+                    ? "text-teal-600 line-through dark:text-teal-400"
+                    : index === syncStep
+                    ? "font-semibold text-ink"
+                    : "text-slate-400 dark:text-slate-500"
+                }>
+                  {label}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

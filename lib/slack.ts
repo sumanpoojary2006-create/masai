@@ -466,6 +466,85 @@ export async function sendLoMorningReport(params: {
   console.log("[lo-slack] Morning report sent.");
 }
 
+/**
+ * Sends a targeted Slack notification to the CC who just clicked Sync Up.
+ * Reports only newly completed tasks and tasks pending today.
+ * Fires only if there's at least one newly completed or pending-today item.
+ * Uses the resource-tracker webhook and @-mentions the CC by their Slack member ID.
+ */
+export async function sendSyncUpdateAlert(params: {
+  newlyCompleted: Array<{ lectureName: string; batchName: string; taskType: string; completedAt?: string | null }>;
+  pendingToday: Array<{ lectureName: string; batchName: string; taskType: string; deadline?: string }>;
+  slackMemberId?: string | null;
+}) {
+  const { newlyCompleted, pendingToday, slackMemberId } = params;
+
+  if (newlyCompleted.length === 0 && pendingToday.length === 0) {
+    console.log("[sync-alert] Nothing to report — skipping Slack notification");
+    return;
+  }
+
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn("[sync-alert] SLACK_WEBHOOK_URL not set — skipping Slack notification");
+    return;
+  }
+
+  const timezone = getAppTimezone();
+  const now = DateTime.now().setZone(timezone);
+  const mention = slackMemberId ? `<@${slackMemberId}>` : null;
+
+  const lines: string[] = [];
+  if (mention) lines.push(mention);
+  lines.push("📣 *Sync Update*");
+  lines.push("");
+
+  if (newlyCompleted.length > 0) {
+    lines.push("✅ *Newly Completed*");
+    const byBatch = newlyCompleted.reduce<Map<string, typeof newlyCompleted>>((acc, item) => {
+      acc.set(item.batchName, [...(acc.get(item.batchName) ?? []), item]);
+      return acc;
+    }, new Map());
+
+    for (const [batch, items] of byBatch) {
+      lines.push(batch);
+      for (const item of items) {
+        const label = TASK_LABELS[item.taskType as keyof typeof TASK_LABELS] ?? item.taskType;
+        const timeStr = item.completedAt
+          ? ` _(${DateTime.fromISO(item.completedAt, { zone: timezone }).toFormat("hh:mm a")})_`
+          : "";
+        lines.push(`• ✅ ${item.lectureName} | ${label} uploaded${timeStr}`);
+      }
+      lines.push("");
+    }
+  }
+
+  if (pendingToday.length > 0) {
+    lines.push("⏳ *Pending Today*");
+    const byBatch = pendingToday.reduce<Map<string, typeof pendingToday>>((acc, item) => {
+      acc.set(item.batchName, [...(acc.get(item.batchName) ?? []), item]);
+      return acc;
+    }, new Map());
+
+    for (const [batch, items] of byBatch) {
+      lines.push(batch);
+      for (const item of items) {
+        const label = TASK_LABELS[item.taskType as keyof typeof TASK_LABELS] ?? item.taskType;
+        const deadlineStr = item.deadline
+          ? ` — due by ${DateTime.fromISO(item.deadline, { zone: timezone }).toFormat("hh:mm a")}`
+          : "";
+        lines.push(`• 🕒 ${item.lectureName} | ${label} pending${deadlineStr}`);
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push(`_Synced at ${now.toFormat("hh:mm a, dd LLL yyyy")}_`);
+
+  await postSlackMessage(webhookUrl, lines.join("\n").trim());
+  console.log(`[sync-alert] Notification sent to ${slackMemberId ?? "channel"}`);
+}
+
 export async function sendManualPendingDigest(
   pendingItems: PendingDigestItem[],
   options?: { mentionUserId?: string | null }

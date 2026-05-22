@@ -6,6 +6,7 @@ import { DateTime } from "luxon";
 
 import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { LoTrackerRow } from "@/lib/types";
+import { TopProgressBar } from "@/components/top-progress-bar";
 
 function canAddSessionLink(lectureDate: string): boolean {
   // Link can be added / edited any time (admin always has access)
@@ -197,7 +198,7 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
         setActionResults(json.results ?? [{ lectureId: "err", lectureName: "Error", status: "error", reason: json.message }]);
       }
       setIsSyncing(false);
-      if (res.ok) router.refresh();
+      if (res.ok) window.location.reload();
     });
   }
 
@@ -319,6 +320,8 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
   }
 
   return (
+    <>
+      <TopProgressBar isLoading={isSyncing} />
     <div className="space-y-6">
       {/* Filters */}
       <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
@@ -389,7 +392,10 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
               onClick={handleSyncTranscripts}
               className="inline-flex h-11 items-center justify-center rounded-full bg-ink px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400 dark:bg-brand dark:hover:bg-teal-500 dark:shadow-[0_0_16px_rgba(15,118,110,0.5)] dark:hover:shadow-[0_0_24px_rgba(15,118,110,0.7)] dark:disabled:bg-slate-700 dark:disabled:shadow-none"
             >
-              {isSyncing ? "Fetching…" : "Sync Transcripts"}
+              {isSyncing && (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              )}
+              {isSyncing ? "Syncing…" : "Sync Transcripts"}
             </button>
 
             <button
@@ -710,5 +716,6 @@ export function LoTrackerClient({ rows }: { rows: LoTrackerRow[] }) {
         )}
       </section>
     </div>
+    </>
   );
 }

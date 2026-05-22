@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { DateTime } from "luxon";
 
+import { TopProgressBar } from "@/components/top-progress-bar";
+
 type CcUser = { id: string; email: string; full_name: string };
 type Assignment = {
   id: string;
@@ -155,7 +157,10 @@ export function CCManagementTab() {
       const res = await fetch("/api/admin/cc-management/sync-batches", { method: "POST" });
       const json = await res.json() as { message?: string };
       flash(json.message ?? "Synced.", res.ok);
-      if (res.ok) await loadData();
+      if (res.ok) {
+        await loadData();
+        window.location.reload();
+      }
     } finally {
       setSyncingBatches(false);
     }
@@ -171,6 +176,7 @@ export function CCManagementTab() {
       });
       const json = await res.json() as { message?: string };
       flash(json.message ?? "Synced.", res.ok);
+      if (res.ok) window.location.reload();
     } finally {
       setSyncingLecture(null);
     }
@@ -182,6 +188,7 @@ export function CCManagementTab() {
       const res = await fetch("/api/admin/cc-management/sync-all-lectures", { method: "POST" });
       const json = await res.json() as { message?: string };
       flash(json.message ?? "Synced.", res.ok);
+      if (res.ok) window.location.reload();
     } finally {
       setSyncingAllLectures(false);
     }
@@ -293,11 +300,21 @@ export function CCManagementTab() {
     ...unassigned
   ].sort((a, b) => a.name.localeCompare(b.name));
 
+  const isAnyLoading =
+    loading ||
+    syncingBatches ||
+    syncingAllLectures ||
+    syncingLecture !== null ||
+    assigning ||
+    uploading;
+
   if (loading) {
     return <p className="py-8 text-center text-sm text-slate-400">Loading CC management data…</p>;
   }
 
   return (
+    <>
+    <TopProgressBar isLoading={isAnyLoading} />
     <div className="space-y-8">
       {/* ── Flash message ── */}
       {msg && (
@@ -634,5 +651,6 @@ export function CCManagementTab() {
         )}
       </section>
     </div>
+    </>
   );
 }

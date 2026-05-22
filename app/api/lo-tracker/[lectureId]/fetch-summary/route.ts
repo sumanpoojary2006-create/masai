@@ -1,6 +1,10 @@
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
+import { nowIST } from "@/lib/env";
+import { extractLmsLectureIdFromUrl, fetchLectureSummaryFromDb } from "@/lib/lms-db";
 import { createServerSupabase } from "@/lib/supabase";
 
 export async function POST(
@@ -16,10 +20,10 @@ export async function POST(
     const { lectureId } = await context.params;
     const supabase = createServerSupabase();
 
-    // Verify the lecture belongs to this user
+    // Fetch lecture (need session_link to query LMS DB)
     const { data: lecture, error: lectureError } = await supabase
       .from("lectures")
-      .select("id")
+      .select("id, session_link")
       .eq("id", lectureId)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -29,7 +33,7 @@ export async function POST(
       return NextResponse.json({ message: "Lecture not found." }, { status: 404 });
     }
 
-    // Read transcript from DB
+    // 1. Check if transcript is already cached in lo_reports
     const { data: report, error: reportError } = await supabase
       .from("lo_reports")
       .select("transcript")
@@ -38,18 +42,52 @@ export async function POST(
 
     if (reportError) throw new Error(reportError.message);
 
-    const transcript = report?.transcript?.trim() ?? "";
+    const cached = report?.transcript?.trim() ?? "";
+    if (cached) {
+      return NextResponse.json({ message: "Summary fetched successfully.", transcript: cached });
+    }
+
+    // 2. Not cached — fetch directly from LMS MySQL DB
+    const sessionLink = (lecture as Record<string, unknown>).session_link as string ?? "";
+    if (!sessionLink) {
+      return NextResponse.json(
+        { message: "No session link set for this lecture. Add one first." },
+        { status: 400 }
+      );
+    }
+
+    const lmsId = extractLmsLectureIdFromUrl(sessionLink);
+    if (!lmsId) {
+      return NextResponse.json(
+        { message: "Could not parse LMS lecture ID from session link." },
+        { status: 400 }
+      );
+    }
+
+    const transcript = await fetchLectureSummaryFromDb(lmsId);
     if (!transcript) {
       return NextResponse.json(
-        { message: "No summary available yet. It will be fetched automatically after the session ends." },
+        { message: "Summary not yet available in LMS. It may still be generating after the session." },
         { status: 404 }
       );
     }
 
-    return NextResponse.json({
-      message: "Summary fetched successfully.",
-      transcript
-    });
+    // 3. Cache it in lo_reports so future loads are instant
+    await supabase.from("lo_reports").upsert(
+      {
+        lecture_id: lectureId,
+        user_id: user.id,
+        transcript,
+        status: "pending",
+        covered_los: [],
+        missing_los: [],
+        generated_at: null,
+        updated_at: nowIST()
+      },
+      { onConflict: "lecture_id" }
+    );
+
+    return NextResponse.json({ message: "Summary fetched successfully.", transcript });
   } catch (error) {
     return NextResponse.json(
       { message: error instanceof Error ? error.message : "Failed to fetch summary." },

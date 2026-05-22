@@ -120,6 +120,40 @@ export async function fetchWeekLecturesFromDb(
 }
 
 /**
+ * Extract the numeric LMS lecture id from a session link URL.
+ * Supports both /lectures/detail/?id=123 and /lectures/123 formats.
+ */
+export function extractLmsLectureIdFromUrl(sessionLink: string): number | null {
+  const queryIdMatch = sessionLink.match(/[?&]id=(\d+)/);
+  const pathIdMatch = sessionLink.match(/\/lectures\/(\d+)/);
+  const match = queryIdMatch ?? pathIdMatch;
+  if (!match) return null;
+  const id = parseInt(match[1], 10);
+  return isNaN(id) ? null : id;
+}
+
+/**
+ * Fetch the AI-generated meeting summary (or transcript) for a lecture
+ * from the LMS `lectures_ai` table.
+ * Returns null if the row doesn't exist yet (summary not yet generated).
+ */
+export async function fetchLectureSummaryFromDb(lmsLectureId: number): Promise<string | null> {
+  const conn = await getConn();
+
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT summary, transcript FROM lectures_ai WHERE lectureId = ? LIMIT 1`,
+    [lmsLectureId]
+  );
+
+  const row = (rows as RowDataPacket[])[0];
+  if (!row) return null;
+
+  // Prefer the AI summary; fall back to raw transcript if summary not yet generated
+  const text = (row.summary as string | null) ?? (row.transcript as string | null) ?? "";
+  return text.trim().length > 50 ? text.trim() : null;
+}
+
+/**
  * Convert an HHMM integer (e.g. 2000, 2130) to an "HH:mm:ss" string.
  */
 export function hhmmToTimeStr(val: number): string {
@@ -279,17 +313,17 @@ export async function checkLmsTasksForLecture(
     )`;
 
     const [assocReadings] = await conn.query<RowDataPacket[]>(
-      `SELECT title, category, created_at FROM lectures
+      `SELECT title, category, GREATEST(created_at, COALESCE(schedule, created_at)) AS effective_at FROM lectures
        WHERE batch_id = ? AND type = 'reading'
          AND category IN ('pre-reads', 'Pre Reads', 'notes')
          AND deleted_at IS NULL AND ${assocClause}`,
       [batchId, lmsId, lmsId]
     );
 
-    for (const row of assocReadings as Array<{ title: string; category: string; created_at: string }>) {
+    for (const row of assocReadings as Array<{ title: string; category: string; effective_at: string }>) {
       const cat = row.category.toLowerCase();
-      if (cat.includes("pre")) { preread = true; preread_at = row.created_at; }
-      else if (cat === "notes") { notes = true; notes_at = row.created_at; }
+      if (cat.includes("pre")) { preread = true; preread_at = row.effective_at; }
+      else if (cat === "notes") { notes = true; notes_at = row.effective_at; }
     }
 
     const [assocAssigns] = await conn.query<RowDataPacket[]>(
@@ -305,10 +339,11 @@ export async function checkLmsTasksForLecture(
     }
   }
 
-  // ── Step 3: title-based fallback for any type still not found ────────────
-  // Runs for resources uploaded without an associatedLecture link, or when the
-  // lmsId could not be resolved.
-  if (!preread || !notes || !assignment) {
+  // ── Step 3: title-based fallback — only when lmsId could not be resolved ────
+  // When we have a valid lmsId we trust only the associatedLecture.id link from
+  // Step 2 so that resources belonging to a *different* lecture with a similar
+  // topic (e.g. another "Decision Trees" session) are never picked up by mistake.
+  if (!lmsId && (!preread || !notes || !assignment)) {
     const topic = extractTopic(lectureName);
 
     const base = new Date(lectureDate);
@@ -320,7 +355,7 @@ export async function checkLmsTasksForLecture(
     const endStr   = windowEnd.toISOString().slice(0, 10);
 
     const [readingRows] = await conn.query<RowDataPacket[]>(
-      `SELECT title, category, created_at FROM lectures
+      `SELECT title, category, GREATEST(created_at, COALESCE(schedule, created_at)) AS effective_at FROM lectures
        WHERE batch_id = ? AND type = 'reading'
          AND category IN ('pre-reads', 'Pre Reads', 'notes')
          AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
@@ -333,11 +368,11 @@ export async function checkLmsTasksForLecture(
       [batchId, startStr, endStr]
     );
 
-    for (const row of readingRows as Array<{ title: string; category: string; created_at: string }>) {
+    for (const row of readingRows as Array<{ title: string; category: string; effective_at: string }>) {
       if (!titleMatches(row.title, topic)) continue;
       const cat = row.category.toLowerCase();
-      if (cat.includes("pre") && !preread) { preread = true; preread_at = row.created_at; }
-      else if (cat === "notes" && !notes) { notes = true; notes_at = row.created_at; }
+      if (cat.includes("pre") && !preread) { preread = true; preread_at = row.effective_at; }
+      else if (cat === "notes" && !notes) { notes = true; notes_at = row.effective_at; }
     }
 
     if (!assignment) {
