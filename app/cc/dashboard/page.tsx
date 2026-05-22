@@ -101,28 +101,41 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
 
   // ── Fetch all coordinators + authorization for the dropdown ──────────────
   let coordinators: ProxyCoordinator[] = [];
+
+  // Step 1: get all CC IDs that have batch assignments (always runs)
+  const { data: allAssignments } = await supabase
+    .from("cc_batch_assignments")
+    .select("cc_user_id");
+
+  const allCcIds = [
+    ...new Set((allAssignments ?? []).map((a) => a.cc_user_id as string)),
+  ].filter((id) => id !== user.id);
+
+  // Step 2: check which ones the current user is authorized to cover today
+  // (separate query so a missing cc_leave_coverage table doesn't kill the list)
+  let authorizedIds = new Set<string>();
   try {
     const today = DateTime.now().setZone(tz).toISODate()!;
+    const { data: coverages } = await supabase
+      .from("cc_leave_coverage")
+      .select("on_leave_cc_id")
+      .eq("covering_cc_id", user.id)
+      .eq("coverage_date", today);
+    authorizedIds = new Set((coverages ?? []).map((c) => c.on_leave_cc_id as string));
+  } catch {
+    // Table may not exist yet — all CCs will show as unauthorized
+  }
 
-    const [{ data: allAssignments }, { data: coverages }] = await Promise.all([
-      supabase.from("cc_batch_assignments").select("cc_user_id"),
-      supabase
-        .from("cc_leave_coverage")
-        .select("on_leave_cc_id")
-        .eq("covering_cc_id", user.id)
-        .eq("coverage_date", today),
-    ]);
-
-    const allCcIds = [...new Set((allAssignments ?? []).map((a) => a.cc_user_id as string))].filter(
-      (id) => id !== user.id
-    );
-    const authorizedIds = new Set((coverages ?? []).map((c) => c.on_leave_cc_id as string));
-
-    if (allCcIds.length > 0) {
-      const { data: users } = await supabase.auth.admin.listUsers();
+  // Step 3: enrich with display names
+  if (allCcIds.length > 0) {
+    try {
+      const { data: authUsers } = await supabase.auth.admin.listUsers();
       const nameMap: Record<string, { email: string; full_name: string }> = {};
-      for (const u of users?.users ?? []) {
-        nameMap[u.id] = { email: u.email ?? "", full_name: (u.user_metadata?.full_name as string) ?? "" };
+      for (const u of authUsers?.users ?? []) {
+        nameMap[u.id] = {
+          email: u.email ?? "",
+          full_name: (u.user_metadata?.full_name as string) ?? "",
+        };
       }
       coordinators = allCcIds
         .map((id) => ({
@@ -132,9 +145,15 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
           authorized: authorizedIds.has(id),
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      // Fall back to IDs if auth.admin is unavailable
+      coordinators = allCcIds.map((id) => ({
+        user_id: id,
+        email: id,
+        name: id,
+        authorized: authorizedIds.has(id),
+      }));
     }
-  } catch {
-    // Non-fatal — dropdown just won't show other CCs
   }
 
   // ── Resolve effective CC (self or authorized proxy) ──────────────────────
@@ -248,16 +267,14 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
         </div>
       </section>
 
-      {/* CC Proxy Selector — always shown if other CCs exist */}
-      {coordinators.length > 0 && (
-        <section>
-          <CcProxySelector
-            coordinators={coordinators}
-            currentProxyId={isProxy ? effectiveCcId : null}
-            currentProxyName={proxyName}
-          />
-        </section>
-      )}
+      {/* CC Proxy Selector — always rendered so CCs can cover for others */}
+      <section>
+        <CcProxySelector
+          coordinators={coordinators}
+          currentProxyId={isProxy ? effectiveCcId : null}
+          currentProxyName={proxyName}
+        />
+      </section>
 
       {/* Summary strip */}
       <section className="summary-strip theme-panel grid gap-4 rounded-[2rem] p-5 sm:grid-cols-2 lg:grid-cols-4">
