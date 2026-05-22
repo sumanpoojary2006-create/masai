@@ -14,8 +14,8 @@ type Props = {
   coordinators: ProxyCoordinator[];
   currentProxyId: string | null;
   currentProxyName: string | null;
-  /** Pass to sync on behalf of the proxy CC */
-  onSync?: (targetCcId: string) => void;
+  /** Base path for proxy navigation, defaults to "/cc/dashboard" */
+  basePath?: string;
 };
 
 const SYNC_STEPS = [
@@ -26,7 +26,7 @@ const SYNC_STEPS = [
   "Finalizing…",
 ];
 
-export function CcProxySelector({ coordinators, currentProxyId, currentProxyName, onSync }: Props) {
+export function CcProxySelector({ coordinators, currentProxyId, currentProxyName, basePath = "/cc/dashboard" }: Props) {
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState(0);
@@ -54,9 +54,9 @@ export function CcProxySelector({ coordinators, currentProxyId, currentProxyName
 
   function handleSelectChange(value: string) {
     if (value === "__self__") {
-      router.push("/cc/dashboard");
+      router.push(basePath);
     } else {
-      router.push(`/cc/dashboard?proxy=${value}`);
+      router.push(`${basePath}?proxy=${value}`);
     }
   }
 

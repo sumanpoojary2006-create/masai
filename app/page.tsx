@@ -2,13 +2,16 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { DateTime } from "luxon";
 
 import { DashboardClient } from "@/components/dashboard-client";
+import { CcProxySelector, type ProxyCoordinator } from "@/components/cc/CcProxySelector";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser, getUserProfile } from "@/lib/auth";
-import { hasPublicSupabaseConfig, hasSupabaseConfig, isAdminUser } from "@/lib/env";
+import { hasPublicSupabaseConfig, hasSupabaseConfig, isAdminUser, getAppTimezone } from "@/lib/env";
 import { getCCLectures } from "@/lib/queries";
+import { createServerSupabase } from "@/lib/supabase";
 import { DashboardLecture } from "@/lib/types";
 
 function buildSummary(lectures: DashboardLecture[]) {
@@ -21,7 +24,9 @@ function buildSummary(lectures: DashboardLecture[]) {
   };
 }
 
-export default async function HomePage() {
+type SearchParams = Promise<{ proxy?: string }>;
+
+export default async function HomePage({ searchParams }: { searchParams: SearchParams }) {
   if (!hasSupabaseConfig() || !hasPublicSupabaseConfig()) {
     return (
       <main className="app-shell mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -49,11 +54,86 @@ export default async function HomePage() {
   const profile = await getUserProfile(user.id);
   if (!profile?.onboarding_complete) redirect("/setup");
 
+  const { proxy: proxyParam } = await searchParams;
+  const supabase = createServerSupabase();
+  const tz = getAppTimezone();
+
+  // ── Fetch all coordinators + authorization for the dropdown ──────────────
+  let coordinators: ProxyCoordinator[] = [];
+
+  const { data: allAssignments } = await supabase
+    .from("cc_batch_assignments")
+    .select("cc_user_id");
+
+  const allCcIds = [
+    ...new Set((allAssignments ?? []).map((a) => a.cc_user_id as string)),
+  ].filter((id) => id !== user.id);
+
+  let authorizedIds = new Set<string>();
+  try {
+    const today = DateTime.now().setZone(tz).toISODate()!;
+    const { data: coverages } = await supabase
+      .from("cc_leave_coverage")
+      .select("on_leave_cc_id")
+      .eq("covering_cc_id", user.id)
+      .eq("coverage_date", today);
+    authorizedIds = new Set((coverages ?? []).map((c) => c.on_leave_cc_id as string));
+  } catch {
+    // Table may not exist yet — all CCs will show as unauthorized
+  }
+
+  if (allCcIds.length > 0) {
+    try {
+      const { data: authUsers } = await supabase.auth.admin.listUsers();
+      const nameMap: Record<string, { email: string; full_name: string }> = {};
+      for (const u of authUsers?.users ?? []) {
+        nameMap[u.id] = {
+          email: u.email ?? "",
+          full_name: (u.user_metadata?.full_name as string) ?? "",
+        };
+      }
+      coordinators = allCcIds
+        .map((id) => ({
+          user_id: id,
+          email: nameMap[id]?.email ?? "",
+          name: nameMap[id]?.full_name || nameMap[id]?.email || id,
+          authorized: authorizedIds.has(id),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch {
+      coordinators = allCcIds.map((id) => ({
+        user_id: id,
+        email: id,
+        name: id,
+        authorized: authorizedIds.has(id),
+      }));
+    }
+  }
+
+  // ── Resolve proxy CC if selected ─────────────────────────────────────────
+  let effectiveUserId = user.id;
+  let proxyName: string | null = null;
+
+  if (proxyParam && proxyParam !== user.id) {
+    const authorizedProxy = coordinators.find(
+      (c) => c.user_id === proxyParam && c.authorized
+    );
+    if (authorizedProxy) {
+      effectiveUserId = proxyParam;
+      proxyName = authorizedProxy.name;
+    } else {
+      redirect("/");
+    }
+  }
+
+  const isProxy = Boolean(proxyName);
+
+  // ── Load lectures for effective user ─────────────────────────────────────
   let lectures: DashboardLecture[] = [];
   let loadError: string | null = null;
 
   try {
-    lectures = await getCCLectures(user.id);
+    lectures = await getCCLectures(effectiveUserId);
   } catch (err) {
     loadError = err instanceof Error ? err.message : "Unable to load lecture records.";
   }
@@ -69,6 +149,9 @@ export default async function HomePage() {
           </h1>
           <p className="theme-muted mt-2 text-sm">
             Signed in as {user.email}
+            {isProxy && (
+              <> &bull; Viewing <strong>{proxyName}&apos;s</strong> dashboard</>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -89,6 +172,16 @@ export default async function HomePage() {
           <ThemeToggle />
           <LogoutButton />
         </div>
+      </section>
+
+      {/* CC Proxy Selector — always rendered */}
+      <section>
+        <CcProxySelector
+          coordinators={coordinators}
+          currentProxyId={isProxy ? effectiveUserId : null}
+          currentProxyName={proxyName}
+          basePath="/"
+        />
       </section>
 
       <section className="summary-strip theme-panel grid gap-4 rounded-[2rem] p-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -121,12 +214,14 @@ export default async function HomePage() {
         <section className="theme-panel rounded-3xl p-8 text-center shadow-panel">
           <p className="font-semibold text-ink">No lectures this week</p>
           <p className="theme-muted mt-2 text-sm">
-            Either no batches have been assigned to you yet, or the Admin hasn&apos;t synced lecture data for this week.
+            {isProxy
+              ? `${proxyName} has no lectures configured for this week.`
+              : "Either no batches have been assigned to you yet, or the Admin hasn't synced lecture data for this week."}
           </p>
         </section>
       )}
 
-      <DashboardClient lectures={lectures} />
+      <DashboardClient lectures={lectures} proxyUserId={isProxy ? effectiveUserId : undefined} />
     </main>
   );
 }
