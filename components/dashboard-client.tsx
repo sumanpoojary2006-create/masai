@@ -42,7 +42,7 @@ type TodayTaskItem = {
   status: TaskStatus;
 };
 
-export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) {
+export function DashboardClient({ lectures, proxyUserId }: { lectures: DashboardLecture[]; proxyUserId?: string }) {
   const router = useRouter();
   const [batchFilter, setBatchFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
@@ -200,7 +200,9 @@ export function DashboardClient({ lectures }: { lectures: DashboardLecture[] }) 
 
       const response = await fetch("/api/compliance", {
         method: "POST",
-        signal: controller.signal
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proxyUserId ? { target_cc_id: proxyUserId } : {}),
+        signal: controller.signal,
       });
       clearTimeout(abortTimer);
 
