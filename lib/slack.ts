@@ -486,3 +486,33 @@ export async function sendManualPendingDigest(
 
   return 1;
 }
+
+/**
+ * Sends a Slack notification to the on-leave CC (X) after their dashboard has
+ * been synced by the covering CC (Y).
+ */
+export async function sendProxySyncNotification(params: {
+  targetSlackMemberId: string | null;
+  coveringCcName: string;
+  checkedLectures: number;
+  updatedTasks: number;
+}) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl || !params.targetSlackMemberId) {
+    console.warn("[proxy-slack] SLACK_WEBHOOK_URL not set or no Slack ID for target — skipping");
+    return;
+  }
+
+  const { targetSlackMemberId, coveringCcName, checkedLectures, updatedTasks } = params;
+  const lines = [
+    `<@${targetSlackMemberId}>`,
+    `🔄 *Dashboard synced on your behalf*`,
+    `Your dashboard was synced by *${coveringCcName}* while you are on leave.`,
+    `• Checked ${checkedLectures} lecture${checkedLectures !== 1 ? "s" : ""}`,
+    updatedTasks > 0
+      ? `• ${updatedTasks} task${updatedTasks !== 1 ? "s" : ""} updated`
+      : `• All tasks are up to date`,
+  ];
+
+  await postSlackMessage(webhookUrl, lines.join("\n"));
+}

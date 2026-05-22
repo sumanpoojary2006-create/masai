@@ -6,6 +6,7 @@ import { DateTime } from "luxon";
 
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CcProxySelector, type ProxyCoordinator } from "@/components/cc/CcProxySelector";
 import { getCurrentUser } from "@/lib/auth";
 import { createServerSupabase } from "@/lib/supabase";
 import { hasAdminAccess } from "@/lib/admin-access";
@@ -46,22 +47,137 @@ function statusBadge(uploaded: boolean, label: string) {
   );
 }
 
-export default async function CCDashboardPage() {
+/** Fetch lectures for a given set of batch IDs in the current week */
+async function fetchLecturesForBatches(
+  batchIds: number[],
+  batchNameMap: Record<number, string>,
+  tz: string
+) {
+  const supabase = createServerSupabase();
+  const now = DateTime.now().setZone(tz);
+  const weekStart = now.startOf("week").toISO()!;
+  const weekEnd = now.startOf("week").plus({ days: 7 }).toISO()!;
+
+  const { data: rawLectures } = await supabase
+    .from("lms_lecture_cache")
+    .select("id, batch_id, lecture_id, title, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
+    .in("batch_id", batchIds)
+    .gte("schedule", weekStart)
+    .lte("schedule", weekEnd)
+    .order("schedule", { ascending: false });
+
+  // Deduplicate by (batch_id, title, schedule) — merge compliance flags with OR
+  const dedupMap = new Map<string, LmsLecture>();
+  for (const l of rawLectures ?? []) {
+    const key = `${l.batch_id}::${l.schedule}::${l.title}`;
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, { ...l, batch_name: batchNameMap[l.batch_id] ?? `Batch ${l.batch_id}` });
+    } else {
+      dedupMap.set(key, {
+        ...existing,
+        preread_uploaded: existing.preread_uploaded || l.preread_uploaded,
+        notes_uploaded: existing.notes_uploaded || l.notes_uploaded,
+        assignment_uploaded: existing.assignment_uploaded || l.assignment_uploaded,
+      });
+    }
+  }
+  return [...dedupMap.values()];
+}
+
+type SearchParams = Promise<{ proxy?: string }>;
+
+export default async function CCDashboardPage({ searchParams }: { searchParams: SearchParams }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const isAdmin = await hasAdminAccess(user.id);
   if (isAdmin) redirect("/batch-details/dashboard");
 
+  const { proxy: proxyParam } = await searchParams;
   const supabase = createServerSupabase();
+  const tz = getAppTimezone();
 
-  // Get assigned batches
+  // ── Fetch all coordinators + authorization for the dropdown ──────────────
+  let coordinators: ProxyCoordinator[] = [];
+  try {
+    const today = DateTime.now().setZone(tz).toISODate()!;
+
+    const [{ data: allAssignments }, { data: coverages }] = await Promise.all([
+      supabase.from("cc_batch_assignments").select("cc_user_id"),
+      supabase
+        .from("cc_leave_coverage")
+        .select("on_leave_cc_id")
+        .eq("covering_cc_id", user.id)
+        .eq("coverage_date", today),
+    ]);
+
+    const allCcIds = [...new Set((allAssignments ?? []).map((a) => a.cc_user_id as string))].filter(
+      (id) => id !== user.id
+    );
+    const authorizedIds = new Set((coverages ?? []).map((c) => c.on_leave_cc_id as string));
+
+    if (allCcIds.length > 0) {
+      const { data: users } = await supabase.auth.admin.listUsers();
+      const nameMap: Record<string, { email: string; full_name: string }> = {};
+      for (const u of users?.users ?? []) {
+        nameMap[u.id] = { email: u.email ?? "", full_name: (u.user_metadata?.full_name as string) ?? "" };
+      }
+      coordinators = allCcIds
+        .map((id) => ({
+          user_id: id,
+          email: nameMap[id]?.email ?? "",
+          name: nameMap[id]?.full_name || nameMap[id]?.email || id,
+          authorized: authorizedIds.has(id),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+  } catch {
+    // Non-fatal — dropdown just won't show other CCs
+  }
+
+  // ── Resolve effective CC (self or authorized proxy) ──────────────────────
+  let effectiveCcId = user.id;
+  let proxyName: string | null = null;
+
+  if (proxyParam && proxyParam !== user.id) {
+    const authorizedProxy = coordinators.find(
+      (c) => c.user_id === proxyParam && c.authorized
+    );
+    if (authorizedProxy) {
+      effectiveCcId = proxyParam;
+      proxyName = authorizedProxy.name;
+    } else {
+      // Proxy not authorized — redirect cleanly to own dashboard
+      redirect("/cc/dashboard");
+    }
+  }
+
+  // ── Fetch effective CC's batch assignments ───────────────────────────────
   const { data: assignments } = await supabase
     .from("cc_batch_assignments")
     .select("batch_id, batch_name")
-    .eq("cc_user_id", user.id);
+    .eq("cc_user_id", effectiveCcId);
 
   if (!assignments || assignments.length === 0) {
+    if (proxyName) {
+      // Proxy CC has no batches
+      return (
+        <main className="flex min-h-screen flex-col items-center justify-center bg-[#080d1a] px-4 text-center">
+          <div className="max-w-sm">
+            <h1 className="text-xl font-bold text-white">No Batches Assigned</h1>
+            <p className="mt-3 text-sm text-slate-400">
+              {proxyName} has no batches configured.
+            </p>
+            <div className="mt-6">
+              <Link href="/cc/dashboard" className="rounded-full bg-slate-700 px-5 py-2 text-sm font-medium text-white hover:bg-slate-600">
+                Back to My Dashboard
+              </Link>
+            </div>
+          </div>
+        </main>
+      );
+    }
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-[#080d1a] px-4 text-center">
         <div className="max-w-sm">
@@ -78,42 +194,9 @@ export default async function CCDashboardPage() {
   }
 
   const batchIds = assignments.map((a) => a.batch_id);
-
-  // This week's window in IST
-  const tz = getAppTimezone();
-  const now = DateTime.now().setZone(tz);
-  const weekStart = now.startOf("week").toISO()!;
-  const weekEnd = now.startOf("week").plus({ days: 7 }).toISO()!;
-
-  const { data: rawLectures } = await supabase
-    .from("lms_lecture_cache")
-    .select("id, batch_id, lecture_id, title, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded")
-    .in("batch_id", batchIds)
-    .gte("schedule", weekStart)
-    .lte("schedule", weekEnd)
-    .order("schedule", { ascending: false });
-
-  // Attach batch_name and deduplicate by (batch_id, title, schedule).
-  // The LMS stores one row per section for the same live session, so the same
-  // lecture appears multiple times with different lecture_ids. We merge compliance
-  // flags with OR: if any section uploaded a resource, consider it uploaded.
   const batchNameMap = Object.fromEntries(assignments.map((a) => [a.batch_id, a.batch_name]));
-  const dedupMap = new Map<string, LmsLecture>();
-  for (const l of rawLectures ?? []) {
-    const key = `${l.batch_id}::${l.schedule}::${l.title}`;
-    const existing = dedupMap.get(key);
-    if (!existing) {
-      dedupMap.set(key, { ...l, batch_name: batchNameMap[l.batch_id] ?? `Batch ${l.batch_id}` });
-    } else {
-      dedupMap.set(key, {
-        ...existing,
-        preread_uploaded: existing.preread_uploaded || l.preread_uploaded,
-        notes_uploaded: existing.notes_uploaded || l.notes_uploaded,
-        assignment_uploaded: existing.assignment_uploaded || l.assignment_uploaded,
-      });
-    }
-  }
-  const lectures: LmsLecture[] = [...dedupMap.values()];
+
+  const lectures = await fetchLecturesForBatches(batchIds, batchNameMap, tz);
 
   // Saturday sessions whose notes/assignment are due Monday
   const mondayTodos = lectures.filter((l) => {
@@ -133,7 +216,10 @@ export default async function CCDashboardPage() {
     byBatch.get(l.batch_id)!.push(l);
   }
 
+  const now = DateTime.now().setZone(tz);
   const weekLabel = `${now.startOf("week").toFormat("dd MMM")} – ${now.startOf("week").plus({ days: 6 }).toFormat("dd MMM yyyy")}`;
+
+  const isProxy = Boolean(proxyName);
 
   return (
     <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -144,7 +230,12 @@ export default async function CCDashboardPage() {
             MasaiLens by Masai
           </h1>
           <p className="theme-muted mt-2 text-sm">
-            Signed in as {user.email} &bull; {assignments.length} batch{assignments.length === 1 ? "" : "es"} assigned
+            Signed in as {user.email}
+            {isProxy ? (
+              <> &bull; Viewing <strong>{proxyName}&apos;s</strong> dashboard</>
+            ) : (
+              <> &bull; {assignments.length} batch{assignments.length === 1 ? "" : "es"} assigned</>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -156,6 +247,17 @@ export default async function CCDashboardPage() {
           <LogoutButton />
         </div>
       </section>
+
+      {/* CC Proxy Selector — always shown if other CCs exist */}
+      {coordinators.length > 0 && (
+        <section>
+          <CcProxySelector
+            coordinators={coordinators}
+            currentProxyId={isProxy ? effectiveCcId : null}
+            currentProxyName={proxyName}
+          />
+        </section>
+      )}
 
       {/* Summary strip */}
       <section className="summary-strip theme-panel grid gap-4 rounded-[2rem] p-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -177,12 +279,12 @@ export default async function CCDashboardPage() {
         </div>
       </section>
 
-      {/* Monday To-Dos — Saturday sessions with pending resources */}
+      {/* Monday To-Dos */}
       {mondayTodos.length > 0 && (
         <section className="rounded-[2rem] border border-amber-500/30 bg-amber-950/20 p-6">
           <h2 className="mb-1 font-[var(--font-heading)] text-xl font-bold text-amber-300">Monday To-Dos</h2>
           <p className="mb-5 text-sm text-amber-400/80">
-            These Saturday sessions have pending resources — send Notes &amp; Assignment by{" "}
+            {isProxy ? `${proxyName}'s` : "These"} Saturday sessions have pending resources — send Notes &amp; Assignment by{" "}
             <strong>
               {DateTime.fromISO(mondayTodos[0].schedule).setZone(tz).plus({ days: 2 }).toFormat("dd MMM yyyy")}, 3:00 PM
             </strong>
