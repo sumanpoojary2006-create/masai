@@ -14,8 +14,6 @@ export function BatchDetailsHeaderNav({ canViewResources }: { canViewResources: 
 
   const allBatchesActive = pathname === "/batch-details/dashboard" || pathname.startsWith("/batch-details/batch/");
   const resourcesActive = pathname.startsWith("/batch-details/resources-dashboard");
-  const instructorCalendarActive = pathname.startsWith("/batch-details/instructor-calendar");
-  const ccMappingActive = pathname.startsWith("/batch-details/cc-mapping");
   const educatorsActive = pathname.startsWith("/batch-details/educators");
 
   return (
@@ -29,22 +27,6 @@ export function BatchDetailsHeaderNav({ canViewResources }: { canViewResources: 
           className={getLinkClasses(resourcesActive)}
         >
           Resources Dashboard
-        </Link>
-      ) : null}
-      {canViewResources ? (
-        <Link
-          href="/batch-details/instructor-calendar"
-          className={getLinkClasses(instructorCalendarActive)}
-        >
-          Instructor Calendar
-        </Link>
-      ) : null}
-      {canViewResources ? (
-        <Link
-          href="/batch-details/cc-mapping"
-          className={getLinkClasses(ccMappingActive)}
-        >
-          CC Batch Mapping
         </Link>
       ) : null}
       {canViewResources ? (

@@ -10,7 +10,7 @@ import { createBrowserSupabase } from '@/lib/supabase-browser'
 export function BatchDashboardClient() {
   const router = useRouter()
   const { batches, loading, refetch } = useBatches()
-  const { canEdit, isAdmin } = useMyRole()
+  const { canEdit } = useMyRole()
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -72,15 +72,7 @@ export function BatchDashboardClient() {
           >
             {exporting ? 'Exporting…' : '↓ Export'}
           </button>
-          {isAdmin && (
-            <button
-              onClick={() => router.push('/batch-details/instructor-calendar')}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-emerald-400/20 bg-[linear-gradient(135deg,rgba(16,185,129,0.2),rgba(6,182,212,0.18))] px-4 text-sm font-semibold text-emerald-100 transition hover:translate-y-[-1px] hover:border-emerald-300/30 hover:text-white"
-            >
-              Instructor Calendar
-            </button>
-          )}
-          {canEdit && (
+{canEdit && (
             <button
               onClick={handleCreateBatch}
               disabled={creating}

@@ -3,7 +3,6 @@
 import {
   startTransition,
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useState
@@ -12,18 +11,16 @@ import { DateTime } from "luxon";
 
 import type {
   BatchLeaderboardRow,
-  CoordinatorMappingRow,
   ResourceLeaderboardRow,
   ResourcesDashboardData
 } from "@/lib/resources-dashboard";
 
-type DashboardTab = "dashboard" | "ccLeaderboard" | "batchLeaderboard" | "ccMapping";
+type DashboardTab = "dashboard" | "ccLeaderboard" | "batchLeaderboard";
 
 const SIDEBAR_TABS: Array<{ key: DashboardTab; label: string; eyebrow: string }> = [
   { key: "dashboard", label: "Dashboard", eyebrow: "Overview" },
   { key: "ccLeaderboard", label: "CC Leaderboard", eyebrow: "Ranking" },
   { key: "batchLeaderboard", label: "Batch Leaderboard", eyebrow: "Discipline" },
-  { key: "ccMapping", label: "CC Mapping", eyebrow: "Ownership" }
 ];
 
 const RESOURCE_LABELS = {
@@ -40,15 +37,9 @@ function clsx(...values: Array<string | false | null | undefined>) {
 }
 
 function formatDateTime(iso: string | null | undefined) {
-  if (!iso) {
-    return "Unavailable";
-  }
-
+  if (!iso) return "Unavailable";
   const value = DateTime.fromISO(iso, { zone: "utc" }).setZone(TZ);
-  if (!value.isValid) {
-    return "Unavailable";
-  }
-
+  if (!value.isValid) return "Unavailable";
   return value.toFormat("dd LLL yyyy, hh:mm a");
 }
 
@@ -57,18 +48,9 @@ function formatPercent(value: number) {
 }
 
 function rankTone(rank: number) {
-  if (rank === 0) {
-    return "border-amber-400/40 bg-amber-500/15 text-amber-200";
-  }
-
-  if (rank === 1) {
-    return "border-slate-500/50 bg-slate-500/15 text-slate-200";
-  }
-
-  if (rank === 2) {
-    return "border-orange-500/40 bg-orange-500/15 text-orange-200";
-  }
-
+  if (rank === 0) return "border-amber-400/40 bg-amber-500/15 text-amber-200";
+  if (rank === 1) return "border-slate-500/50 bg-slate-500/15 text-slate-200";
+  if (rank === 2) return "border-orange-500/40 bg-orange-500/15 text-orange-200";
   return "border-slate-700/80 bg-slate-900/70 text-slate-300";
 }
 
@@ -124,15 +106,7 @@ function LegendDot({ className }: { className: string }) {
   return <span className={clsx("h-2.5 w-2.5 rounded-full", className)} />;
 }
 
-function StackedBar({
-  onTime,
-  late,
-  pending
-}: {
-  onTime: number;
-  late: number;
-  pending: number;
-}) {
+function StackedBar({ onTime, late, pending }: { onTime: number; late: number; pending: number }) {
   const total = Math.max(onTime + late + pending, 1);
   return (
     <div className="h-3 overflow-hidden rounded-full bg-slate-900/90">
@@ -159,7 +133,6 @@ function BarRow({
   helper: string;
 }) {
   const pct = max > 0 ? Math.max((value / max) * 100, value > 0 ? 6 : 0) : 0;
-
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
@@ -183,7 +156,6 @@ function PercentagePill({ percentage }: { percentage: number }) {
       : percentage >= 50
         ? "border-amber-400/30 bg-amber-500/12 text-amber-100"
         : "border-rose-400/30 bg-rose-500/12 text-rose-200";
-
   return (
     <span className={clsx("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", tone)}>
       {formatPercent(percentage)}
@@ -252,7 +224,7 @@ function LeaderboardTable({
 
               return (
                 <tr
-                  key={isCcRow ? ccRow.coordinatorEmail ?? ccRow.coordinatorName : batchRow.batchName}
+                  key={isCcRow ? (ccRow.coordinatorEmail ?? ccRow.coordinatorName) : batchRow.batchName}
                   className="border-b border-slate-900/80 last:border-b-0"
                 >
                   <td className="px-4 py-4">
@@ -272,7 +244,7 @@ function LeaderboardTable({
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {isCcRow
-                          ? ccRow.coordinatorEmail ?? "No email mapped"
+                          ? (ccRow.coordinatorEmail ?? "No email mapped")
                           : `${batchRow.perfectRate}% on-time release rate`}
                       </p>
                     </div>
@@ -308,68 +280,6 @@ function LeaderboardTable({
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function MappingRow({
-  row,
-  expanded,
-  onToggle
-}: {
-  row: CoordinatorMappingRow;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="rounded-[24px] border border-slate-800/80 bg-slate-950/70 p-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <button
-            type="button"
-            onClick={onToggle}
-            className="inline-flex items-center gap-2 text-left text-base font-semibold text-white transition hover:text-cyan-200"
-          >
-            <span className="text-cyan-300">{expanded ? "−" : "+"}</span>
-            {row.coordinatorName}
-          </button>
-          <p className="mt-2 text-sm text-slate-500">{row.coordinatorEmail ?? "No email mapped"}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-slate-700/80 bg-slate-900/80 px-3 py-1 text-xs font-medium text-slate-300">
-            Assigned batches ({row.assignedBatches.length})
-          </span>
-          <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200">
-            {row.onTimeReleases} on-time
-          </span>
-          <span className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1 text-xs font-medium text-rose-200">
-            {row.lateReleases} late
-          </span>
-          <PercentagePill percentage={row.perfectRate} />
-        </div>
-      </div>
-
-      {expanded ? (
-        <div className="mt-4 rounded-[20px] border border-slate-800/80 bg-slate-900/70 p-4">
-          <p className="mb-3 text-sm font-semibold text-slate-200">
-            Assigned batch names ({row.assignedBatches.length})
-          </p>
-          {row.assignedBatches.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {row.assignedBatches.map((batchName) => (
-                <span
-                  key={batchName}
-                  className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-100"
-                >
-                  {batchName}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">No assigned batches mapped yet.</p>
-          )}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -464,10 +374,7 @@ function DashboardOverview({ data }: { data: ResourcesDashboardData }) {
             </div>
           </Panel>
 
-          <Panel
-            title="Top CCs"
-            subtitle="Quick view of the strongest current performers."
-          >
+          <Panel title="Top CCs" subtitle="Quick view of the strongest current performers.">
             {topCoordinators.length > 0 ? (
               <div className="space-y-3">
                 {topCoordinators.map((row, index) => (
@@ -480,7 +387,7 @@ function DashboardOverview({ data }: { data: ResourcesDashboardData }) {
                         #{index + 1} {row.coordinatorName}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
-                        {row.onTimeReleases} on-time • {row.lateReleases} late
+                        {row.onTimeReleases} on-time · {row.lateReleases} late
                       </p>
                     </div>
                     <PercentagePill percentage={row.perfectRate} />
@@ -506,9 +413,7 @@ export function ResourcesDashboardClient() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<DashboardTab>("dashboard");
-  const [search, setSearch] = useState("");
-  const [expandedCoordinators, setExpandedCoordinators] = useState<Record<string, boolean>>({});
-  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
+  const [ccSearch, setCcSearch] = useState("");
 
   const loadData = useCallback(async (silent = false) => {
     if (silent) {
@@ -516,17 +421,12 @@ export function ResourcesDashboardClient() {
     } else {
       setLoading(true);
     }
-
     try {
-      const response = await fetch("/api/batch-details/resources-dashboard", {
-        cache: "no-store"
-      });
-
+      const response = await fetch("/api/batch-details/resources-dashboard", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload?.message ?? "Failed to load resources dashboard data.");
       }
-
       setData(payload as ResourcesDashboardData);
       setError(null);
     } catch (fetchError) {
@@ -542,49 +442,26 @@ export function ResourcesDashboardClient() {
 
   useEffect(() => {
     void loadData(false);
-    const timer = window.setInterval(() => {
-      void loadData(true);
-    }, REFRESH_INTERVAL_MS);
-
+    const timer = window.setInterval(() => { void loadData(true); }, REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [loadData]);
 
-  const filteredMapping = useMemo(() => {
-    if (!data) {
-      return [];
-    }
-
-    if (!deferredSearch) {
-      return data.ccMapping;
-    }
-
-    return data.ccMapping.filter((row) => {
-      const haystack = [
-        row.coordinatorName,
-        row.coordinatorEmail ?? "",
-        row.assignedBatches.join(" ")
-      ]
+  const filteredCcLeaderboard = useMemo(() => {
+    if (!data) return [];
+    const q = ccSearch.trim().toLowerCase();
+    if (!q) return data.ccLeaderboard;
+    return data.ccLeaderboard.filter((row) =>
+      [row.coordinatorName, row.coordinatorEmail ?? "", row.assignedBatches.join(" ")]
         .join(" ")
-        .toLowerCase();
-
-      return haystack.includes(deferredSearch);
-    });
-  }, [data, deferredSearch]);
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [data, ccSearch]);
 
   const lastUpdatedLabel = data ? formatDateTime(data.lastUpdatedAt) : "Loading";
-  const expandedCount = filteredMapping.filter((row) => expandedCoordinators[row.coordinatorEmail ?? row.coordinatorName]).length;
-
-  function toggleCoordinator(key: string) {
-    setExpandedCoordinators((current) => ({
-      ...current,
-      [key]: !current[key]
-    }));
-  }
 
   function openTab(tab: DashboardTab) {
-    startTransition(() => {
-      setActiveTab(tab);
-    });
+    startTransition(() => { setActiveTab(tab); });
   }
 
   if (loading) {
@@ -609,6 +486,7 @@ export function ResourcesDashboardClient() {
 
   return (
     <div className="space-y-6 text-slate-200">
+      {/* Hero header */}
       <div className="rounded-[30px] border border-slate-800/90 bg-[radial-gradient(circle_at_top_left,rgba(45,212,191,0.14),transparent_24%),radial-gradient(circle_at_right,rgba(248,113,113,0.12),transparent_30%),linear-gradient(135deg,rgba(8,14,24,0.99),rgba(5,9,16,0.98))] p-6 shadow-[0_30px_90px_rgba(2,6,23,0.45)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
@@ -619,12 +497,10 @@ export function ResourcesDashboardClient() {
               Resources Dashboard
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-400">
-              A fresh MasaiLens-powered workspace for release discipline, coordinator rankings,
-              batch rankings, and CC-to-batch ownership. Ranking is driven by on-time release
-              percentage, while pending resources stay visible until they cross the deadline.
+              Release discipline, coordinator rankings, and batch rankings — powered by
+              real-time compliance data. Rankings are driven by on-time release percentage.
             </p>
           </div>
-
           <div className="flex flex-col items-start gap-3 xl:items-end">
             <button
               type="button"
@@ -640,8 +516,9 @@ export function ResourcesDashboardClient() {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="space-y-4">
+      {/* Layout: sidebar + content */}
+      <div className="grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
+        <aside>
           <div className="rounded-[28px] border border-slate-800/90 bg-[linear-gradient(180deg,rgba(8,14,24,0.98),rgba(4,8,15,0.98))] p-4 shadow-[0_24px_70px_rgba(2,6,23,0.36)]">
             <div className="mb-3 px-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -674,76 +551,41 @@ export function ResourcesDashboardClient() {
               })}
             </div>
           </div>
-
         </aside>
 
         <main className="min-w-0">
-          {activeTab === "dashboard" ? <DashboardOverview data={data} /> : null}
+          {activeTab === "dashboard" && <DashboardOverview data={data} />}
 
-          {activeTab === "ccLeaderboard" ? (
+          {activeTab === "ccLeaderboard" && (
             <div className="space-y-4">
               <Panel
                 title="CC Leaderboard"
-                subtitle="Ranked by on-time release percentage, with on-time release count used as the tie-breaker."
+                subtitle="Ranked by on-time release percentage. Use the search to filter by name, email, or batch."
               >
-                <LeaderboardTable rows={data.ccLeaderboard} type="cc" />
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    value={ccSearch}
+                    onChange={(e) => setCcSearch(e.target.value)}
+                    placeholder="Search by CC name, email, or batch…"
+                    className="w-full max-w-sm rounded-full border border-slate-700 bg-slate-950/90 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
+                  />
+                </div>
+                <LeaderboardTable rows={filteredCcLeaderboard} type="cc" />
               </Panel>
             </div>
-          ) : null}
+          )}
 
-          {activeTab === "batchLeaderboard" ? (
+          {activeTab === "batchLeaderboard" && (
             <div className="space-y-4">
               <Panel
                 title="Batch Leaderboard"
-                subtitle="Ranked by on-time release percentage, with on-time resource count used as the tie-breaker."
+                subtitle="Ranked by on-time release percentage, with on-time resource count as the tie-breaker."
               >
                 <LeaderboardTable rows={data.batchLeaderboard} type="batch" />
               </Panel>
             </div>
-          ) : null}
-
-          {activeTab === "ccMapping" ? (
-            <div className="space-y-4">
-              <Panel
-                title="CC Mapping"
-                subtitle="Search CCs by name, email, or batch. Expand a coordinator to inspect assigned batches."
-              >
-                <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search by CC name or batch…"
-                    className="w-full rounded-full border border-slate-700 bg-slate-950/90 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/20 lg:max-w-sm"
-                  />
-                  <p className="text-sm text-slate-500">
-                    {filteredMapping.length} coordinators shown • {expandedCount} expanded
-                  </p>
-                </div>
-
-                {filteredMapping.length > 0 ? (
-                  <div className="space-y-3">
-                    {filteredMapping.map((row) => {
-                      const key = row.coordinatorEmail ?? row.coordinatorName;
-                      return (
-                        <MappingRow
-                          key={key}
-                          row={row}
-                          expanded={Boolean(expandedCoordinators[key])}
-                          onToggle={() => toggleCoordinator(key)}
-                        />
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="No CCs match that search"
-                    body="Try a coordinator name, email handle, or one of the assigned batch names."
-                  />
-                )}
-              </Panel>
-            </div>
-          ) : null}
+          )}
         </main>
       </div>
     </div>
