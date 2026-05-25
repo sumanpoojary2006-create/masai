@@ -6,6 +6,7 @@ import { redirect, notFound } from "next/navigation";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LectureComplianceTable } from "@/components/cc/LectureComplianceTable";
+import { CcCurriculumUpload } from "@/components/cc/CcCurriculumUpload";
 import { getCurrentUser } from "@/lib/auth";
 import { createServerSupabase } from "@/lib/supabase";
 import { hasAdminAccess } from "@/lib/admin-access";
@@ -25,8 +26,9 @@ export default async function CCBatchPage({
   const batchId = parseInt(batchIdStr, 10);
   if (Number.isNaN(batchId)) notFound();
 
-  // Verify this batch is assigned to the CC
   const supabase = createServerSupabase();
+
+  // Verify this batch is assigned to the current CC
   const { data: assignment } = await supabase
     .from("cc_batch_assignments")
     .select("batch_name, batch_program")
@@ -35,6 +37,15 @@ export default async function CCBatchPage({
     .maybeSingle();
 
   if (!assignment) notFound();
+
+  // Fetch current curriculum count for this batch
+  const { data: curriculumRows } = await supabase
+    .from("batch_curriculums")
+    .select("id")
+    .eq("batch_name", assignment.batch_name)
+    .is("user_id", null);
+
+  const curriculumCount = curriculumRows?.length ?? 0;
 
   return (
     <div className="min-h-screen bg-[#080d1a]">
@@ -63,14 +74,23 @@ export default async function CCBatchPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-white">Lecture Compliance</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Pre-read, Notes, and Assignment upload status for each live lecture.
-          </p>
-        </div>
-        <LectureComplianceTable batchId={batchId} />
+      <main className="mx-auto max-w-6xl space-y-8 px-4 py-8">
+        {/* Curriculum upload */}
+        <CcCurriculumUpload
+          batchName={assignment.batch_name}
+          initialCount={curriculumCount}
+        />
+
+        {/* Lecture compliance */}
+        <section>
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-white">Lecture Compliance</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Pre-read, Notes, and Assignment upload status for each live lecture.
+            </p>
+          </div>
+          <LectureComplianceTable batchId={batchId} />
+        </section>
       </main>
     </div>
   );

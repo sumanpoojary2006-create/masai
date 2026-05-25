@@ -8,7 +8,10 @@ import { parseCurriculumWorkbook } from "@/lib/importer";
 import { createServerSupabase } from "@/lib/supabase";
 
 /**
- * POST — Admin uploads a curriculum file (CSV/XLSX) for a batch.
+ * POST — Upload a curriculum file (CSV/XLSX) for a batch.
+ * Admins can upload for any batch.
+ * CCs can upload only for their own assigned batches.
+ *
  * FormData fields:
  *   file       — the CSV or Excel file
  *   batch_name — the target batch name (must match lms_batch_cache)
@@ -17,9 +20,6 @@ export async function POST(request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
-
-    const isAdmin = await hasAdminAccess(user.id);
-    if (!isAdmin) return NextResponse.json({ message: "Forbidden" }, { status: 403 });
 
     const formData = await request.formData();
     const file = formData.get("file");
@@ -39,6 +39,26 @@ export async function POST(request: Request) {
       );
     }
 
+    const supabase = createServerSupabase();
+    const isAdmin = await hasAdminAccess(user.id);
+
+    if (!isAdmin) {
+      // CCs may only upload for their own assigned batches
+      const { data: assignment } = await supabase
+        .from("cc_batch_assignments")
+        .select("batch_name")
+        .eq("cc_user_id", user.id)
+        .eq("batch_name", batchName)
+        .maybeSingle();
+
+      if (!assignment) {
+        return NextResponse.json(
+          { message: "You can only upload curriculum for your assigned batches." },
+          { status: 403 }
+        );
+      }
+    }
+
     const fileBuffer = Buffer.from(await file.arrayBuffer());
     const rows = parseCurriculumWorkbook(fileBuffer);
 
@@ -48,8 +68,6 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-
-    const supabase = createServerSupabase();
 
     // Delete existing global curriculum for this batch before re-uploading
     await supabase
@@ -63,7 +81,7 @@ export async function POST(request: Request) {
         user_id: null,
         batch_name: batchName,
         lecture_name: row.lecture_name,
-        learning_objective: row.learning_objective
+        learning_objective: row.learning_objective,
       }))
     );
 
@@ -71,7 +89,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       message: `Uploaded ${rows.length} curriculum entries for batch "${batchName}".`,
-      count: rows.length
+      count: rows.length,
     });
   } catch (err) {
     return NextResponse.json(
