@@ -4,8 +4,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
 
-import { LogoutButton } from "@/components/logout-button";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { MasaiLensLogo } from "@/components/masai-lens-logo";
+import { BottomNav } from "@/components/bottom-nav";
 import { CcProxySelector, type ProxyCoordinator } from "@/components/cc/CcProxySelector";
 import { getCurrentUser } from "@/lib/auth";
 import { createServerSupabase } from "@/lib/supabase";
@@ -206,7 +206,7 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
             Contact your Admin to get your batches configured.
           </p>
           <div className="mt-6">
-            <LogoutButton />
+            <BottomNav />
           </div>
         </div>
       </main>
@@ -242,28 +242,42 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
   const isProxy = Boolean(proxyName);
 
   return (
-    <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
+    <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 pb-28 pt-6 sm:px-6 lg:px-8">
       {/* Header */}
-      <section className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink sm:text-4xl">
-            MasaiLens by Masai
-          </h1>
-          <p className="theme-muted mt-2 text-sm">
-            Signed in as {user.email}
-            {isProxy ? (
-              <> &bull; Viewing <strong>{proxyName}&apos;s</strong> dashboard</>
-            ) : (
-              <> &bull; {assignments.length} batch{assignments.length === 1 ? "" : "es"} assigned</>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link href="/lo-tracker" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">LO Tracker</Link>
-<Link href="/weekly-report" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Weekly Report</Link>
-          <Link href="/profile" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Profile</Link>
-          <ThemeToggle />
-          <LogoutButton />
+      <section
+        style={{
+          background: "linear-gradient(135deg, #0b1018 0%, #151d2e 50%, #0b1018 100%)",
+          border: "1px solid rgba(255,255,255,0.07)",
+          borderRadius: "1.5rem",
+          padding: "1.25rem 1.75rem",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <MasaiLensLogo iconSize={48} />
+            <p className="text-xs text-slate-600 pl-1">
+              {user.email}
+              {isProxy ? (
+                <span className="ml-2 text-amber-500">&bull; Viewing <strong>{proxyName}</strong></span>
+              ) : (
+                <span className="ml-2 text-slate-500">&bull; {assignments.length} batch{assignments.length === 1 ? "" : "es"} assigned</span>
+              )}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-col items-end gap-0.5">
+              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400 opacity-80">Completed</p>
+              <p className="text-3xl font-bold text-emerald-400">{completed}</p>
+            </div>
+            <div className="flex flex-col items-end gap-0.5">
+              <p className="text-xs font-semibold uppercase tracking-widest text-amber-400 opacity-80">Pending</p>
+              <p className="text-3xl font-bold text-amber-400">{pending}</p>
+            </div>
+            <div className="flex flex-col items-end gap-0.5">
+              <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 opacity-80">Lectures</p>
+              <p className="text-3xl font-bold text-white">{lectures.length}</p>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -397,6 +411,8 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
           </div>
         )}
       </section>
+
+      <BottomNav />
     </main>
   );
 }

@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MasaiLens by Masai",
+  title: "masai Lens",
   description:
-    "Track lecture resource uploads, monitor LMS compliance, and trigger Slack alerts from one shared MasaiLens workspace."
+    "Track lecture resource uploads, monitor LMS compliance, and trigger Slack alerts from one shared masai Lens workspace."
 };
 
 export default function RootLayout({

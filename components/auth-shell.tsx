@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { MasaiLensLogo } from "@/components/masai-lens-logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export function AuthShell({
@@ -16,8 +17,8 @@ export function AuthShell({
   return (
     <main className="app-shell mx-auto flex min-h-screen w-full max-w-6xl flex-col overflow-x-hidden px-4 py-10 sm:px-6 lg:px-8">
       <div className="flex items-center justify-between gap-4">
-        <Link href="/" className="font-[var(--font-heading)] text-2xl font-bold text-ink">
-          MasaiLens by Masai
+        <Link href="/" aria-label="masai Lens home">
+          <MasaiLensLogo iconSize={44} />
         </Link>
         <ThemeToggle />
       </div>

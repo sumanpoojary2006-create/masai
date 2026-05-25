@@ -7,7 +7,59 @@ import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { StatusPill } from "@/components/status-pill";
 import { TopProgressBar } from "@/components/top-progress-bar";
 import { formatDeadline, formatLectureDate, formatLectureTime } from "@/lib/deadlines";
-import { DashboardLecture, TaskStatus } from "@/lib/types";
+import { DashboardLecture, TaskRecord, TaskStatus } from "@/lib/types";
+
+function TaskStatusRing({ task, label }: { task: TaskRecord | null | undefined; label: string }) {
+  const r1 = 16, r2 = 10;
+  const c1 = 2 * Math.PI * r1;
+  const c2 = 2 * Math.PI * r2;
+
+  if (!task) {
+    return (
+      <svg width="40" height="40" viewBox="0 0 40 40" aria-label={`${label}: not created`}>
+        <circle cx="20" cy="20" r={r1} fill="none" stroke="#1e2535" strokeWidth="3" />
+        <circle cx="20" cy="20" r={r2} fill="none" stroke="#1e2535" strokeWidth="2.5" />
+      </svg>
+    );
+  }
+
+  const now = Date.now();
+  const deadlinePassed = !Number.isNaN(Date.parse(task.deadline)) && now > Date.parse(task.deadline);
+  const effectiveStatus = task.status === "pending" && deadlinePassed ? "missed" : task.status;
+
+  const color =
+    effectiveStatus === "completed" ? "#10b981"
+    : effectiveStatus === "missed" ? "#ef4444"
+    : "#f59e0b";
+
+  const off1 = effectiveStatus === "completed" ? 0 : effectiveStatus === "missed" ? c1 * 0.8 : c1 * 0.42;
+  const off2 = effectiveStatus === "completed" ? 0 : effectiveStatus === "missed" ? c2 * 0.8 : c2 * 0.42;
+
+  return (
+    <svg width="40" height="40" viewBox="0 0 40 40" aria-label={`${label}: ${effectiveStatus}`}>
+      {/* Outer ring track */}
+      <circle cx="20" cy="20" r={r1} fill="none" stroke={color} strokeOpacity="0.18" strokeWidth="3" />
+      {/* Outer ring progress */}
+      <circle
+        cx="20" cy="20" r={r1}
+        fill="none" stroke={color} strokeWidth="3"
+        strokeDasharray={c1} strokeDashoffset={off1}
+        strokeLinecap="round"
+        transform="rotate(-90 20 20)"
+      />
+      {/* Inner ring track */}
+      <circle cx="20" cy="20" r={r2} fill="none" stroke={color} strokeOpacity="0.18" strokeWidth="2.5" />
+      {/* Inner ring progress */}
+      <circle
+        cx="20" cy="20" r={r2}
+        fill="none" stroke={color} strokeWidth="2.5"
+        strokeDasharray={c2} strokeDashoffset={off2}
+        strokeLinecap="round"
+        transform="rotate(-90 20 20)"
+      />
+    </svg>
+  );
+}
 
 const STATUS_FILTERS: Array<TaskStatus | "all"> = [
   "all",
@@ -287,7 +339,7 @@ export function DashboardClient({ lectures, proxyUserId }: { lectures: Dashboard
     return (
       <>
         <TopProgressBar isLoading={isSyncing} />
-      <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-12 text-center shadow-panel dark:border-slate-700 dark:bg-slate-800/40">
+      <div className="rounded-3xl border border-dashed border-slate-700/60 bg-slate-900/40 p-12 text-center dark:border-slate-700 dark:bg-slate-900/40">
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
           No Data Yet
         </p>
@@ -329,7 +381,7 @@ export function DashboardClient({ lectures, proxyUserId }: { lectures: Dashboard
     <>
       <TopProgressBar isLoading={isSyncing} />
     <div className="space-y-8">
-      <section className="theme-panel rounded-3xl p-6 shadow-panel backdrop-blur">
+      <section className="rounded-3xl border border-slate-700/50 bg-slate-900/50 p-6 shadow-panel backdrop-blur dark:border-slate-700/50 dark:bg-slate-900/50">
         <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start lg:gap-6">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-brand">
@@ -691,85 +743,102 @@ export function DashboardClient({ lectures, proxyUserId }: { lectures: Dashboard
             {groupedLectures.map(([batchName, batchLectures]) => (
               <div
                 key={batchName}
-                className="theme-subpanel overflow-hidden rounded-3xl"
+                className="overflow-hidden rounded-2xl border border-slate-700/50 bg-slate-900/40 dark:border-slate-700/50 dark:bg-slate-900/40"
               >
-                <div className="theme-subpanel-header px-5 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-                    Batch
-                  </p>
-                  <h3 className="mt-1 font-[var(--font-heading)] text-xl font-bold text-ink">
-                    {batchName}
-                  </h3>
-                  <p className="theme-muted mt-1 text-sm">
-                    {batchLectures.length} lecture{batchLectures.length === 1 ? "" : "s"}
-                  </p>
+                {/* Batch header */}
+                <div className="flex items-center justify-between border-b border-slate-700/40 bg-slate-900/60 px-5 py-4 dark:bg-slate-900/60">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Batch
+                    </p>
+                    <h3 className="mt-0.5 font-[var(--font-heading)] text-lg font-bold text-white dark:text-white">
+                      {batchName}{" "}
+                      <span className="font-normal text-slate-400">
+                        | {batchLectures.length} lecture{batchLectures.length === 1 ? "" : "s"}
+                      </span>
+                    </h3>
+                  </div>
+                  {/* Watermark logo */}
+                  <div style={{ opacity: 0.45 }}>
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        letterSpacing: "0.06em",
+                        color: "#64748b",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      MasaiLens
+                    </span>
+                  </div>
                 </div>
 
-                <div className="overflow-x-auto px-5 py-2">
-                  <table className="w-full table-fixed divide-y divide-slate-200/70 dark:divide-slate-700/70">
-                    <thead>
-                      <tr className="text-left text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                        <th className="w-[30%] pb-3 pr-4 pt-3">Lecture</th>
-                        <th className="w-[15%] pb-3 pr-4 pt-3">Schedule</th>
-                        <th className="w-[15%] pb-3 pr-4 pt-3">Pre-read</th>
-                        <th className="w-[15%] pb-3 pr-4 pt-3">Notes</th>
-                        <th className="w-[15%] pb-3 pr-4 pt-3">Assignment</th>
-                        <th className="w-[10%] pb-3 pt-3">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100/80 dark:divide-slate-700/60">
-                      {batchLectures.map((lecture) => (
-                        <Fragment key={lecture.id}>
-                          <tr className="align-top">
-                            <td className="py-4 pr-4">
-                              <p className="font-semibold text-ink">{lecture.lecture_name}</p>
-                              <p className="theme-muted mt-1 text-xs font-medium uppercase tracking-wider">
-                                Lecture ID: <span className="text-brand">{getDisplayLectureId(lecture)}</span>
-                              </p>
-                            </td>
-                            <td className="theme-muted py-4 pr-4 text-sm">
-                              <p>{formatLectureDate(lecture.lecture_date)}</p>
-                              <p className="mt-1">{formatLectureTime(lecture.start_time)}</p>
-                            </td>
-                            <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "preread")}</td>
-                            <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "notes")}</td>
-                            <td className="py-4 pr-4 align-top">{renderTaskCell(lecture, "assignment")}</td>
-                            <td className="py-4">
-                              <div className="flex items-start">
-                                <button
-                                  type="button"
-                                  disabled={isPending && deletingId === lecture.id}
-                                  onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
-                                  title="Delete lecture"
-                                  aria-label="Delete lecture"
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-300 text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/40 dark:disabled:border-slate-700 dark:disabled:text-slate-600"
+                {/* Timeline lecture list */}
+                <div className="divide-y divide-slate-800/60">
+                  {batchLectures.map((lecture) => (
+                    <Fragment key={lecture.id}>
+                      <div className="flex items-center gap-4 px-5 py-4">
+                        {/* Date/time column */}
+                        <div className="flex w-28 shrink-0 flex-col items-start gap-0.5">
+                          <div className="mb-1 h-2 w-2 rounded-full bg-slate-600" />
+                          <p className="text-sm font-medium text-slate-300">
+                            {formatLectureDate(lecture.lecture_date)}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {formatLectureTime(lecture.start_time)}
+                          </p>
+                        </div>
+
+                        {/* Lecture card */}
+                        <div className="flex flex-1 items-center justify-between gap-4 rounded-xl border border-slate-700/40 bg-slate-800/40 px-5 py-4">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-white">
+                              {lecture.lecture_name}
+                            </p>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              (ID: {getDisplayLectureId(lecture)})
+                            </p>
+                          </div>
+
+                          {/* Status rings + delete */}
+                          <div className="flex shrink-0 items-center gap-1">
+                            <TaskStatusRing task={lecture.tasks.preread} label="Pre-read" />
+                            <TaskStatusRing task={lecture.tasks.notes} label="Notes" />
+                            <TaskStatusRing task={lecture.tasks.assignment} label="Assignment" />
+
+                            <button
+                              type="button"
+                              disabled={isPending && deletingId === lecture.id}
+                              onClick={() => handleDelete(lecture.id, lecture.lecture_name)}
+                              title="Delete lecture"
+                              aria-label="Delete lecture"
+                              className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-800/50 text-rose-500/70 transition hover:border-rose-500 hover:bg-rose-950/40 hover:text-rose-400 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {deletingId === lecture.id ? (
+                                <span className="text-[10px] font-semibold">...</span>
+                              ) : (
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  className="h-4 w-4"
                                 >
-                                  {deletingId === lecture.id ? (
-                                    <span className="text-[10px] font-semibold">...</span>
-                                  ) : (
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      className="h-4 w-4"
-                                    >
-                                      <path d="M3 6h18" />
-                                      <path d="M8 6V4h8v2" />
-                                      <path d="M19 6l-1 14H6L5 6" />
-                                      <path d="M10 11v6" />
-                                      <path d="M14 11v6" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        </Fragment>
-                      ))}
-                    </tbody>
-                  </table>
+                                  <path d="M3 6h18" />
+                                  <path d="M8 6V4h8v2" />
+                                  <path d="M19 6l-1 14H6L5 6" />
+                                  <path d="M10 11v6" />
+                                  <path d="M14 11v6" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </Fragment>
+                  ))}
                 </div>
               </div>
             ))}
