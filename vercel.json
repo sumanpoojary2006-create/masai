@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/admin/cc-management/sync-all-lectures",
-      "schedule": "30 20 * * 6"
+      "schedule": "30 20 * * *"
     }
   ]
 }
