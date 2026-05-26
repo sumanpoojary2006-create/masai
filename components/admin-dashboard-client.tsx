@@ -549,17 +549,6 @@ export function AdminDashboardClient({
               ))}
             </nav>
 
-            {/* Support Tickets link */}
-            <Link
-              href="/admin/support-tickets"
-              className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium text-amber-300 hover:bg-white/5 hover:text-amber-200 transition"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/10 text-xs font-semibold">
-                🎫
-              </span>
-              Support Tickets
-            </Link>
-
             <div className="rounded-[26px] border border-white/8 bg-gradient-to-b from-[#121b34] to-[#0f1730] p-5">
               <div className="flex items-center justify-between">
                 <div>
