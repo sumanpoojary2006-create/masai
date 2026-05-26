@@ -7,8 +7,9 @@ import { BatchDashboardClient } from "@/components/batch/BatchDashboardClient";
 import { CCManagementTab } from "@/components/admin/CCManagementTab";
 import { CurriculumTab } from "@/components/admin/CurriculumTab";
 import { LeaveCoverageTab } from "@/components/admin/LeaveCoverageTab";
+import { SupportTicketDashboard } from "@/components/admin/support-tickets/SupportTicketDashboard";
 
-type Tab = "batches" | "sync" | "cc" | "leave" | "curriculum";
+type Tab = "batches" | "sync" | "cc" | "leave" | "curriculum" | "tickets";
 
 interface NavItem {
   id: Tab;
@@ -58,6 +59,14 @@ const NAV_ITEMS: NavItem[] = [
     icon: "↑",
     accentColor: "#8b5cf6",
     description: "Upload and track curriculum data per batch",
+    adminOnly: true,
+  },
+  {
+    id: "tickets",
+    label: "Support Tickets",
+    icon: "🎫",
+    accentColor: "#f97316",
+    description: "Support ticket dashboards — 2026 data",
     adminOnly: true,
   },
 ];
@@ -162,6 +171,7 @@ export function AdminDashboardClient({ isAdmin }: { isAdmin: boolean }) {
       {isAdmin && activeTab === "cc" && <CCManagementTab />}
       {isAdmin && activeTab === "leave" && <LeaveCoverageTab />}
       {isAdmin && activeTab === "curriculum" && <CurriculumTab />}
+      {isAdmin && activeTab === "tickets"    && <SupportTicketDashboard embedded />}
     </div>
   );
 }
