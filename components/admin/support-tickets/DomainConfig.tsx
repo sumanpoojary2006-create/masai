@@ -29,11 +29,20 @@ export function DomainConfig() {
       fetch("/api/admin/support-tickets/tab?tab=batches").then((r) => r.json()),
       fetch("/api/admin/support-tickets/domain-config").then((r) => r.json()),
     ])
-      .then(([batchList, configs]: [BatchRow[], ConfigRow[]]) => {
-        setBatches(batchList ?? []);
-        const map: Record<string, string> = {};
-        for (const c of configs ?? []) map[c.batch_name] = c.domain;
-        setMappings(map);
+      .then(([batchList, configs]) => {
+        if (!Array.isArray(batchList)) {
+          setError((batchList as { error?: string })?.error ?? "Failed to load batch list. Check MySQL connection.");
+          return;
+        }
+        setBatches(batchList as BatchRow[]);
+        if (Array.isArray(configs)) {
+          const map: Record<string, string> = {};
+          for (const c of configs as ConfigRow[]) map[c.batch_name] = c.domain;
+          setMappings(map);
+        } else if ((configs as { error?: string })?.error) {
+          // Table may not be migrated yet — show warning but still allow mapping
+          setError(`Supabase error: ${(configs as { error: string }).error}. Run the support-tickets-schema.sql migration.`);
+        }
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
