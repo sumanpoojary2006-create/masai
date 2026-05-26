@@ -10,7 +10,7 @@ import {
   fetchTATByBatch,
   fetchTATByCC,
   fetchIntelligence,
-  fetchDistinctPrograms,
+  fetchDistinctBatches,
 } from "@/lib/support-tickets-mysql";
 import { createServerSupabase } from "@/lib/supabase";
 
@@ -18,19 +18,19 @@ type DomainMap = Record<string, string>;
 
 async function getDomainMap(): Promise<DomainMap> {
   const supabase = createServerSupabase();
-  const { data } = await supabase.from("ticket_domain_config").select("program, domain");
+  const { data } = await supabase.from("ticket_domain_config").select("batch_name, domain");
   const map: DomainMap = {};
-  for (const row of data ?? []) map[row.program] = row.domain;
+  for (const row of data ?? []) map[row.batch_name] = row.domain;
   return map;
 }
 
-function applyDomain<T extends { program: string | null }>(
+function applyDomain<T extends { batchName: string | null }>(
   rows: T[],
   domainMap: DomainMap
 ): (T & { domain: string })[] {
   return rows.map((r) => ({
     ...r,
-    domain: r.program ? (domainMap[r.program] ?? "Unassigned") : "Unassigned",
+    domain: r.batchName ? (domainMap[r.batchName] ?? "Unassigned") : "Unassigned",
   }));
 }
 
@@ -79,8 +79,8 @@ export async function GET(req: NextRequest) {
       case "intelligence":
         return NextResponse.json(await fetchIntelligence());
 
-      case "programs":
-        return NextResponse.json(await fetchDistinctPrograms());
+      case "batches":
+        return NextResponse.json(await fetchDistinctBatches());
 
       default:
         return NextResponse.json({ error: "Unknown tab" }, { status: 400 });

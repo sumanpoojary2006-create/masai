@@ -3,38 +3,36 @@
 import { useEffect, useState } from "react";
 import { Spinner, ErrorBox, SectionTitle } from "./shared";
 
-type ProgramRow = { program: string; ticketCount: number };
-type ConfigRow  = { program: string; domain: string };
+type BatchRow  = { batchName: string; ticketCount: number };
+type ConfigRow = { batch_name: string; domain: string };
 
-const DOMAINS = ["Data", "Software", "Business", "Operations", "Other"];
+const DOMAINS = ["Software", "Data", "Non-tech"];
 
 const DOMAIN_COLORS: Record<string, string> = {
-  Data: "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
-  Software: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-  Business: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  Operations: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  Other: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
-  "": "bg-zinc-800 text-zinc-500 border-zinc-700",
+  Software:  "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  Data:      "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  "Non-tech": "bg-amber-500/15 text-amber-300 border-amber-500/30",
+  "":        "bg-zinc-800 text-zinc-500 border-zinc-700",
 };
 
 export function DomainConfig() {
-  const [programs, setPrograms] = useState<ProgramRow[]>([]);
+  const [batches, setBatches]   = useState<BatchRow[]>([]);
   const [mappings, setMappings] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [saved, setSaved]       = useState(false);
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      fetch("/api/admin/support-tickets/tab?tab=programs").then((r) => r.json()),
+      fetch("/api/admin/support-tickets/tab?tab=batches").then((r) => r.json()),
       fetch("/api/admin/support-tickets/domain-config").then((r) => r.json()),
     ])
-      .then(([progs, configs]: [ProgramRow[], ConfigRow[]]) => {
-        setPrograms(progs ?? []);
+      .then(([batchList, configs]: [BatchRow[], ConfigRow[]]) => {
+        setBatches(batchList ?? []);
         const map: Record<string, string> = {};
-        for (const c of configs ?? []) map[c.program] = c.domain;
+        for (const c of configs ?? []) map[c.batch_name] = c.domain;
         setMappings(map);
       })
       .catch((e) => setError(String(e)))
@@ -51,7 +49,7 @@ export function DomainConfig() {
         body: JSON.stringify({
           mappings: Object.entries(mappings)
             .filter(([, domain]) => domain)
-            .map(([program, domain]) => ({ program, domain })),
+            .map(([batch_name, domain]) => ({ batch_name, domain })),
         }),
       });
       const json = await res.json();
@@ -65,23 +63,23 @@ export function DomainConfig() {
     }
   }
 
-  function setDomain(program: string, domain: string) {
-    setMappings((prev) => ({ ...prev, [program]: domain }));
+  function setDomain(batchName: string, domain: string) {
+    setMappings((prev) => ({ ...prev, [batchName]: domain }));
   }
 
   if (loading) return <Spinner />;
   if (error) return <ErrorBox msg={error} />;
 
-  const unmapped = programs.filter((p) => !mappings[p.program]);
-  const mapped   = programs.filter((p) =>  mappings[p.program]);
+  const unmapped = batches.filter((b) => !mappings[b.batchName]);
+  const mapped   = batches.filter((b) =>  mappings[b.batchName]);
 
   return (
     <div className="space-y-8 max-w-3xl">
       <div>
         <SectionTitle>Domain Mapping Configuration</SectionTitle>
         <p className="text-sm text-zinc-400 mb-6">
-          Map each batch program to a domain. This drives all domain-level dashboards
-          (Domain WoW, Domain MoM, TAT by Domain). Programs with no mapping appear as "Unassigned".
+          Map each batch to a domain. This drives all domain-level dashboards
+          (Domain WoW, Domain MoM, TAT by Domain). Batches with no mapping appear as "Unassigned".
         </p>
 
         {unmapped.length > 0 && (
@@ -96,24 +94,24 @@ export function DomainConfig() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-800 text-xs text-zinc-500 uppercase">
-                <th className="text-left px-4 py-3">Program</th>
+                <th className="text-left px-4 py-3">Batch ID</th>
                 <th className="text-right px-4 py-3">Tickets (2026)</th>
-                <th className="text-left px-4 py-3 w-72">Domain</th>
+                <th className="text-left px-4 py-3 w-64">Domain</th>
               </tr>
             </thead>
             <tbody>
-              {programs.map((prog) => {
-                const current = mappings[prog.program] ?? "";
+              {batches.map((batch) => {
+                const current = mappings[batch.batchName] ?? "";
                 return (
-                  <tr key={prog.program} className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/20">
-                    <td className="px-4 py-3 font-medium text-zinc-200">{prog.program}</td>
-                    <td className="px-4 py-3 text-right text-zinc-400">{prog.ticketCount.toLocaleString()}</td>
+                  <tr key={batch.batchName} className="border-b border-zinc-800/50 last:border-0 hover:bg-zinc-800/20">
+                    <td className="px-4 py-3 font-mono text-sm text-zinc-200">{batch.batchName}</td>
+                    <td className="px-4 py-3 text-right text-zinc-400">{batch.ticketCount.toLocaleString()}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1.5 flex-wrap">
                         {DOMAINS.map((d) => (
                           <button
                             key={d}
-                            onClick={() => setDomain(prog.program, current === d ? "" : d)}
+                            onClick={() => setDomain(batch.batchName, current === d ? "" : d)}
                             className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-all ${
                               current === d
                                 ? DOMAIN_COLORS[d]
@@ -153,20 +151,20 @@ export function DomainConfig() {
           <SectionTitle>Current Mappings</SectionTitle>
           <div className="flex flex-wrap gap-2">
             {DOMAINS.map((domain) => {
-              const count = programs.filter((p) => mappings[p.program] === domain).length;
+              const count = batches.filter((b) => mappings[b.batchName] === domain).length;
               if (!count) return null;
               return (
                 <span
                   key={domain}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${DOMAIN_COLORS[domain]}`}
                 >
-                  {domain}: {count} program{count !== 1 ? "s" : ""}
+                  {domain}: {count} batch{count !== 1 ? "es" : ""}
                 </span>
               );
             })}
             {unmapped.length > 0 && (
               <span className="px-3 py-1.5 rounded-lg text-xs font-medium border bg-zinc-800 text-zinc-400 border-zinc-700">
-                Unassigned: {unmapped.length} program{unmapped.length !== 1 ? "s" : ""}
+                Unassigned: {unmapped.length} batch{unmapped.length !== 1 ? "es" : ""}
               </span>
             )}
           </div>

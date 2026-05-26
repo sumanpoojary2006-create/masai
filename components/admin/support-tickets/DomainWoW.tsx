@@ -6,14 +6,12 @@ import {
 } from "recharts";
 import { useTabData, Spinner, ErrorBox, SectionTitle, PctBadge } from "./shared";
 
-type Row = { program: string | null; domain: string; yw: number; weekStart: string; total: number };
+type Row = { batchName: string | null; domain: string; yw: number; weekStart: string; total: number };
 
 const DOMAIN_COLORS: Record<string, string> = {
-  Data:       "#6366f1",
   Software:   "#10b981",
-  Business:   "#f59e0b",
-  Operations: "#3b82f6",
-  Other:      "#71717a",
+  Data:       "#6366f1",
+  "Non-tech": "#f59e0b",
   Unassigned: "#52525b",
 };
 

@@ -6,11 +6,13 @@ import {
 } from "recharts";
 import { useTabData, Spinner, ErrorBox, SectionTitle, PctBadge } from "./shared";
 
-type Row = { program: string | null; domain: string; month: string; total: number };
+type Row = { batchName: string | null; domain: string; month: string; total: number };
 
 const DOMAIN_COLORS: Record<string, string> = {
-  Data: "#6366f1", Software: "#10b981", Business: "#f59e0b",
-  Operations: "#3b82f6", Other: "#71717a", Unassigned: "#52525b",
+  Software:   "#10b981",
+  Data:       "#6366f1",
+  "Non-tech": "#f59e0b",
+  Unassigned: "#52525b",
 };
 
 export function DomainMoM() {

@@ -54,11 +54,11 @@ export type CCLeaderboardRow = {
 };
 
 export type ProgramWeekRow = {
-  program: string | null; yw: number; weekStart: string; total: number;
+  batchName: string | null; yw: number; weekStart: string; total: number;
 };
 
 export type ProgramMonthRow = {
-  program: string | null; month: string; total: number;
+  batchName: string | null; month: string; total: number;
 };
 
 export type TATByBatchRow = {
@@ -78,7 +78,7 @@ export type IntelligenceData = {
   categoryMoM: { category: string; month: string; count: number }[];
 };
 
-export type DistinctProgram = { program: string; ticketCount: number };
+export type DistinctBatch = { batchName: string; ticketCount: number };
 
 // ─── 1. Overview ─────────────────────────────────────────────────────────────
 
@@ -269,7 +269,7 @@ export async function fetchProgramWoW(): Promise<ProgramWeekRow[]> {
   return withConn(async (conn) => {
     const [rows] = await conn.execute<mysql.RowDataPacket[]>(`
       SELECT
-        b.program,
+        b.name                                        AS batch_name,
         YEARWEEK(t.created_at, 1)                    AS yw,
         DATE_FORMAT(MIN(t.created_at), '%Y-%m-%d')   AS week_start,
         COUNT(*)                                      AS total
@@ -280,11 +280,11 @@ export async function fetchProgramWoW(): Promise<ProgramWeekRow[]> {
           AND t.created_at >= DATE_SUB(NOW(), INTERVAL 8 WEEK)
       ) t
       LEFT JOIN batches b ON b.id = t.batch_id
-      GROUP BY b.program, yw
-      ORDER BY b.program ASC, yw ASC
+      GROUP BY b.name, yw
+      ORDER BY b.name ASC, yw ASC
     `);
     return rows.map((r) => ({
-      program: r.program ?? null,
+      batchName: r.batch_name ?? null,
       yw: Number(r.yw),
       weekStart: r.week_start ?? "",
       total: Number(r.total),
@@ -298,7 +298,7 @@ export async function fetchProgramMoM(): Promise<ProgramMonthRow[]> {
   return withConn(async (conn) => {
     const [rows] = await conn.execute<mysql.RowDataPacket[]>(`
       SELECT
-        b.program,
+        b.name                              AS batch_name,
         DATE_FORMAT(t.created_at, '%Y-%m')  AS month,
         COUNT(*)                             AS total
       FROM (
@@ -307,11 +307,11 @@ export async function fetchProgramMoM(): Promise<ProgramMonthRow[]> {
         WHERE ${YEAR_FILTER}
       ) t
       LEFT JOIN batches b ON b.id = t.batch_id
-      GROUP BY b.program, month
-      ORDER BY b.program ASC, month ASC
+      GROUP BY b.name, month
+      ORDER BY b.name ASC, month ASC
     `);
     return rows.map((r) => ({
-      program: r.program ?? null,
+      batchName: r.batch_name ?? null,
       month: r.month ?? "",
       total: Number(r.total),
     }));
@@ -448,24 +448,24 @@ export async function fetchIntelligence(): Promise<IntelligenceData> {
   });
 }
 
-// ─── Distinct Programs (for domain config UI) ─────────────────────────────────
+// ─── Distinct Batches (for domain config UI) ──────────────────────────────────
 
-export async function fetchDistinctPrograms(): Promise<DistinctProgram[]> {
+export async function fetchDistinctBatches(): Promise<DistinctBatch[]> {
   return withConn(async (conn) => {
     const [rows] = await conn.execute<mysql.RowDataPacket[]>(`
-      SELECT b.program, COUNT(*) AS ticket_count
+      SELECT b.name AS batch_name, COUNT(*) AS ticket_count
       FROM (
         SELECT id, ${BID_EXPR} AS batch_id
         FROM tickets t
         WHERE ${YEAR_FILTER}
       ) t
       JOIN batches b ON b.id = t.batch_id
-      WHERE b.program IS NOT NULL AND b.program != ''
-      GROUP BY b.program
+      WHERE b.name IS NOT NULL AND b.name != ''
+      GROUP BY b.name
       ORDER BY ticket_count DESC
     `);
     return rows.map((r) => ({
-      program: r.program ?? "",
+      batchName: r.batch_name ?? "",
       ticketCount: Number(r.ticket_count),
     }));
   });
