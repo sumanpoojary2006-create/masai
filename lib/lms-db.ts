@@ -354,17 +354,25 @@ export async function checkLmsTasksForLecture(
     const startStr = windowStart.toISOString().slice(0, 10);
     const endStr   = windowEnd.toISOString().slice(0, 10);
 
+    // Only match resources with NO associatedLecture set — if a resource has
+    // associatedLecture.id pointing to any lecture (even the wrong one), it must
+    // be found via the association-based Step 2 above, not by title guessing.
+    // This prevents notes/prereads linked to a non-live or wrong lecture from
+    // being counted as completed just because the title happens to match.
     const [readingRows] = await conn.query<RowDataPacket[]>(
       `SELECT title, category, GREATEST(created_at, COALESCE(schedule, created_at)) AS effective_at FROM lectures
        WHERE batch_id = ? AND type = 'reading'
          AND category IN ('pre-reads', 'Pre Reads', 'notes')
-         AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
+         AND start_date BETWEEN ? AND ? AND deleted_at IS NULL
+         AND JSON_EXTRACT(data, '$.associatedLecture.id') IS NULL
+         AND JSON_EXTRACT(data, '$.associatedLecture[0].id') IS NULL`,
       [batchId, startStr, endStr]
     );
 
     const [assignRows] = await conn.query<RowDataPacket[]>(
       `SELECT title, created_at FROM assignments
-       WHERE batch_id = ? AND start_date BETWEEN ? AND ? AND deleted_at IS NULL`,
+       WHERE batch_id = ? AND start_date BETWEEN ? AND ? AND deleted_at IS NULL
+         AND JSON_EXTRACT(data, '$.associatedLecture[0].id') IS NULL`,
       [batchId, startStr, endStr]
     );
 
