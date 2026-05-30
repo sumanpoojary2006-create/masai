@@ -185,12 +185,16 @@ export async function POST(request: Request) {
     // one entry per section → duplicates in the Slack message.
     // We key by (batch_name, title, schedule) and collect ALL section batch_ids.
     type CacheRow = NonNullable<typeof cacheRows>[number];
+    type SectionFlags = { preread: boolean; notes: boolean; assignment: boolean };
     type DedupEntry = {
       row: CacheRow;
       batchName: string;
       sectionBatchIds: number[];
       // lecture_id per section_batch_id, needed for targeted cache updates
       lectureIdByBatchId: Map<number, number>;
+      // per-section cached flags — used in Phase B so a section that can't confirm
+      // a resource via live check doesn't downgrade a value that was set by sync
+      cachedFlagsByBatchId: Map<number, SectionFlags>;
     };
 
     const dedupMap = new Map<string, DedupEntry>();
@@ -201,13 +205,20 @@ export async function POST(request: Request) {
 
       const key = `${batchName}::${row.schedule}::${row.title}`;
       const existing = dedupMap.get(key);
+      const sectionFlags: SectionFlags = {
+        preread:    Boolean(row.preread_uploaded),
+        notes:      Boolean(row.notes_uploaded),
+        assignment: Boolean(row.assignment_uploaded),
+      };
 
       if (!existing) {
         const lectureIdByBatchId = new Map([[row.batch_id as number, row.lecture_id as number]]);
-        dedupMap.set(key, { row, batchName, sectionBatchIds: [row.batch_id as number], lectureIdByBatchId });
+        const cachedFlagsByBatchId = new Map([[row.batch_id as number, sectionFlags]]);
+        dedupMap.set(key, { row, batchName, sectionBatchIds: [row.batch_id as number], lectureIdByBatchId, cachedFlagsByBatchId });
       } else {
         existing.sectionBatchIds.push(row.batch_id as number);
         existing.lectureIdByBatchId.set(row.batch_id as number, row.lecture_id as number);
+        existing.cachedFlagsByBatchId.set(row.batch_id as number, sectionFlags);
         // Merge upload flags — true wins (if any section has it uploaded, count as uploaded)
         existing.row = {
           ...existing.row,
@@ -222,7 +233,7 @@ export async function POST(request: Request) {
     const buckets = new Map<string, CoordinatorBucket>();
     let cacheUpdates = 0;
 
-    for (const { row, batchName, sectionBatchIds, lectureIdByBatchId } of dedupMap.values()) {
+    for (const { row, batchName, sectionBatchIds, lectureIdByBatchId, cachedFlagsByBatchId } of dedupMap.values()) {
       if (!row.schedule) continue;
 
       const schedDt = DateTime.fromISO((row.schedule as string).slice(0, 19), { zone: timezone });
@@ -261,16 +272,19 @@ export async function POST(request: Request) {
       }
 
       // Phase B: update EVERY section's cache row to reflect live state.
-      // Bidirectional: both false→true AND true→false so the CC dashboard
-      // always shows what the LMS actually has right now.
+      // Compare against each section's OWN cached value (not the merged row) so that
+      // a section whose live check can't confirm a resource doesn't downgrade a value
+      // that was correctly set by a prior sync (e.g. notes synced true, live check
+      // returns false for a different section → must not reset the synced section).
       for (const batchId of sectionBatchIds) {
         const check = liveCheckBySectionBatchId.get(batchId);
         if (!check) continue; // live check failed for this section — skip update
 
+        const cached = cachedFlagsByBatchId.get(batchId) ?? { preread: false, notes: false, assignment: false };
         const patch: Record<string, boolean> = {};
-        if (check.preread    !== Boolean(row.preread_uploaded))    patch.preread_uploaded    = check.preread;
-        if (check.notes      !== Boolean(row.notes_uploaded))      patch.notes_uploaded      = check.notes;
-        if (check.assignment !== Boolean(row.assignment_uploaded)) patch.assignment_uploaded = check.assignment;
+        if (check.preread    !== cached.preread)    patch.preread_uploaded    = check.preread;
+        if (check.notes      !== cached.notes)      patch.notes_uploaded      = check.notes;
+        if (check.assignment !== cached.assignment) patch.assignment_uploaded = check.assignment;
 
         if (Object.keys(patch).length > 0) {
           const lectureId = lectureIdByBatchId.get(batchId);

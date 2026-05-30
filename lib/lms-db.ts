@@ -309,7 +309,7 @@ export async function checkLmsTasksForLecture(
   if (lmsId) {
     const assocClause = `(
       JSON_EXTRACT(data, '$.associatedLecture.id') = ?
-      OR JSON_OVERLAPS(JSON_EXTRACT(data, '$.associatedLecture[*].id'), JSON_ARRAY(?))
+      OR JSON_OVERLAPS(COALESCE(JSON_EXTRACT(data, '$.associatedLecture[*].id'), '[]'), JSON_ARRAY(?))
     )`;
 
     const [assocReadings] = await conn.query<RowDataPacket[]>(
