@@ -28,6 +28,7 @@ export function CCManagementTab() {
   const [curriculumCounts, setCurriculumCounts] = useState<Record<string, number>>({});
 
   const [selectedCcId, setSelectedCcId] = useState("");
+  const [assignmentSearch, setAssignmentSearch] = useState("");
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [batchSearch, setBatchSearch] = useState("");
   const [batchDropdownOpen, setBatchDropdownOpen] = useState(false);
@@ -319,12 +320,27 @@ export function CCManagementTab() {
 
         {/* Current Assignments */}
         <section className="rounded-2xl border border-white/8 bg-[#10162a] p-6">
-          <h3 className="mb-4 text-base font-semibold text-white">
-            Current CC Assignments
-            <span className="ml-2 text-sm font-normal text-slate-400">
-              ({assignments.length})
-            </span>
-          </h3>
+          <div className="mb-4 flex items-center justify-between gap-4">
+            <h3 className="text-base font-semibold text-white">
+              Current CC Assignments
+              <span className="ml-2 text-sm font-normal text-slate-400">
+                ({assignments.filter(a =>
+                  !assignmentSearch ||
+                  a.batch_name.toLowerCase().includes(assignmentSearch.toLowerCase()) ||
+                  (a.batch_program ?? "").toLowerCase().includes(assignmentSearch.toLowerCase()) ||
+                  a.cc_email.toLowerCase().includes(assignmentSearch.toLowerCase()) ||
+                  (a.cc_name ?? "").toLowerCase().includes(assignmentSearch.toLowerCase())
+                ).length})
+              </span>
+            </h3>
+            <input
+              type="text"
+              placeholder="Search by batch, program, or CC…"
+              value={assignmentSearch}
+              onChange={e => setAssignmentSearch(e.target.value)}
+              className="w-72 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
           {assignments.length === 0 ? (
             <p className="text-sm text-slate-400">No assignments yet.</p>
           ) : (
@@ -341,7 +357,13 @@ export function CCManagementTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {assignments.map((a) => (
+                  {assignments.filter(a =>
+                    !assignmentSearch ||
+                    a.batch_name.toLowerCase().includes(assignmentSearch.toLowerCase()) ||
+                    (a.batch_program ?? "").toLowerCase().includes(assignmentSearch.toLowerCase()) ||
+                    a.cc_email.toLowerCase().includes(assignmentSearch.toLowerCase()) ||
+                    (a.cc_name ?? "").toLowerCase().includes(assignmentSearch.toLowerCase())
+                  ).map((a) => (
                     <tr key={a.id} className="border-b border-white/5 text-slate-300">
                       <td className="py-2 pr-4 font-medium text-white">{a.batch_name}</td>
                       <td className="py-2 pr-4 text-slate-400">{a.batch_program ?? "—"}</td>
