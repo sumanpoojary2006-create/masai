@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 
+import { computeDeadline } from "@/lib/deadlines";
 import { getAppTimezone } from "@/lib/env";
 import { createServerSupabase } from "@/lib/supabase";
 import type { TaskRecord, TaskType } from "@/lib/types";
@@ -56,6 +57,38 @@ export interface DomainResourcesReportData {
   generatedAt: string;
   totalTasks: number;
   domains: DomainReport[];
+}
+
+const RESOURCE_TYPES: TaskType[] = ["preread", "notes", "assignment"];
+const CACHE_PAGE_SIZE = 1000;
+
+interface BatchAssignmentRow {
+  cc_user_id: string;
+  batch_id: number | null;
+  batch_name: string;
+}
+
+interface LectureRow {
+  id: string;
+  batch_name: string;
+  module_name: string | null;
+  lecture_name: string;
+  tasks?: TaskRecord[] | null;
+}
+
+interface LmsCacheRow {
+  batch_id: number;
+  lecture_id: number | string;
+  title: string;
+  module: string | null;
+  schedule: string;
+  concludes: string;
+  preread_uploaded: boolean;
+  notes_uploaded: boolean;
+  assignment_uploaded: boolean;
+  preread_uploaded_at?: string | null;
+  notes_uploaded_at?: string | null;
+  assignment_uploaded_at?: string | null;
 }
 
 const DOMAIN_LEADS: DomainLead[] = [
@@ -195,7 +228,7 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     await Promise.all([
       supabase
         .from("cc_batch_assignments")
-        .select("cc_user_id, batch_name")
+        .select("cc_user_id, batch_id, batch_name")
         .order("batch_name", { ascending: true }),
       supabase
         .from("lectures")
@@ -206,7 +239,31 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
   if (assignmentError) throw new Error(assignmentError.message);
   if (lectureError) throw new Error(lectureError.message);
 
-  const ccIds = [...new Set((assignments ?? []).map((assignment) => assignment.cc_user_id).filter(Boolean))];
+  const assignmentRows = (assignments ?? []) as BatchAssignmentRow[];
+  const lectureRows = (lectures ?? []) as LectureRow[];
+  const assignedBatchIds = [...new Set(assignmentRows.map((assignment) => assignment.batch_id).filter((id): id is number => typeof id === "number"))];
+  let cacheRows: LmsCacheRow[] = [];
+
+  if (assignedBatchIds.length > 0) {
+    for (let from = 0; ; from += CACHE_PAGE_SIZE) {
+      const { data: cacheData, error: cacheError } = await supabase
+        .from("lms_lecture_cache")
+        .select(
+          "batch_id, lecture_id, title, module, schedule, concludes, preread_uploaded, notes_uploaded, assignment_uploaded, preread_uploaded_at, notes_uploaded_at, assignment_uploaded_at"
+        )
+        .in("batch_id", assignedBatchIds)
+        .order("schedule", { ascending: true })
+        .range(from, from + CACHE_PAGE_SIZE - 1);
+
+      if (cacheError) throw new Error(cacheError.message);
+
+      const pageRows = (cacheData ?? []) as LmsCacheRow[];
+      cacheRows.push(...pageRows);
+      if (pageRows.length < CACHE_PAGE_SIZE) break;
+    }
+  }
+
+  const ccIds = [...new Set(assignmentRows.map((assignment) => assignment.cc_user_id).filter(Boolean))];
   const profileMap = new Map<string, { email: string | null; name: string }>();
 
   if (ccIds.length > 0) {
@@ -221,9 +278,11 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
   }
 
   const ownerByBatch = new Map<string, string>();
+  const assignmentByBatchId = new Map<number, BatchAssignmentRow>();
 
-  for (const assignment of assignments ?? []) {
+  for (const assignment of assignmentRows) {
     ownerByBatch.set(normalizeBatchName(assignment.batch_name), assignment.cc_user_id);
+    if (typeof assignment.batch_id === "number") assignmentByBatchId.set(assignment.batch_id, assignment);
   }
 
   const reportsByDomain = new Map<ResourceDomain | "Unassigned", DomainReport>();
@@ -271,13 +330,50 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     return ccReport;
   }
 
-  for (const assignment of assignments ?? []) {
+  function addTaskRow(params: {
+    id: string;
+    domain: ResourceDomain | "Unassigned";
+    batchName: string;
+    ccUserId: string | null;
+    lectureName: string;
+    moduleName: string | null;
+    resourceType: TaskType;
+    deadline: string;
+    completedAt: string | null;
+    status: DomainResourceStatus;
+  }) {
+    const domainReport = ensureDomainReport(params.domain);
+    const ccReport = ensureCcReport(domainReport, params.ccUserId, params.batchName);
+    const taskRow: DomainResourceTask = {
+      id: params.id,
+      domain: params.domain,
+      batchName: params.batchName,
+      ccUserId: params.ccUserId,
+      ccName: ccReport.ccName,
+      ccEmail: ccReport.ccEmail,
+      lectureName: params.lectureName,
+      moduleName: params.moduleName,
+      resourceType: params.resourceType,
+      deadline: params.deadline,
+      completedAt: params.completedAt,
+      status: params.status,
+    };
+
+    totalTasks += 1;
+    countStatus(domainReport, params.status);
+    countCcStatus(ccReport, params.status);
+    ccReport.tasks.push(taskRow);
+  }
+
+  for (const assignment of assignmentRows) {
     const domain = DOMAIN_BY_BATCH.get(normalizeBatchName(assignment.batch_name)) ?? "Unassigned";
     const domainReport = ensureDomainReport(domain);
     ensureCcReport(domainReport, assignment.cc_user_id, assignment.batch_name);
   }
 
-  for (const lecture of lectures ?? []) {
+  const persistedTaskKeys = new Set<string>();
+
+  for (const lecture of lectureRows) {
     const batchName = lecture.batch_name as string;
     const domain = DOMAIN_BY_BATCH.get(normalizeBatchName(batchName)) ?? "Unassigned";
     const ccUserId = ownerByBatch.get(normalizeBatchName(batchName)) ?? null;
@@ -287,27 +383,70 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
       if (!deadline.isValid) continue;
 
       const status = classifyTask(task, now);
-      const domainReport = ensureDomainReport(domain);
-      const ccReport = ensureCcReport(domainReport, ccUserId, batchName);
-      const taskRow: DomainResourceTask = {
+      persistedTaskKeys.add(`${normalizeBatchName(batchName)}:${lecture.id}:${task.type}`);
+      addTaskRow({
         id: task.id,
         domain,
         batchName,
         ccUserId,
-        ccName: ccReport.ccName,
-        ccEmail: ccReport.ccEmail,
         lectureName: lecture.lecture_name as string,
         moduleName: (lecture.module_name as string | null) ?? null,
         resourceType: task.type,
         deadline: task.deadline,
         completedAt: task.completed_at,
         status,
+      });
+    }
+  }
+
+  for (const cacheRow of cacheRows) {
+    const assignment = assignmentByBatchId.get(cacheRow.batch_id);
+    if (!assignment) continue;
+
+    const schedule = DateTime.fromISO(cacheRow.schedule).setZone(timezone);
+    const concludes = DateTime.fromISO(cacheRow.concludes).setZone(timezone);
+    if (!schedule.isValid || !concludes.isValid) continue;
+
+    const batchName = assignment.batch_name;
+    const domain = DOMAIN_BY_BATCH.get(normalizeBatchName(batchName)) ?? "Unassigned";
+    const lectureId = String(cacheRow.lecture_id);
+    const lectureDate = schedule.toISODate();
+    if (!lectureDate) continue;
+
+    const startTime = schedule.toFormat("HH:mm:ss");
+    const endTime = concludes.toFormat("HH:mm:ss");
+    const uploadedByType: Record<TaskType, { uploaded: boolean; uploadedAt: string | null }> = {
+      preread: { uploaded: cacheRow.preread_uploaded, uploadedAt: cacheRow.preread_uploaded_at ?? null },
+      notes: { uploaded: cacheRow.notes_uploaded, uploadedAt: cacheRow.notes_uploaded_at ?? null },
+      assignment: { uploaded: cacheRow.assignment_uploaded, uploadedAt: cacheRow.assignment_uploaded_at ?? null },
+    };
+
+    for (const resourceType of RESOURCE_TYPES) {
+      const taskKey = `${normalizeBatchName(batchName)}:${lectureId}:${resourceType}`;
+      if (persistedTaskKeys.has(taskKey)) continue;
+
+      const deadline = computeDeadline(resourceType, lectureDate, startTime, endTime);
+      const cachedTask: TaskRecord = {
+        id: `${lectureId}-${resourceType}`,
+        lecture_id: lectureId,
+        type: resourceType,
+        deadline,
+        status: uploadedByType[resourceType].uploaded ? "completed" : "pending",
+        completed_at: uploadedByType[resourceType].uploadedAt,
       };
 
-      totalTasks += 1;
-      countStatus(domainReport, status);
-      countCcStatus(ccReport, status);
-      ccReport.tasks.push(taskRow);
+      addTaskRow({
+        id: `cache-${cacheRow.batch_id}-${cachedTask.id}`,
+        domain,
+        batchName,
+        ccUserId: assignment.cc_user_id,
+        lectureName: cacheRow.title,
+        moduleName: cacheRow.module,
+        resourceType,
+        deadline,
+        completedAt: cachedTask.completed_at,
+        status: classifyTask(cachedTask, now),
+      });
     }
   }
 
