@@ -32,56 +32,34 @@ export function BatchDetailsLoginForm() {
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    background: '#0d1117',
-    border: '1px solid #1f2937',
-    borderRadius: 12,
-    padding: '11px 14px',
-    fontSize: 14,
-    color: '#e2e8f0',
-    outline: 'none',
-    boxSizing: 'border-box',
-  }
-
-  const labelStyle: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#94a3b8',
-    marginBottom: 16,
-  }
-
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      <label style={labelStyle}>
-        Email
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <label className="flex flex-col gap-2 text-sm font-semibold text-slate-300">
+        <span>Email</span>
         <input
           type="email"
           required
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder="you@masaischool.com"
-          style={inputStyle}
+          className="h-[52px] w-full rounded-2xl border border-white/10 bg-[#080d18] px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10"
         />
       </label>
 
-      <label style={labelStyle}>
-        Password
+      <label className="flex flex-col gap-2 text-sm font-semibold text-slate-300">
+        <span>Password</span>
         <input
           type="password"
           required
           value={password}
           onChange={e => setPassword(e.target.value)}
           placeholder="••••••••"
-          style={inputStyle}
+          className="h-[52px] w-full rounded-2xl border border-white/10 bg-[#080d18] px-4 py-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10"
         />
       </label>
 
       {message && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#fca5a5', marginBottom: 16 }}>
+        <div className="rounded-2xl border border-rose-400/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
           {message}
         </div>
       )}
@@ -89,26 +67,10 @@ export function BatchDetailsLoginForm() {
       <button
         type="submit"
         disabled={isPending}
-        style={{
-          width: '100%',
-          height: 44,
-          background: isPending ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#4f46e5)',
-          border: 'none',
-          borderRadius: 12,
-          color: '#fff',
-          fontSize: 14,
-          fontWeight: 700,
-          cursor: isPending ? 'not-allowed' : 'pointer',
-          marginTop: 4,
-          opacity: isPending ? 0.7 : 1,
-        }}
+        className="mt-1 h-[52px] w-full rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-500 px-5 text-sm font-semibold text-white shadow-[0_16px_36px_rgba(79,70,229,0.38)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isPending ? "Signing in…" : "Sign in"}
       </button>
-
-      <p style={{ color: '#334155', fontSize: 12, marginTop: 14, textAlign: 'center' }}>
-        Use your MasaiLens credentials to access the Batch Details workspace.
-      </p>
     </form>
   );
 }

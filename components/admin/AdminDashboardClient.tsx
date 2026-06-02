@@ -6,10 +6,11 @@ import { AdminSyncControls } from "@/components/batch/AdminSyncControls";
 import { BatchDashboardClient } from "@/components/batch/BatchDashboardClient";
 import { CCManagementTab } from "@/components/admin/CCManagementTab";
 import { CurriculumTab } from "@/components/admin/CurriculumTab";
+import { DomainResourcesTab } from "@/components/admin/DomainResourcesTab";
 import { LeaveCoverageTab } from "@/components/admin/LeaveCoverageTab";
 import { SupportTicketDashboard } from "@/components/admin/support-tickets/SupportTicketDashboard";
 
-type Tab = "batches" | "sync" | "cc" | "leave" | "curriculum" | "tickets";
+type Tab = "batches" | "sync" | "cc" | "leave" | "curriculum" | "tickets" | "domainResources";
 
 interface NavItem {
   id: Tab;
@@ -67,6 +68,14 @@ const NAV_ITEMS: NavItem[] = [
     icon: "🎫",
     accentColor: "#f97316",
     description: "Support ticket dashboards — 2026 data",
+    adminOnly: true,
+  },
+  {
+    id: "domainResources",
+    label: "Domain Resources",
+    icon: "◫",
+    accentColor: "#2dd4bf",
+    description: "Daily CC resource checklist by domain lead",
     adminOnly: true,
   },
 ];
@@ -172,6 +181,7 @@ export function AdminDashboardClient({ isAdmin }: { isAdmin: boolean }) {
       {isAdmin && activeTab === "leave" && <LeaveCoverageTab />}
       {isAdmin && activeTab === "curriculum" && <CurriculumTab />}
       {isAdmin && activeTab === "tickets"    && <SupportTicketDashboard embedded />}
+      {isAdmin && activeTab === "domainResources" && <DomainResourcesTab />}
     </div>
   );
 }

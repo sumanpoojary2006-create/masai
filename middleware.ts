@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Paths that never require authentication
 const PUBLIC_PATHS = ["/login", "/signup", "/batch-details/login", "/api/"];
+const PUBLIC_FILE = /\.(?:avif|gif|ico|jpg|jpeg|png|svg|webp)$/i;
 
 // Paths under the batch-details portal
 const BATCH_DETAILS_PATHS = ["/batch-details"];
@@ -11,7 +12,7 @@ const BATCH_DETAILS_PATHS = ["/batch-details"];
 const CC_PATHS = ["/cc"];
 
 function isPublic(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  return PUBLIC_FILE.test(pathname) || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
 export async function middleware(request: NextRequest) {
