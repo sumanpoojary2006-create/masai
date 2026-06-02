@@ -1326,6 +1326,20 @@ export async function syncAssignedBatchesCache(
 
     if (structErr) throw new Error(`Batch ${batchId} cache upsert: ${structErr.message}`);
 
+    // Remove rows for lectures that were deleted or removed from the LMS since the last sync.
+    // Only runs when LMS returned a non-empty list — an empty list means the fetch likely
+    // failed or the batch has no sessions yet, so we must not wipe the cache.
+    const liveLectureIds = lectures.map((l) => l.lecture_id);
+    const { error: deleteErr } = await supabase
+      .from("lms_lecture_cache")
+      .delete()
+      .eq("batch_id", batchId)
+      .not("lecture_id", "in", `(${liveLectureIds.join(",")})`);
+
+    if (deleteErr) {
+      console.warn(`[cache-sync] Stale row cleanup failed batch=${batchId}: ${deleteErr.message}`);
+    }
+
     // GREATEST pass: only promote flags false→true, never touch rows where all flags are false.
     // Batch the timestamp SELECT into one query per batch to avoid N+1 round trips.
     const timezone = getAppTimezone();

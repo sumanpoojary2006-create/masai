@@ -47,6 +47,16 @@ export async function POST(request: Request) {
 
     if (error) throw new Error(error.message);
 
+    // Remove stale rows for lectures that no longer exist in the LMS
+    const liveLectureIds = lectures.map((l) => l.lecture_id);
+    const { error: deleteError } = await supabase
+      .from("lms_lecture_cache")
+      .delete()
+      .eq("batch_id", batchId)
+      .not("lecture_id", "in", `(${liveLectureIds.join(",")})`);
+
+    if (deleteError) throw new Error(deleteError.message);
+
     return NextResponse.json({
       message: `Synced ${lectures.length} lectures for batch ${batchId}.`,
       synced: lectures.length
