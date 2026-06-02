@@ -85,12 +85,6 @@ const DOMAIN_BATCHES: Record<ResourceDomain, string[]> = {
     "IITGDS-2505",
     "IITP-AIMLT-2601",
     "IITP-AIMLM-2602",
-    "IITP-SDAI-2602",
-    "IITP-SDAITAM-2602",
-    "IITP-SDAIHIN-2602",
-    "IITREICT-SE-2603",
-    "IITR-AS-260313",
-    "IITR-AS-2603",
     "IITP-AIMLH-2602",
     "IITP-AIMLTN-2602",
     "IITP-AIMLT-2603",
@@ -131,6 +125,12 @@ const DOMAIN_BATCHES: Record<ResourceDomain, string[]> = {
     "IITR-AS-2601",
     "IITR-AS-260113",
     "IITP-SDAIENG-2602",
+    "IITP-SDAI-2602",
+    "IITP-SDAITAM-2602",
+    "IITP-SDAIHIN-2602",
+    "IITREICT-SE-2603",
+    "IITR-AS-260313",
+    "IITR-AS-2603",
   ],
 };
 
@@ -221,13 +221,9 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
   }
 
   const ownerByBatch = new Map<string, string>();
-  const assignedBatchesByCc = new Map<string, Set<string>>();
 
   for (const assignment of assignments ?? []) {
     ownerByBatch.set(normalizeBatchName(assignment.batch_name), assignment.cc_user_id);
-    const batchSet = assignedBatchesByCc.get(assignment.cc_user_id) ?? new Set<string>();
-    batchSet.add(assignment.batch_name);
-    assignedBatchesByCc.set(assignment.cc_user_id, batchSet);
   }
 
   const reportsByDomain = new Map<ResourceDomain | "Unassigned", DomainReport>();
@@ -256,16 +252,16 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     const existing = report.ccReports.find((ccReport) => (ccReport.ccUserId ?? "unassigned") === key);
     if (existing) {
       if (!existing.assignedBatches.includes(batchName)) existing.assignedBatches.push(batchName);
+      existing.assignedBatches.sort();
       return existing;
     }
 
     const profile = ccUserId ? profileMap.get(ccUserId) : null;
-    const assignedBatches = ccUserId ? [...(assignedBatchesByCc.get(ccUserId) ?? new Set<string>())] : [batchName];
     const ccReport: DomainCcReport = {
       ccUserId,
       ccName: profile?.name ?? "Unassigned",
       ccEmail: profile?.email ?? null,
-      assignedBatches: assignedBatches.sort(),
+      assignedBatches: [batchName].sort(),
       completed: 0,
       pending: 0,
       late: 0,
@@ -273,6 +269,12 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     };
     report.ccReports.push(ccReport);
     return ccReport;
+  }
+
+  for (const assignment of assignments ?? []) {
+    const domain = DOMAIN_BY_BATCH.get(normalizeBatchName(assignment.batch_name)) ?? "Unassigned";
+    const domainReport = ensureDomainReport(domain);
+    ensureCcReport(domainReport, assignment.cc_user_id, assignment.batch_name);
   }
 
   for (const lecture of lectures ?? []) {

@@ -107,6 +107,8 @@ function TaskRow({ task }: { task: DomainResourceTask }) {
 }
 
 function DomainSection({ report, filterLabel }: { report: DomainReport; filterLabel: string }) {
+  const emptyLabel = filterLabel === "All resources" ? "No resources configured yet" : "No resources matching this filter";
+
   return (
     <section className="rounded-[26px] border border-slate-800/90 bg-[#10162a] p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -116,7 +118,7 @@ function DomainSection({ report, filterLabel }: { report: DomainReport; filterLa
             {report.leadName ?? "Unassigned domain"} resources
           </h3>
           <p className="mt-1 text-sm text-slate-500">
-            {report.ccReports.length} CC{report.ccReports.length === 1 ? "" : "s"} matching {filterLabel.toLowerCase()}
+            {report.ccReports.length} CC{report.ccReports.length === 1 ? "" : "s"} in this domain
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -134,8 +136,8 @@ function DomainSection({ report, filterLabel }: { report: DomainReport; filterLa
 
       {report.ccReports.length === 0 ? (
         <div className="mt-5 rounded-2xl border border-dashed border-slate-700/80 bg-slate-950/50 px-5 py-8 text-center">
-          <p className="text-sm font-semibold text-slate-200">No resources due today</p>
-          <p className="mt-1 text-sm text-slate-500">This domain has no CC resource deadlines for this filter.</p>
+          <p className="text-sm font-semibold text-slate-200">{emptyLabel}</p>
+          <p className="mt-1 text-sm text-slate-500">This domain has no CC resource deadlines for {filterLabel.toLowerCase()}.</p>
         </div>
       ) : (
         <div className="mt-5 space-y-4">
@@ -147,6 +149,18 @@ function DomainSection({ report, filterLabel }: { report: DomainReport; filterLa
                   <p className="mt-1 text-xs text-slate-500">
                     {ccReport.ccEmail ?? "No email"} • {ccReport.assignedBatches.length} assigned batch{ccReport.assignedBatches.length === 1 ? "" : "es"}
                   </p>
+                  {ccReport.assignedBatches.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {ccReport.assignedBatches.map((batchName) => (
+                        <span
+                          key={batchName}
+                          className="rounded-full border border-white/8 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-slate-300"
+                        >
+                          {batchName}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex gap-2 text-xs font-semibold">
                   <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-200">{ccReport.completed} done</span>
@@ -166,9 +180,17 @@ function DomainSection({ report, filterLabel }: { report: DomainReport; filterLa
                     </tr>
                   </thead>
                   <tbody>
-                    {ccReport.tasks.map((task) => (
-                      <TaskRow key={task.id} task={task} />
-                    ))}
+                    {ccReport.tasks.length > 0 ? (
+                      ccReport.tasks.map((task) => (
+                        <TaskRow key={task.id} task={task} />
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
+                          {emptyLabel}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -235,7 +257,7 @@ export function DomainResourcesTab() {
           };
           return filteredCcReport;
         })
-        .filter((ccReport) => ccReport.tasks.length > 0);
+        .filter((ccReport) => ccReport.tasks.length > 0 || ccReport.assignedBatches.length > 0);
 
       const completed = ccReports.reduce((sum, ccReport) => sum + ccReport.completed, 0);
       const pending = ccReports.reduce((sum, ccReport) => sum + ccReport.pending, 0);
