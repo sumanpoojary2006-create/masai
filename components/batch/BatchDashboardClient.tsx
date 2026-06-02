@@ -68,7 +68,7 @@ export function BatchDashboardClient() {
           <button
             onClick={handleExport}
             disabled={exporting || batches.length === 0}
-            className="inline-flex h-10 items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/80 px-4 text-sm font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 disabled:opacity-40"
+            className="theme-button-secondary inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-medium disabled:opacity-40"
           >
             {exporting ? 'Exporting…' : '↓ Export'}
           </button>
@@ -76,7 +76,7 @@ export function BatchDashboardClient() {
             <button
               onClick={handleCreateBatch}
               disabled={creating}
-              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-cyan-400/20 bg-[linear-gradient(135deg,rgba(6,182,212,0.92),rgba(20,184,166,0.88))] px-5 text-sm font-semibold text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,0.2)] transition hover:translate-y-[-1px] hover:shadow-[0_16px_36px_rgba(34,211,238,0.28)] disabled:opacity-50"
+              className="inline-flex h-10 items-center gap-1.5 rounded-full border border-cyan-300/30 bg-[linear-gradient(135deg,rgba(103,232,249,0.95),rgba(45,212,191,0.9))] px-5 text-sm font-semibold text-slate-950 shadow-[0_12px_32px_rgba(34,211,238,0.22)] transition hover:translate-y-[-1px] hover:shadow-[0_16px_36px_rgba(34,211,238,0.30)] disabled:opacity-50"
             >
               {creating ? 'Creating…' : '+ New Batch'}
             </button>
@@ -91,7 +91,7 @@ export function BatchDashboardClient() {
           placeholder="Search by batch name, program, institute, domain…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full max-w-sm rounded-full border border-slate-700 bg-slate-950/80 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-400/20"
+          className="theme-input w-full max-w-sm rounded-full px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-300/20"
         />
       </div>
 
@@ -101,7 +101,7 @@ export function BatchDashboardClient() {
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[22px] border border-slate-800/90" style={{ height: '600px' }}>
+        <div className="admin-glass-strong overflow-hidden rounded-[22px]" style={{ height: '600px' }}>
           <BatchListGrid batches={filtered} />
         </div>
       )}

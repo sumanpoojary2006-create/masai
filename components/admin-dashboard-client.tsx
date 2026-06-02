@@ -9,6 +9,7 @@ import { formatLectureDate, formatLectureTime } from "@/lib/deadlines";
 import { AdminBatchStats, AdminLectureStats, AdminUserStats } from "@/lib/queries";
 import { TaskStatus } from "@/lib/types";
 import { CCManagementTab } from "@/components/admin/CCManagementTab";
+import { BrandLogo } from "@/components/brand-logo";
 import { TopProgressBar } from "@/components/top-progress-bar";
 
 type ExportedData = {
@@ -268,7 +269,7 @@ function MetricCard({
   badge: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-[28px] border border-white/8 bg-slate-900/70 p-5 shadow-[0_18px_60px_rgba(2,6,23,0.35)]">
+    <div className="admin-glass relative overflow-hidden rounded-[28px] p-5">
       <div
         className="absolute inset-x-0 top-0 h-1"
         style={{ background: `linear-gradient(90deg, ${accent}, transparent)` }}
@@ -514,15 +515,12 @@ export function AdminDashboardClient({
   const inner = (
     <>
       <TopProgressBar isLoading={isAnyLoading} />
-    <div className={embedded ? "flex gap-6" : "mx-auto flex max-w-[1600px] gap-6 px-4 py-5 sm:px-6 xl:px-8"}>
-        <aside className="sticky top-5 hidden h-[calc(100vh-2.5rem)] w-72 flex-col justify-between rounded-[30px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.32)] xl:flex">
+    <div className={embedded ? "flex gap-6" : "app-shell mx-auto flex max-w-[1600px] gap-6 px-4 py-5 sm:px-6 xl:px-8"}>
+        <aside className="admin-glass sticky top-5 hidden h-[calc(100vh-2.5rem)] w-72 flex-col justify-between rounded-[30px] p-6 xl:flex">
           <div className="space-y-8">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 via-indigo-500 to-sky-500 text-lg font-bold">
-                M
-              </div>
+            <div className="flex flex-col items-start gap-3">
+              <BrandLogo compact />
               <div>
-                <p className="text-2xl font-semibold tracking-tight text-white">MasaiLens</p>
                 <p className="mt-1 inline-flex rounded-full bg-white/6 px-2.5 py-1 text-xs text-slate-300">
                   Admin Console
                 </p>
@@ -537,7 +535,7 @@ export function AdminDashboardClient({
                   onClick={() => scrollToSection(item.key)}
                   className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
                     item.key === "overview"
-                      ? "bg-gradient-to-r from-violet-600 to-indigo-500 text-white shadow-[0_12px_32px_rgba(79,70,229,0.35)]"
+                      ? "bg-gradient-to-r from-cyan-500/70 via-blue-500/70 to-indigo-500/70 text-white shadow-[0_12px_32px_rgba(37,99,235,0.30)]"
                       : "text-slate-300 hover:bg-white/5 hover:text-white"
                   }`}
                 >
@@ -555,12 +553,12 @@ export function AdminDashboardClient({
               className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium text-amber-300 hover:bg-white/5 hover:text-amber-200 transition"
             >
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white/10 text-xs font-semibold">
-                🎫
+                ST
               </span>
               Support Tickets
             </Link>
 
-            <div className="rounded-[26px] border border-white/8 bg-gradient-to-b from-[#121b34] to-[#0f1730] p-5">
+            <div className="admin-glass-strong rounded-[26px] p-5">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-white">System Status</p>
@@ -569,11 +567,11 @@ export function AdminDashboardClient({
                 <span className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.8)]" />
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-white/6 p-3">
+                <div className="rounded-2xl border border-white/10 bg-white/6 p-3">
                   <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Users</p>
                   <p className="mt-2 text-2xl font-bold text-white">{userStats.length}</p>
                 </div>
-                <div className="rounded-2xl bg-white/6 p-3">
+                <div className="rounded-2xl border border-white/10 bg-white/6 p-3">
                   <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Batches</p>
                   <p className="mt-2 text-2xl font-bold text-white">{batchStats.length}</p>
                 </div>
@@ -581,7 +579,7 @@ export function AdminDashboardClient({
             </div>
           </div>
 
-          <div className="rounded-[26px] border border-white/8 bg-[#0b1329] p-4">
+          <div className="admin-glass-strong rounded-[26px] p-4">
             <p className="text-sm font-semibold text-white">Admin User</p>
             <p className="mt-1 text-xs text-slate-400">Super administrator access</p>
             <Link
@@ -596,7 +594,7 @@ export function AdminDashboardClient({
         <main className="flex-1 space-y-6">
           <section
             id="overview"
-            className="rounded-[34px] border border-white/8 bg-[#10162a] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)] sm:p-6"
+            className="admin-glass rounded-[34px] p-5 sm:p-6"
           >
             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
@@ -618,7 +616,7 @@ export function AdminDashboardClient({
                       type="date"
                       value={dateFrom}
                       onChange={(event) => setDateFrom(event.target.value)}
-                      className="rounded-2xl border border-white/10 bg-[#0b1329] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400"
+                      className="theme-input rounded-2xl px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300"
                     />
                     <span className="text-slate-500">→</span>
                     <input
@@ -626,7 +624,7 @@ export function AdminDashboardClient({
                       value={dateTo}
                       min={dateFrom || undefined}
                       onChange={(event) => setDateTo(event.target.value)}
-                      className="rounded-2xl border border-white/10 bg-[#0b1329] px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400"
+                      className="theme-input rounded-2xl px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300"
                     />
                   </div>
                 </div>
@@ -634,7 +632,7 @@ export function AdminDashboardClient({
                 <button
                   type="button"
                   onClick={() => setAutoRefresh((current) => !current)}
-                  className="inline-flex h-12 items-center rounded-2xl border border-white/10 bg-[#0b1329] px-5 text-sm font-medium text-slate-200 transition hover:bg-white/5"
+                  className="theme-button-secondary inline-flex h-12 items-center rounded-2xl px-5 text-sm font-medium transition"
                 >
                   Auto refresh: <span className="ml-1 text-emerald-300">{autoRefresh ? "On" : "Off"}</span>
                 </button>
@@ -643,7 +641,7 @@ export function AdminDashboardClient({
                   type="button"
                   disabled={isExporting}
                   onClick={handleExport}
-                  className="inline-flex h-12 items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-500 px-5 text-sm font-semibold text-white shadow-[0_14px_35px_rgba(79,70,229,0.4)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-12 items-center rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 text-sm font-semibold text-white shadow-[0_14px_35px_rgba(37,99,235,0.36)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isExporting ? "Exporting..." : "Export"}
                 </button>
@@ -689,7 +687,7 @@ export function AdminDashboardClient({
           <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.95fr)]">
             <section
               id="health"
-              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+              className="admin-glass rounded-[32px] p-6"
             >
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -704,7 +702,7 @@ export function AdminDashboardClient({
               </div>
 
               <div className="mt-8 grid gap-8 lg:grid-cols-[320px_minmax(0,1fr)]">
-                <div className="flex flex-col items-center justify-center gap-5 rounded-[28px] border border-white/8 bg-[#0b1329] p-6">
+                <div className="admin-glass-strong flex flex-col items-center justify-center gap-5 rounded-[28px] p-6">
                   <RingMeter
                     completed={taskSummary.completed}
                     pending={taskSummary.pending}
@@ -726,7 +724,7 @@ export function AdminDashboardClient({
                   </div>
                 </div>
 
-                <div className="rounded-[28px] border border-white/8 bg-[#0b1329] p-6">
+                <div className="admin-glass-strong rounded-[28px] p-6">
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-lg font-semibold text-white">User activity overview</p>
@@ -747,7 +745,7 @@ export function AdminDashboardClient({
             </section>
 
             <section
-              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+              className="admin-glass rounded-[32px] p-6"
             >
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -766,7 +764,7 @@ export function AdminDashboardClient({
                   return (
                     <div
                       key={user.userId}
-                      className="flex items-center gap-4 rounded-[24px] border border-white/8 bg-[#0b1329] px-4 py-4"
+                      className="admin-glass-strong flex items-center gap-4 rounded-[24px] px-4 py-4"
                     >
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/8 text-sm font-bold text-white">
                         {index + 1}
@@ -791,7 +789,7 @@ export function AdminDashboardClient({
           <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.95fr)]">
             <section
               id="batches"
-              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+              className="admin-glass rounded-[32px] p-6"
             >
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -803,7 +801,7 @@ export function AdminDashboardClient({
                 </div>
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-[26px] border border-white/8 bg-[#0b1329]">
+              <div className="admin-glass-strong mt-6 overflow-hidden rounded-[26px]">
                 <div className="max-h-[620px] overflow-auto">
                   <table className="w-full border-separate border-spacing-0">
                   <thead>
@@ -864,7 +862,7 @@ export function AdminDashboardClient({
 
             <section
               id="attention"
-              className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+              className="admin-glass rounded-[32px] p-6"
             >
               <div className="flex items-center justify-between gap-4">
                 <div>
@@ -880,7 +878,7 @@ export function AdminDashboardClient({
                 {attentionLectures.map((lecture) => (
                   <div
                     key={lecture.id}
-                    className="rounded-[24px] border border-white/8 bg-[#0b1329] p-4"
+                    className="admin-glass-strong rounded-[24px] p-4"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
@@ -917,7 +915,7 @@ export function AdminDashboardClient({
 
           <section
             id="exports"
-            className="rounded-[32px] border border-white/8 bg-[#10162a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.24)]"
+            className="admin-glass rounded-[32px] p-6"
           >
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div>
@@ -934,7 +932,7 @@ export function AdminDashboardClient({
                   type="button"
                   disabled={isExporting}
                   onClick={handleExport}
-                  className="inline-flex h-11 items-center rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-500 px-5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 items-center rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isExporting ? "Exporting..." : "Export report"}
                 </button>
@@ -945,7 +943,7 @@ export function AdminDashboardClient({
               <p className="mt-4 text-sm text-slate-300">{exportMessage}</p>
             ) : null}
 
-            <div className="mt-6 overflow-hidden rounded-[26px] border border-white/8 bg-[#0b1329]">
+            <div className="admin-glass-strong mt-6 overflow-hidden rounded-[26px]">
               <table className="w-full border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-[0.18em] text-slate-400">
@@ -1000,7 +998,7 @@ export function AdminDashboardClient({
             </div>
           </section>
           {/* ── CC Management ─────────────────────────────────────── */}
-          <section id="cc" className="scroll-mt-6 rounded-[26px] border border-white/8 bg-[#10162a] p-8">
+          <section id="cc" className="admin-glass scroll-mt-6 rounded-[26px] p-8">
             <div className="mb-6">
               <h2 className="text-xl font-bold text-white">CC Management</h2>
               <p className="mt-1 text-sm text-slate-400">
@@ -1011,7 +1009,7 @@ export function AdminDashboardClient({
           </section>
 
           {/* ── Batch Wise ────────────────────────────────────────── */}
-          <section id="batchwise" className="scroll-mt-6 rounded-[26px] border border-white/8 bg-[#10162a] p-8">
+          <section id="batchwise" className="admin-glass scroll-mt-6 rounded-[26px] p-8">
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-white">Batch Wise</h2>
@@ -1029,7 +1027,7 @@ export function AdminDashboardClient({
 
             {/* Sync Controls */}
             <div className="mb-8 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-5">
+              <div className="admin-glass-strong rounded-2xl p-5">
                 <p className="text-sm font-semibold text-white">Sync This Week's Lectures</p>
                 <p className="mt-1 text-xs text-slate-400">Pull latest sessions from LMS for all users.</p>
                 <button
@@ -1052,7 +1050,7 @@ export function AdminDashboardClient({
                 )}
               </div>
 
-              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+              <div className="admin-glass-strong rounded-2xl p-5">
                 <p className="text-sm font-semibold text-white">Sync Up — Compliance Check</p>
                 <p className="mt-1 text-xs text-slate-400">Run compliance for all users & send Slack notifications.</p>
                 <button
@@ -1090,7 +1088,7 @@ export function AdminDashboardClient({
   if (embedded) return <div className="text-white">{inner}</div>;
 
   return (
-    <div className="min-h-screen bg-[#0b1020] text-white">
+    <div className="min-h-screen text-white">
       {inner}
     </div>
   );

@@ -87,66 +87,34 @@ export function AdminDashboardClient({ isAdmin }: { isAdmin: boolean }) {
   const activeItem = visibleItems.find((item) => item.id === activeTab) ?? visibleItems[0];
 
   return (
-    <div>
+    <div className="space-y-7">
       {/* Page header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#f8fafc", margin: 0 }}>
+      <div className="flex items-center gap-3">
+        <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink">
           Dashboard
         </h1>
         {isAdmin && (
-          <span
-            style={{
-              fontSize: "10px",
-              fontWeight: 700,
-              letterSpacing: "0.1em",
-              color: "#f59e0b",
-              background: "rgba(245,158,11,0.12)",
-              border: "1px solid rgba(245,158,11,0.25)",
-              borderRadius: "9999px",
-              padding: "2px 10px",
-            }}
-          >
+          <span className="rounded-full border border-amber-300/30 bg-amber-300/12 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200">
             ADMIN
           </span>
         )}
       </div>
 
       {/* Tab navigation */}
-      <nav
-        style={{
-          display: "flex",
-          gap: "3px",
-          padding: "5px",
-          background: "#080e1a",
-          border: "1px solid #1a2235",
-          borderRadius: "14px",
-          marginBottom: "28px",
-          flexWrap: "wrap",
-        }}
-      >
+      <nav className="admin-glass-strong flex flex-wrap gap-2 rounded-[1.25rem] p-2">
         {visibleItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "7px",
-                padding: "8px 16px",
-                borderRadius: "10px",
-                border: "none",
-                cursor: "pointer",
-                fontSize: "13px",
-                fontWeight: isActive ? 600 : 400,
-                transition: "all 0.15s",
-                background: isActive ? `${item.accentColor}20` : "transparent",
-                color: isActive ? item.accentColor : "#4b5a6e",
-                outline: isActive ? `1px solid ${item.accentColor}35` : "none",
-              }}
+              className={`flex items-center gap-2 rounded-2xl px-4 py-3 text-sm transition ${
+                isActive
+                  ? "border border-cyan-300/28 bg-cyan-400/14 font-semibold text-cyan-100 shadow-[0_12px_32px_rgba(45,212,191,0.12)]"
+                  : "border border-transparent text-slate-400 hover:border-white/10 hover:bg-white/6 hover:text-slate-100"
+              }`}
             >
-              <span style={{ fontSize: "15px", lineHeight: 1 }}>{item.icon}</span>
+              <span className="text-base leading-none">{item.icon}</span>
               {item.label}
             </button>
           );
@@ -154,21 +122,16 @@ export function AdminDashboardClient({ isAdmin }: { isAdmin: boolean }) {
       </nav>
 
       {/* Section header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "22px" }}>
+      <div className="flex items-center gap-3">
         <div
-          style={{
-            width: "3px",
-            height: "22px",
-            borderRadius: "9999px",
-            background: activeItem.accentColor,
-            flexShrink: 0,
-          }}
+          className="h-7 w-1 shrink-0 rounded-full shadow-[0_0_18px_rgba(45,212,191,0.45)]"
+          style={{ background: activeItem.accentColor }}
         />
         <div>
-          <h2 style={{ fontSize: "16px", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>
+          <h2 className="text-lg font-bold text-ink">
             {activeItem.label}
           </h2>
-          <p style={{ color: "#4b5a6e", fontSize: "12px", margin: "2px 0 0" }}>
+          <p className="theme-muted mt-1 text-sm">
             {activeItem.description}
           </p>
         </div>

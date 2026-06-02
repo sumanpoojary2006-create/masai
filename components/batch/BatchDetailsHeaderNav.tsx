@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 
 function getLinkClasses(active: boolean) {
   return active
-    ? "rounded-full border border-cyan-400/30 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-200 shadow-[0_12px_30px_rgba(45,212,191,0.18)]"
-    : "rounded-full border border-slate-700 bg-slate-800/90 px-4 py-2 text-sm font-medium text-slate-400 transition hover:border-slate-600 hover:text-slate-200";
+    ? "rounded-full border border-cyan-300/35 bg-cyan-400/16 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_12px_30px_rgba(45,212,191,0.18)] backdrop-blur-xl"
+    : "rounded-full border border-white/12 bg-white/7 px-4 py-2 text-sm font-medium text-slate-300 transition backdrop-blur-xl hover:border-cyan-300/24 hover:bg-white/10 hover:text-slate-100";
 }
 
 export function BatchDetailsHeaderNav({ canViewResources }: { canViewResources: boolean }) {

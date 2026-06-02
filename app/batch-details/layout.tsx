@@ -1,4 +1,7 @@
 import { type ReactNode } from "react";
+import Link from "next/link";
+
+import { BrandLogo } from "@/components/brand-logo";
 import { LogoutButton } from "@/components/logout-button";
 import { AgGridSetup } from "@/components/batch/AgGridSetup";
 import { BatchDetailsHeaderNav } from "@/components/batch/BatchDetailsHeaderNav";
@@ -12,7 +15,7 @@ export default async function BatchDetailsLayout({ children }: { children: React
   // Don't render the portal shell on the login page (user not authenticated yet)
   if (!user) {
     return (
-      <div className="batch-dark min-h-screen w-full" style={{ background: '#080b14' }}>
+      <div className="batch-dark min-h-screen w-full">
         {children}
       </div>
     );
@@ -21,23 +24,20 @@ export default async function BatchDetailsLayout({ children }: { children: React
   const canViewResources = await hasAdminAccess(user.id);
 
   return (
-    <div className="batch-dark min-h-screen w-full" style={{ background: '#080b14' }}>
+    <div className="batch-dark min-h-screen w-full">
       {/* Header */}
-      <header style={{ background: '#0d1117', borderBottom: '1px solid #1f2937' }}>
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/38 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-6">
-            <a
+            <Link
               href="/"
-              style={{ color: '#4b5563', fontSize: '13px' }}
-              className="hover:text-gray-300 transition-colors"
+              className="theme-muted text-sm transition-colors hover:text-slate-200"
             >
-              ← MasaiLens
-            </a>
+              ← Dashboard
+            </Link>
             <div>
-              <h1 style={{ color: '#f1f5f9', fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>
-                Batch Wise
-              </h1>
-              <p style={{ color: '#475569', fontSize: '11px', marginTop: '1px' }}>
+              <BrandLogo compact />
+              <p className="theme-muted mt-1 text-xs">
                 Manage batch metadata, sessions &amp; schedules
               </p>
             </div>
@@ -52,14 +52,7 @@ export default async function BatchDetailsLayout({ children }: { children: React
       {/* Main */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <AgGridSetup />
-        <div
-          style={{
-            background: '#0d1117',
-            border: '1px solid #1f2937',
-            borderRadius: '16px',
-            padding: '28px',
-          }}
-        >
+        <div className="admin-glass rounded-[2rem] p-6 sm:p-8">
           {children}
         </div>
       </main>
@@ -67,24 +60,24 @@ export default async function BatchDetailsLayout({ children }: { children: React
       <style>{`
         /* ── AG Grid Dark Override ─────────────────────────── */
         .batch-dark .ag-theme-quartz {
-          --ag-background-color: #111827;
-          --ag-header-background-color: #0d1117;
-          --ag-border-color: #1f2937;
-          --ag-row-border-color: #1f2937;
+          --ag-background-color: rgba(8, 13, 28, 0.72);
+          --ag-header-background-color: rgba(15, 23, 42, 0.80);
+          --ag-border-color: rgba(148, 163, 184, 0.22);
+          --ag-row-border-color: rgba(148, 163, 184, 0.18);
           --ag-foreground-color: #e2e8f0;
           --ag-header-foreground-color: #94a3b8;
           --ag-secondary-foreground-color: #64748b;
-          --ag-row-hover-color: #1e293b;
-          --ag-selected-row-background-color: #1e3a5f;
-          --ag-cell-horizontal-border: solid #1f2937;
-          --ag-input-focus-border-color: #6366f1;
-          --ag-range-selection-border-color: #6366f1;
-          --ag-odd-row-background-color: #0f1623;
+          --ag-row-hover-color: rgba(45, 212, 191, 0.10);
+          --ag-selected-row-background-color: rgba(14, 165, 233, 0.18);
+          --ag-cell-horizontal-border: solid rgba(148, 163, 184, 0.18);
+          --ag-input-focus-border-color: #22d3ee;
+          --ag-range-selection-border-color: #22d3ee;
+          --ag-odd-row-background-color: rgba(15, 23, 42, 0.34);
           --ag-modal-overlay-background-color: rgba(0,0,0,0.7);
-          --ag-popup-background-color: #1e293b;
+          --ag-popup-background-color: rgba(15, 23, 42, 0.96);
           --ag-list-item-height: 36px;
           --ag-checkbox-unchecked-color: #334155;
-          --ag-checkbox-checked-color: #6366f1;
+          --ag-checkbox-checked-color: #22d3ee;
           --ag-font-size: 13px;
         }
         .batch-dark .ag-theme-quartz .ag-header-cell {
