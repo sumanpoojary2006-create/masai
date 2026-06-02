@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MasaiLens by Masai",
+  title: "Masai",
   description:
-    "Track lecture resource uploads, monitor LMS compliance, and trigger Slack alerts from one shared MasaiLens workspace."
+    "Track lecture resource uploads, monitor LMS compliance, and trigger Slack alerts from one shared workspace."
 };
 
 export default function RootLayout({
@@ -14,8 +14,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-theme="light" suppressHydrationWarning>
-      <body className="bg-haze text-ink antialiased">{children}</body>
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

@@ -110,12 +110,12 @@ export function CcProxySelector({ coordinators, currentProxyId, currentProxyName
   return (
     <div className="space-y-3">
       {/* CC Dropdown */}
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="text-sm font-medium text-slate-400">Viewing dashboard for</label>
+      <div className="flex flex-col gap-2">
+        <label className="theme-muted text-sm font-medium">Viewing dashboard for</label>
         <select
           value={selectedValue}
           onChange={(e) => handleSelectChange(e.target.value)}
-          className="rounded-xl border border-white/10 bg-[#1a2236] px-4 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none min-w-[220px]"
+          className="theme-input h-11 w-full rounded-2xl px-4 text-sm font-medium text-ink focus:border-brand focus:outline-none focus:ring-2 focus:ring-teal-100"
         >
           <option value="__self__">My Dashboard</option>
           {coordinators.length > 0 && (

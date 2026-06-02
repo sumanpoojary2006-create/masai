@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DateTime } from "luxon";
 
 import type {
+  DomainCcReport,
   DomainResourcesReportData,
   DomainResourceStatus,
   DomainResourceTask,
@@ -24,14 +25,23 @@ const RESOURCE_LABELS: Record<string, string> = {
   assignment: "Assignment",
 };
 
+type ReportFilter = "all" | "today" | "open" | "late";
+
+const FILTERS: Array<{ key: ReportFilter; label: string }> = [
+  { key: "all", label: "All resources" },
+  { key: "today", label: "Due today" },
+  { key: "open", label: "Open" },
+  { key: "late", label: "Late" },
+];
+
 function formatDate(iso: string) {
   const value = DateTime.fromISO(iso, { zone: TZ });
   return value.isValid ? value.toFormat("dd LLL yyyy") : iso;
 }
 
-function formatTime(iso: string) {
+function formatDeadline(iso: string) {
   const value = DateTime.fromISO(iso, { zone: "utc" }).setZone(TZ);
-  return value.isValid ? value.toFormat("hh:mm a") : "Due time unavailable";
+  return value.isValid ? value.toFormat("dd LLL, hh:mm a") : "Due time unavailable";
 }
 
 function statusLabel(status: DomainResourceStatus) {
@@ -86,7 +96,7 @@ function TaskRow({ task }: { task: DomainResourceTask }) {
         <p className="max-w-[24rem] truncate text-sm text-slate-200">{task.lectureName}</p>
         <p className="mt-1 text-xs text-slate-500">{RESOURCE_LABELS[task.resourceType] ?? task.resourceType}</p>
       </td>
-      <td className="px-4 py-3 text-sm text-slate-300">{formatTime(task.deadline)}</td>
+      <td className="px-4 py-3 text-sm text-slate-300">{formatDeadline(task.deadline)}</td>
       <td className="px-4 py-3">
         <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_STYLES[task.status]}`}>
           {statusLabel(task.status)}
@@ -96,7 +106,7 @@ function TaskRow({ task }: { task: DomainResourceTask }) {
   );
 }
 
-function DomainSection({ report }: { report: DomainReport }) {
+function DomainSection({ report, filterLabel }: { report: DomainReport; filterLabel: string }) {
   return (
     <section className="rounded-[26px] border border-slate-800/90 bg-[#10162a] p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -106,7 +116,7 @@ function DomainSection({ report }: { report: DomainReport }) {
             {report.leadName ?? "Unassigned domain"} resources
           </h3>
           <p className="mt-1 text-sm text-slate-500">
-            {report.ccReports.length} CC{report.ccReports.length === 1 ? "" : "s"} with resources due today
+            {report.ccReports.length} CC{report.ccReports.length === 1 ? "" : "s"} matching {filterLabel.toLowerCase()}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-semibold">
@@ -125,7 +135,7 @@ function DomainSection({ report }: { report: DomainReport }) {
       {report.ccReports.length === 0 ? (
         <div className="mt-5 rounded-2xl border border-dashed border-slate-700/80 bg-slate-950/50 px-5 py-8 text-center">
           <p className="text-sm font-semibold text-slate-200">No resources due today</p>
-          <p className="mt-1 text-sm text-slate-500">This domain has no CC resource deadlines for the selected day.</p>
+          <p className="mt-1 text-sm text-slate-500">This domain has no CC resource deadlines for this filter.</p>
         </div>
       ) : (
         <div className="mt-5 space-y-4">
@@ -174,6 +184,7 @@ export function DomainResourcesTab() {
   const [data, setData] = useState<DomainResourcesReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<ReportFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -199,9 +210,52 @@ export function DomainResourcesTab() {
     };
   }, []);
 
+  const filteredDomains = useMemo(() => {
+    if (!data) return [];
+    const reportDate = data.reportDate;
+
+    function keepTask(task: DomainResourceTask) {
+      if (activeFilter === "all") return true;
+      if (activeFilter === "open") return task.status === "pending" || task.status === "late";
+      if (activeFilter === "late") return task.status === "late";
+      const dueDate = DateTime.fromISO(task.deadline, { zone: "utc" }).setZone(TZ).toISODate();
+      return dueDate === reportDate;
+    }
+
+    return data.domains.map((domain) => {
+      const ccReports = domain.ccReports
+        .map((ccReport) => {
+          const tasks = ccReport.tasks.filter(keepTask);
+          const filteredCcReport: DomainCcReport = {
+            ...ccReport,
+            completed: tasks.filter((task) => task.status === "completed").length,
+            pending: tasks.filter((task) => task.status === "pending").length,
+            late: tasks.filter((task) => task.status === "late").length,
+            tasks,
+          };
+          return filteredCcReport;
+        })
+        .filter((ccReport) => ccReport.tasks.length > 0);
+
+      const completed = ccReports.reduce((sum, ccReport) => sum + ccReport.completed, 0);
+      const pending = ccReports.reduce((sum, ccReport) => sum + ccReport.pending, 0);
+      const late = ccReports.reduce((sum, ccReport) => sum + ccReport.late, 0);
+
+      return {
+        ...domain,
+        total: completed + pending + late,
+        completed,
+        pending,
+        late,
+        ccReports,
+      };
+    });
+  }, [activeFilter, data]);
+
+  const filterLabel = FILTERS.find((filter) => filter.key === activeFilter)?.label ?? "All resources";
+
   const totals = useMemo(() => {
-    if (!data) return { total: 0, completed: 0, pending: 0, late: 0 };
-    return data.domains.reduce(
+    return filteredDomains.reduce(
       (acc, domain) => ({
         total: acc.total + domain.total,
         completed: acc.completed + domain.completed,
@@ -210,7 +264,7 @@ export function DomainResourcesTab() {
       }),
       { total: 0, completed: 0, pending: 0, late: 0 }
     );
-  }, [data]);
+  }, [filteredDomains]);
 
   if (loading) {
     return (
@@ -237,26 +291,50 @@ export function DomainResourcesTab() {
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-300/75">Daily report</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">Domain Resources</h2>
             <p className="mt-2 text-sm text-slate-400">
-              CC resource checklist for {formatDate(data.reportDate)} across Data, Non-Tech, and Tech domains.
+              Complete CC resource checklist across Data, Non-Tech, and Tech domains. Today is {formatDate(data.reportDate)}.
             </p>
           </div>
-          <div className="grid grid-cols-4 gap-2 rounded-2xl border border-white/8 bg-slate-950/60 p-2 text-center">
-            <Metric label="Total" value={totals.total} className="text-white" />
-            <Metric label="Done" value={totals.completed} className="text-emerald-300" />
-            <Metric label="Pending" value={totals.pending} className="text-amber-200" />
-            <Metric label="Late" value={totals.late} className="text-rose-200" />
+          <div className="space-y-3">
+            <div className="flex flex-wrap justify-start gap-2 lg:justify-end">
+              {FILTERS.map((filter) => {
+                const active = activeFilter === filter.key;
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => setActiveFilter(filter.key)}
+                    className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
+                      active
+                        ? "border-teal-300/40 bg-teal-400/15 text-teal-200"
+                        : "border-white/10 bg-slate-950/50 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-4 gap-2 rounded-2xl border border-white/8 bg-slate-950/60 p-2 text-center">
+              <Metric label="Total" value={totals.total} className="text-white" />
+              <Metric label="Done" value={totals.completed} className="text-emerald-300" />
+              <Metric label="Pending" value={totals.pending} className="text-amber-200" />
+              <Metric label="Late" value={totals.late} className="text-rose-200" />
+            </div>
+            <p className="text-right text-xs text-slate-500">
+              Showing {filterLabel.toLowerCase()} from {data.totalTasks} total resource tasks.
+            </p>
           </div>
         </div>
       </section>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        {data.domains.filter((report) => report.domain !== "Unassigned").map((report) => (
+        {filteredDomains.filter((report) => report.domain !== "Unassigned").map((report) => (
           <SummaryCard key={report.domain} report={report} />
         ))}
       </div>
 
-      {data.domains.map((report) => (
-        <DomainSection key={report.domain} report={report} />
+      {filteredDomains.map((report) => (
+        <DomainSection key={report.domain} report={report} filterLabel={filterLabel} />
       ))}
     </div>
   );

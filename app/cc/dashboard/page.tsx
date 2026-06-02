@@ -4,8 +4,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
 
+import { BrandLogo } from "@/components/brand-logo";
 import { LogoutButton } from "@/components/logout-button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { CcProxySelector, type ProxyCoordinator } from "@/components/cc/CcProxySelector";
 import { getCurrentUser } from "@/lib/auth";
 import { createServerSupabase } from "@/lib/supabase";
@@ -246,9 +246,7 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
       {/* Header */}
       <section className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-[var(--font-heading)] text-3xl font-bold text-ink sm:text-4xl">
-            MasaiLens by Masai
-          </h1>
+          <BrandLogo />
           <p className="theme-muted mt-2 text-sm">
             Signed in as {user.email}
             {isProxy ? (
@@ -262,7 +260,6 @@ export default async function CCDashboardPage({ searchParams }: { searchParams: 
           <Link href="/lo-tracker" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">LO Tracker</Link>
 <Link href="/weekly-report" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Weekly Report</Link>
           <Link href="/profile" className="theme-button-secondary inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-semibold transition">Profile</Link>
-          <ThemeToggle />
           <LogoutButton />
         </div>
       </section>

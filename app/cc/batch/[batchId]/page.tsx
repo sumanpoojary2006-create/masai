@@ -4,7 +4,6 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 
 import { LogoutButton } from "@/components/logout-button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { LectureComplianceTable } from "@/components/cc/LectureComplianceTable";
 import { CcCurriculumUpload } from "@/components/cc/CcCurriculumUpload";
 import { getCurrentUser } from "@/lib/auth";
@@ -68,7 +67,6 @@ export default async function CCBatchPage({
             )}
           </div>
           <div className="flex items-center gap-3">
-            <ThemeToggle />
             <LogoutButton />
           </div>
         </div>

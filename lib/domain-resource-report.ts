@@ -54,6 +54,7 @@ export interface DomainResourcesReportData {
   reportDate: string;
   timezone: string;
   generatedAt: string;
+  totalTasks: number;
   domains: DomainReport[];
 }
 
@@ -177,11 +178,18 @@ function countStatus(report: DomainReport, status: DomainResourceStatus) {
   if (status === "late") report.late += 1;
 }
 
+function countCcStatus(report: DomainCcReport, status: DomainResourceStatus) {
+  if (status === "completed") report.completed += 1;
+  if (status === "pending") report.pending += 1;
+  if (status === "late") report.late += 1;
+}
+
 export async function getDomainResourcesReportData(): Promise<DomainResourcesReportData> {
   const supabase = createServerSupabase();
   const timezone = getAppTimezone();
   const now = DateTime.now().setZone(timezone);
   const today = now.toISODate()!;
+  let totalTasks = 0;
 
   const [{ data: assignments, error: assignmentError }, { data: lectures, error: lectureError }] =
     await Promise.all([
@@ -274,7 +282,7 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
 
     for (const task of (lecture.tasks ?? []) as TaskRecord[]) {
       const deadline = DateTime.fromISO(task.deadline, { zone: "utc" }).setZone(timezone);
-      if (!deadline.isValid || deadline.toISODate() !== today) continue;
+      if (!deadline.isValid) continue;
 
       const status = classifyTask(task, now);
       const domainReport = ensureDomainReport(domain);
@@ -294,8 +302,9 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
         status,
       };
 
+      totalTasks += 1;
       countStatus(domainReport, status);
-      ccReport[status] += 1;
+      countCcStatus(ccReport, status);
       ccReport.tasks.push(taskRow);
     }
   }
@@ -315,6 +324,7 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     reportDate: today,
     timezone,
     generatedAt: now.toISO() ?? new Date().toISOString(),
+    totalTasks,
     domains: [...reportsByDomain.values()]
       .filter((report) => report.total > 0 || report.domain !== "Unassigned")
       .map((report) => ({

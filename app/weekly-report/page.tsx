@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 
 import { WeeklyReportClient } from "@/components/weekly-report-client";
 import { LogoutButton } from "@/components/logout-button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
 import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 import { getWeeklyReportData } from "@/lib/queries";
@@ -37,6 +36,12 @@ export default async function WeeklyReportPage() {
     loadError = error instanceof Error ? error.message : "Unable to load weekly report data.";
   }
 
+  const monthCount = new Set(
+    weeks.flatMap((week) =>
+      week.lectures.map((lecture) => lecture.lecture_date.slice(0, 7))
+    )
+  ).size;
+
   return (
     <main className="app-shell mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-8 px-4 py-10 sm:px-6 lg:px-8">
       <section className="flex items-center justify-between gap-4">
@@ -45,7 +50,7 @@ export default async function WeeklyReportPage() {
             Weekly Report
           </h1>
           <p className="theme-muted mt-2 text-sm">
-            Archived lecture history • {weeks.length} week{weeks.length !== 1 ? "s" : ""}
+            Month-wise archived lecture history • {monthCount} month{monthCount !== 1 ? "s" : ""}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -61,7 +66,6 @@ export default async function WeeklyReportPage() {
           >
             Profile
           </Link>
-          <ThemeToggle />
           <LogoutButton />
         </div>
       </section>

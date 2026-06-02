@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 
 import { LoTrackerClient } from "@/components/lo-tracker-client";
 import { LogoutButton } from "@/components/logout-button";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser, getUserBatchConfigs, getUserProfile } from "@/lib/auth";
 import { hasPublicSupabaseConfig, hasSupabaseConfig } from "@/lib/env";
 import { getLoTrackerData } from "@/lib/queries";
@@ -81,7 +80,6 @@ export default async function LoTrackerPage() {
           >
             Profile
           </Link>
-          <ThemeToggle />
           <LogoutButton />
         </div>
       </section>
