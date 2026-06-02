@@ -73,6 +73,9 @@ interface LectureRow {
   batch_name: string;
   module_name: string | null;
   lecture_name: string;
+  lecture_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
   tasks?: TaskRecord[] | null;
 }
 
@@ -182,6 +185,13 @@ function normalizeBatchName(value: string | null | undefined) {
     .toUpperCase();
 }
 
+function normalizeLectureName(value: string | null | undefined) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function formatNameFromEmail(email: string | null | undefined) {
   if (!email) return "Unassigned";
   return email
@@ -232,7 +242,7 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
         .order("batch_name", { ascending: true }),
       supabase
         .from("lectures")
-        .select("id, batch_name, module_name, lecture_name, tasks(id, lecture_id, type, deadline, status, completed_at)")
+        .select("id, batch_name, module_name, lecture_name, lecture_date, start_time, end_time, tasks(id, lecture_id, type, deadline, status, completed_at)")
         .is("archived_at", null),
     ]);
 
@@ -279,10 +289,18 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
 
   const ownerByBatch = new Map<string, string>();
   const assignmentByBatchId = new Map<number, BatchAssignmentRow>();
+  const configuredLectureByTitle = new Map<string, LectureRow>();
 
   for (const assignment of assignmentRows) {
     ownerByBatch.set(normalizeBatchName(assignment.batch_name), assignment.cc_user_id);
     if (typeof assignment.batch_id === "number") assignmentByBatchId.set(assignment.batch_id, assignment);
+  }
+
+  for (const lecture of lectureRows) {
+    configuredLectureByTitle.set(
+      `${normalizeBatchName(lecture.batch_name)}:${normalizeLectureName(lecture.lecture_name)}`,
+      lecture
+    );
   }
 
   const reportsByDomain = new Map<ResourceDomain | "Unassigned", DomainReport>();
@@ -403,18 +421,23 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     const assignment = assignmentByBatchId.get(cacheRow.batch_id);
     if (!assignment) continue;
 
+    const batchName = assignment.batch_name;
+    const configuredLecture = configuredLectureByTitle.get(
+      `${normalizeBatchName(batchName)}:${normalizeLectureName(cacheRow.title)}`
+    );
+    if (!configuredLecture) continue;
+
     const schedule = DateTime.fromISO(cacheRow.schedule).setZone(timezone);
     const concludes = DateTime.fromISO(cacheRow.concludes).setZone(timezone);
     if (!schedule.isValid || !concludes.isValid) continue;
 
-    const batchName = assignment.batch_name;
     const domain = DOMAIN_BY_BATCH.get(normalizeBatchName(batchName)) ?? "Unassigned";
     const lectureId = String(cacheRow.lecture_id);
-    const lectureDate = schedule.toISODate();
+    const lectureDate = configuredLecture.lecture_date ?? schedule.toISODate();
     if (!lectureDate) continue;
 
-    const startTime = schedule.toFormat("HH:mm:ss");
-    const endTime = concludes.toFormat("HH:mm:ss");
+    const startTime = configuredLecture.start_time ?? schedule.toFormat("HH:mm:ss");
+    const endTime = configuredLecture.end_time ?? concludes.toFormat("HH:mm:ss");
     const uploadedByType: Record<TaskType, { uploaded: boolean; uploadedAt: string | null }> = {
       preread: { uploaded: cacheRow.preread_uploaded, uploadedAt: cacheRow.preread_uploaded_at ?? null },
       notes: { uploaded: cacheRow.notes_uploaded, uploadedAt: cacheRow.notes_uploaded_at ?? null },
@@ -422,7 +445,7 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
     };
 
     for (const resourceType of RESOURCE_TYPES) {
-      const taskKey = `${normalizeBatchName(batchName)}:${lectureId}:${resourceType}`;
+      const taskKey = `${normalizeBatchName(batchName)}:${configuredLecture.id}:${resourceType}`;
       if (persistedTaskKeys.has(taskKey)) continue;
 
       const deadline = computeDeadline(resourceType, lectureDate, startTime, endTime);
@@ -436,12 +459,12 @@ export async function getDomainResourcesReportData(): Promise<DomainResourcesRep
       };
 
       addTaskRow({
-        id: `cache-${cacheRow.batch_id}-${cachedTask.id}`,
+        id: `cache-${cacheRow.batch_id}-${configuredLecture.id}-${resourceType}`,
         domain,
         batchName,
         ccUserId: assignment.cc_user_id,
-        lectureName: cacheRow.title,
-        moduleName: cacheRow.module,
+        lectureName: configuredLecture.lecture_name,
+        moduleName: configuredLecture.module_name ?? cacheRow.module,
         resourceType,
         deadline,
         completedAt: cachedTask.completed_at,
